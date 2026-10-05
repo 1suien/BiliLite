@@ -80,8 +80,14 @@ GUI 启动需要 `--no-sandbox`（本机内核下无沙箱会直接 ACCESS_VIOLA
 并且默认 `%APPDATA%` 不可写，需要指定可写的 userData 目录：
 
 ```powershell
+# 已构建产物（等价于 electron-vite preview，但能带上沙箱与 userData 参数）
+& cmd /c "`"$PWD\node_modules\electron\dist\electron.exe`" . --no-sandbox --disable-gpu --user-data-dir=`"$PWD\tmp-userdata`""
+
+# 打包后的免安装版本
 & cmd /c "`"$PWD\release\win-unpacked\StudyBili.exe`" --no-sandbox --user-data-dir=`"$PWD\tmp-userdata`""
 ```
+
+在普通 Windows 机器上不需要这些参数，`pnpm run dev` / `pnpm run start` 直接可用。
 
 ## 验证
 
