@@ -64,6 +64,25 @@ $env:TEMP = "$PWD\tmp-temp"; $env:TMP = "$PWD\tmp-temp"
 pnpm run dist
 ```
 
+### 运行方式（重要：不要在本 DSH 工作区目录里启动）
+
+| 入口 | 路径 | 实测 |
+| --- | --- | --- |
+| 桌面快捷方式「学习B站」 | `%USERPROFILE%\Desktop\学习B站.lnk` → `%LOCALAPPDATA%\Programs\StudyBili\StudyBili.exe` | 正常打开窗口「首页 · 学习 B 站」 |
+| 安装版 | `%LOCALAPPDATA%\Programs\StudyBili\StudyBili.exe` | 正常 |
+| 免安装便携版（已复制到桌面） | `%USERPROFILE%\Desktop\StudyBili\StudyBili.exe` | 正常，双击即可，无需任何参数 |
+| 安装包副本（已复制到桌面） | `%USERPROFILE%\Desktop\StudyBili-Setup-0.1.0.exe` | `Start-Process -ArgumentList '/S'` → ExitCode 0 |
+
+**不要把 `release\win-unpacked\StudyBili.exe`（或 `release\` 里的安装包）在 DSH 工作区目录内双击**：
+在 `C:\Users\zouyx\Desktop\学习APP` 内启动的 Electron 进程会在 Chromium 初始化之前就终止，窗口不出现 ——
+表现为 `-2147483645`（0x80000003 STATUS_BREAKPOINT）、`-36861`（0xFFFF7003，stderr 只有
+`crashpad_client_win.cc(868) not connected`）或静默 `EXIT=0`；连只写日志的最小 Electron 探针都在执行任何 JS 之前崩溃。
+把**同一份文件**（SHA256 相同）复制到工作区外，双击即可正常运行，不需要任何命令行参数。
+
+已排除的原因：`ELECTRON_RUN_AS_NODE` 泄漏、文件/目录权限（工作区外进程可正常读写该目录）、工作目录、
+目录联接路径、Chromium/GUI 整体不可用（同机 `notepad`、`msedge`、`electron.exe --version` 在工作区外均正常）。
+这是本机 DSH 沙箱 + 云电脑环境的现象，与程序代码无关。
+
 ### 本机（DSH 沙箱）注意事项
 
 这台机器上 `node` / `pnpm` 不在 `PATH`，且环境变量 `ELECTRON_RUN_AS_NODE=1` 会让 Electron 退化成 Node：
@@ -76,8 +95,8 @@ $env:ELECTRON_BUILDER_BINARIES_MIRROR = 'https://npmmirror.com/mirrors/electron-
 node 'C:\Users\zouyx\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\pnpm\bin\pnpm.mjs' run package
 ```
 
-GUI 启动需要 `--no-sandbox`（本机内核下无沙箱会直接 ACCESS_VIOLATION），
-并且默认 `%APPDATA%` 不可写，需要指定可写的 userData 目录：
+在 DSH 终端里（也就是在工作区目录内）启动 GUI 才需要 `--no-sandbox`（本机内核下 Chromium 沙箱无法初始化，
+否则直接 ACCESS_VIOLATION），并且要显式指定一个可写的 userData 目录；按上文表格放到工作区外启动则两者都不需要：
 
 ```powershell
 # 已构建产物（等价于 electron-vite preview，但能带上沙箱与 userData 参数）
