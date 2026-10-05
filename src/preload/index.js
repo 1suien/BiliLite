@@ -1,0 +1,103 @@
+import { contextBridge, ipcRenderer } from 'electron'
+
+const CHANNELS = [
+  'app:ping',
+  'auth:restore',
+  'auth:qrGenerate',
+  'auth:qrPoll',
+  'auth:logout',
+  'home:feed',
+  'home:popular',
+  'search:videos',
+  'search:ups',
+  'video:view',
+  'video:pages',
+  'video:playurl',
+  'video:related',
+  'up:info',
+  'up:videos',
+  'fav:folders',
+  'fav:resources',
+  'settings:get',
+  'settings:patch',
+  'sys:openExternal',
+  'sys:pickFile',
+  'sys:revealPath',
+  'backup:write'
+]
+
+const allowed = new Set(CHANNELS)
+
+function invoke(channel, payload) {
+  if (!allowed.has(channel)) {
+    return Promise.resolve({ ok: false, message: `未授权的通道：${channel}` })
+  }
+  return ipcRenderer.invoke(channel, payload)
+}
+
+/** 统一解包 { ok, data } 信封，失败时抛出带 message/needLogin 的 Error。 */
+async function call(channel, payload) {
+  const res = await invoke(channel, payload)
+  if (res && res.ok) return res.data
+  const err = new Error((res && res.message) || '请求失败')
+  if (res && res.needLogin) err.needLogin = true
+  if (res && res.code) err.biliCode = res.code
+  throw err
+}
+
+const api = {
+  invoke,
+  call,
+  ping: () => call('app:ping'),
+
+  auth: {
+    restore: () => call('auth:restore'),
+    qrGenerate: () => call('auth:qrGenerate'),
+    qrPoll: (qrcodeKey) => call('auth:qrPoll', { qrcodeKey }),
+    logout: () => call('auth:logout')
+  },
+
+  home: {
+    feed: (page = 1) => call('home:feed', { page }),
+    popular: (page = 1) => call('home:popular', { page })
+  },
+
+  search: {
+    videos: (keyword, page = 1, order = 'totalrank') => call('search:videos', { keyword, page, order }),
+    ups: (keyword, page = 1) => call('search:ups', { keyword, page })
+  },
+
+  video: {
+    view: (bvid) => call('video:view', { bvid }),
+    pages: (bvid) => call('video:pages', { bvid }),
+    playurl: (bvid, cid, qn) => call('video:playurl', { bvid, cid, qn }),
+    related: (bvid) => call('video:related', { bvid })
+  },
+
+  up: {
+    info: (mid) => call('up:info', { mid }),
+    videos: (mid, pn = 1, keyword = '') => call('up:videos', { mid, pn, keyword })
+  },
+
+  fav: {
+    folders: () => call('fav:folders'),
+    resources: (mediaId, pn = 1) => call('fav:resources', { mediaId, pn })
+  },
+
+  settings: {
+    get: () => call('settings:get'),
+    patch: (patch) => call('settings:patch', patch)
+  },
+
+  sys: {
+    openExternal: (url) => call('sys:openExternal', { url }),
+    pickFile: () => call('sys:pickFile'),
+    revealPath: (path) => call('sys:revealPath', { path })
+  },
+
+  backup: {
+    write: (dir, name, text) => call('backup:write', { dir, name, text })
+  }
+}
+
+contextBridge.exposeInMainWorld('bili', api)

@@ -1,0 +1,54 @@
+{
+  "name": "study-bili",
+  "version": "0.1.0",
+  "description": "学习专注型 B 站桌面客户端（Windows / Electron，仅个人学习用途）",
+  "main": "./out/main/index.js",
+  "author": "zyx9083",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "package": "electron-vite build && electron-builder --win --dir",
+    "dist": "electron-vite build && electron-builder --win"
+  },
+  "dependencies": {
+    "dexie": "^4.0.11",
+    "mpegts.js": "^1.7.3",
+    "pinia": "^2.3.1",
+    "qrcode": "^1.5.4",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "electron": "^33.3.1",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "vite": "^5.4.11"
+  },
+  "build": {
+    "appId": "com.studybili.desktop",
+    "productName": "StudyBili",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "学习B站"
+    }
+  }
+}

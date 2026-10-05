@@ -1,0 +1,75 @@
+/**
+ * 渲染层 API 门面。
+ * 真正的实现在主进程（src/main/bili/*），这里只通过 preload 暴露的 window.bili 调用。
+ */
+
+const bridge = typeof window !== 'undefined' ? window.bili : null
+
+export const hasBridge = Boolean(bridge)
+
+function missing() {
+  const err = new Error('未检测到桌面端桥接（window.bili）。请通过 Electron 启动，而不是直接用浏览器打开。')
+  err.needLogin = false
+  return Promise.reject(err)
+}
+
+function proxy(path) {
+  return bridge
+    ? path
+    : () => missing()
+}
+
+export const api = {
+  ping: proxy(() => bridge.ping()),
+
+  auth: {
+    restore: proxy(() => bridge.auth.restore()),
+    qrGenerate: proxy(() => bridge.auth.qrGenerate()),
+    qrPoll: proxy((key) => bridge.auth.qrPoll(key)),
+    logout: proxy(() => bridge.auth.logout())
+  },
+
+  home: {
+    feed: proxy((page) => bridge.home.feed(page)),
+    popular: proxy((page) => bridge.home.popular(page))
+  },
+
+  search: {
+    videos: proxy((kw, page, order) => bridge.search.videos(kw, page, order)),
+    ups: proxy((kw, page) => bridge.search.ups(kw, page))
+  },
+
+  video: {
+    view: proxy((bvid) => bridge.video.view(bvid)),
+    pages: proxy((bvid) => bridge.video.pages(bvid)),
+    playurl: proxy((bvid, cid, qn) => bridge.video.playurl(bvid, cid, qn)),
+    related: proxy((bvid) => bridge.video.related(bvid))
+  },
+
+  up: {
+    info: proxy((mid) => bridge.up.info(mid)),
+    videos: proxy((mid, pn, keyword) => bridge.up.videos(mid, pn, keyword))
+  },
+
+  fav: {
+    folders: proxy(() => bridge.fav.folders()),
+    resources: proxy((mediaId, pn) => bridge.fav.resources(mediaId, pn))
+  },
+
+  settings: {
+    get: proxy(() => bridge.settings.get()),
+    patch: proxy((patch) => bridge.settings.patch(patch))
+  },
+
+  sys: {
+    openExternal: proxy((url) => bridge.sys.openExternal(url)),
+    pickFile: proxy(() => bridge.sys.pickFile()),
+    revealPath: proxy((path) => bridge.sys.revealPath(path))
+  },
+
+  backup: {
+    write: proxy((dir, name, text) => bridge.backup.write(dir, name, text))
+  }
+}
+
+export default api

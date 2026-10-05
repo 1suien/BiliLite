@@ -1,0 +1,69 @@
+/* ── 设计令牌：黑白极简 ─────────────────────────────────────────────
+   所有颜色都走变量，设置页可切换深/浅与强调色，不需要重建样式。   */
+
+:root,
+html[data-theme='dark'] {
+  --bg: #0a0a0b;
+  --bg-elev: #101012;
+  --card: #141416;
+  --card-hover: #191a1d;
+  --soft: #1c1d21;
+  --soft-hover: #232429;
+  --line: #26272c;
+  --line-strong: #34353b;
+
+  --t1: #f3f3f4;
+  --t2: #9b9ba4;
+  --t3: #6a6a73;
+
+  --accent: #ffffff;
+  --accent-fg: #0a0a0b;
+  --link: #8ec7ff;
+  --danger: #ff6b6b;
+  --ok: #56d364;
+  --warn: #f0b429;
+  --star: #ffd166;
+  --block: #0a0a0b;
+
+  --shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --shadow-sm: 0 4px 14px rgba(0, 0, 0, 0.3);
+  --skeleton: linear-gradient(90deg, #1a1b1f 25%, #232429 37%, #1a1b1f 63%);
+}
+
+html[data-theme='light'] {
+  --bg: #f6f6f7;
+  --bg-elev: #ffffff;
+  --card: #ffffff;
+  --card-hover: #f2f2f4;
+  --soft: #ececef;
+  --soft-hover: #e2e2e6;
+  --line: #e2e2e6;
+  --line-strong: #cfcfd5;
+
+  --t1: #17171a;
+  --t2: #5f5f68;
+  --t3: #8b8b95;
+
+  --accent: #17171a;
+  --accent-fg: #ffffff;
+  --link: #1d6fd6;
+  --danger: #d93a3a;
+  --ok: #1a9d43;
+  --warn: #b7791f;
+  --star: #c98a00;
+  --block: #ffffff;
+
+  --shadow: 0 12px 30px rgba(20, 20, 30, 0.12);
+  --shadow-sm: 0 3px 10px rgba(20, 20, 30, 0.08);
+  --skeleton: linear-gradient(90deg, #ececef 25%, #f6f6f7 37%, #ececef 63%);
+}
+
+:root {
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --side-w: 196px;
+  --top-h: 56px;
+  --font: 'Microsoft YaHei UI', 'PingFang SC', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', sans-serif;
+  --mono: 'Cascadia Mono', Consolas, 'Courier New', monospace;
+}
