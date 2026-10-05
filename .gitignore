@@ -1,0 +1,44 @@
+# ---- 依赖 / 构建产物 ----
+node_modules/
+dist/
+build/
+out/
+target/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# ---- 缓存 ----
+.cache/
+.temp/
+tmp/
+*.log
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---- 环境变量 / 密钥 ----
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# ---- 编辑器 / IDE ----
+.idea/
+*.iml
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+*.swp
+
+# ---- 操作系统 ----
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ---- 本地草稿（按需保留/删除） ----
+scratch/
+notes-local/
