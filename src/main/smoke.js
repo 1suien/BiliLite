@@ -448,7 +448,18 @@ export async function runSmoke(win) {
       if (i) { i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true })) }
       return true
     })()`)
-    await sleep(200)
+    await sleep(250)
+    // 清空筛选后当前 P 必须回到列表可视区（列表不能停在中间）
+    const back = await js(`(() => {
+      const l = document.querySelector('.pages-list')
+      const el = l && l.querySelector('.page-pill.on')
+      if (!l || !el) return { rows: 0, inView: false }
+      const lt = l.getBoundingClientRect(), et = el.getBoundingClientRect()
+      return { rows: l.querySelectorAll('.page-pill').length, st: Math.round(l.scrollTop),
+        inView: et.top >= lt.top - 1 && et.bottom <= lt.bottom + 1 }
+    })()`)
+    if (back.inView && back.rows === before) pass('清空筛选后当前 P 回到列表可视区', back)
+    else fail('清空筛选后当前 P 回到列表可视区', { ...back, before })
   } else {
     log(`      · 分P 只有 ${partInfo ? partInfo.n : '?'} 个，跳过筛选框断言（>12 才出现）`)
   }

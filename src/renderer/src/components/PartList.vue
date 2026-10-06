@@ -31,12 +31,18 @@ const nameOf = (p) => p.title || p.part || `P${p.page}`
 
 async function scrollToCurrent() {
   await nextTick()
-  const el = box.value && box.value.querySelector('.page-pill.on')
-  if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' })
+  const list = box.value
+  const el = list && list.querySelector('.page-pill.on')
+  if (!list || !el) return
+  // 明确算 scrollTop：scrollIntoView 会连带滚动祖先，
+  // 而且筛掉当前 P 再清空时它不一定把当前行带回视野（列表停在中间）
+  const top = el.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop
+  const max = Math.max(0, list.scrollHeight - list.clientHeight)
+  list.scrollTop = Math.min(max, Math.max(0, top - (list.clientHeight - el.clientHeight) / 2))
 }
 onMounted(scrollToCurrent)
-watch(() => props.index, scrollToCurrent)
-watch(filter, scrollToCurrent)
+watch(() => props.index, scrollToCurrent, { flush: 'post' })
+watch(filter, scrollToCurrent, { flush: 'post' })
 </script>
 
 <template>
