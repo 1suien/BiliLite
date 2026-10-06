@@ -22,7 +22,7 @@ const qnText = (qn) => QN_TEXT[qn] || `qn${qn}`
 
 /**
  * 与渲染层 `pickVideoTrack` 同一套规则，用来算「应该挑中哪条轨」：
- * 先按本次下发的画质 id 过滤（没有匹配就退回全部），再 avc1 优先、带宽降序。
+ * 先按本次下发的画质 id 过滤（没有匹配就退回全部），再 avc1 优先、分辨率降序、带宽降序。
  */
 function expectVideoTrack(tracks = [], want = 0) {
   const usable = tracks.filter((t) => t && (t.url || t.baseUrl || t.base_url))
@@ -36,7 +36,14 @@ function expectVideoTrack(tracks = [], want = 0) {
   }
   const matched = Number(want) ? usable.filter((t) => Number(t.id) === Number(want)) : []
   const pool = matched.length ? matched : usable
-  return pool.slice().sort((a, b) => rank(a) - rank(b) || (b.bandwidth || 0) - (a.bandwidth || 0))[0]
+  return pool
+    .slice()
+    .sort(
+      (a, b) =>
+        rank(a) - rank(b) ||
+        (b.width || 0) * (b.height || 0) - (a.width || 0) * (a.height || 0) ||
+        (b.bandwidth || 0) - (a.bandwidth || 0)
+    )[0]
 }
 
 export async function runSmoke(win) {
@@ -224,7 +231,11 @@ export async function runSmoke(win) {
 
   // ---- 播放链路：真实进入视频页，观察 MSE 缓冲 ----
   await js(`location.hash = '#/video/' + ${JSON.stringify(bvid)} + '?cid=' + ${cid}`)
-  await sleep(1200)
+  // 视频页要先拉 playurl 再挂播放器，网络慢的时候 1.2s 不够：轮询等它出现（否则后面整段播放断言都会被跳过）
+  for (let i = 0; i < 24; i++) {
+    await sleep(700)
+    if (await js("!!document.querySelector('.player-stage')")) break
+  }
   await step('视频页已渲染', "!!document.querySelector('.player-stage')", (v) => v === true)
   const topAfterNav = await js(`Math.round(document.querySelector('.scroll').scrollTop)`)
   if (scrolledBefore > 150 && topAfterNav < 30) pass('切换页面自动回到顶部', { before: scrolledBefore, after: topAfterNav })
@@ -297,6 +308,80 @@ export async function runSmoke(win) {
       else if (!advanced) fail('DASH 播放推进（currentTime 前进）', { note: '点了播放键后 currentTime 未前进', last })
     } catch (err) {
       fail('DASH 播放推进（currentTime 前进）', `探针异常：${err.message}`)
+    }
+  }
+
+  // ---- 播放中不应再盖着「缓冲中…」遮罩：欠载恢复（playing 事件）后 UI 必须回到播放态 ----
+  if (played && !played.err) {
+    let overlay = null
+    try {
+      for (let i = 0; i < 10; i++) {
+        const s = await js(`(() => {
+          const v = document.querySelector('video')
+          const m = document.querySelector('.player-msg')
+          return {
+            t: v ? Number(v.currentTime.toFixed(2)) : -1,
+            rs: v ? v.readyState : -1,
+            paused: v ? v.paused : null,
+            msg: !!(m && m.offsetParent !== null),
+            text: m ? (m.textContent || '').trim().slice(0, 24) : ''
+          }
+        })()`)
+        overlay = s
+        if (s && !s.msg) break
+        await sleep(600)
+      }
+      if (overlay && !overlay.msg) pass('播放中不显示「缓冲中」遮罩', overlay)
+      else fail('播放中不显示「缓冲中」遮罩', overlay)
+    } catch (err) {
+      fail('播放中不显示「缓冲中」遮罩', `探针异常：${err.message}`)
+    }
+  }
+
+  // ---- 跳转（等价于「继续播放」）：跳过去要能接着播，而不是卡死/一直缓冲 ----
+  if (played && !played.err) {
+    let seek = null
+    let t1 = null
+    let t2 = null
+    try {
+      const before = await js(`(() => { const v = document.querySelector('video'); return v ? Number(v.currentTime.toFixed(2)) : -1 })()`)
+      await js(`(() => { const v = document.querySelector('video'); if (v) v.currentTime = 120; return true })()`)
+      for (let i = 0; i < 24; i++) {
+        await sleep(700)
+        const s = await js(`(() => {
+          const v = document.querySelector('video')
+          if (!v) return { err: 'no-video-element' }
+          const m = document.querySelector('.player-msg')
+          return {
+            t: Number(v.currentTime.toFixed(2)),
+            rs: v.readyState,
+            paused: v.paused,
+            buf: (() => { try { return v.buffered.length ? Number(v.buffered.end(v.buffered.length - 1).toFixed(1)) : 0 } catch (e) { return -1 } })(),
+            msg: !!(m && m.offsetParent !== null),
+            text: m ? (m.textContent || '').trim().slice(0, 24) : ''
+          }
+        })()`)
+        seek = s
+        if (s.err) break
+        if (!s.paused && s.rs >= 3 && !s.msg) break
+      }
+      // 再采样一次确认时间在推进（不是停住不动）
+      if (seek && !seek.err && !seek.paused && seek.rs >= 3 && !seek.msg) {
+        t1 = seek.t
+        await sleep(1600)
+        t2 = await js(`(() => { const v = document.querySelector('video'); return v ? Number(v.currentTime.toFixed(2)) : -1 })()`)
+      }
+      // 「走了 ranged 起流」的证据是立刻打印的 streamFrom offset=<大偏移>（ranged stream 只在整条拉完才打）
+      const rangedLog =
+        [...dashLogs].reverse().find((l) => /streamFrom video offset=\d{5,}/.test(l) || l.includes('ranged start')) || ''
+      const detail = Object.assign({ before }, seek, { t1, t2, log: rangedLog.replace(/^\[dash\] /, '').slice(0, 110) })
+      const resumed = !!(seek && !seek.err && !seek.paused && seek.rs >= 3 && !seek.msg && t1 != null && t2 > t1)
+      if (resumed) pass('跳转后能继续播放', detail)
+      else fail('跳转后能继续播放', detail)
+      if (/offset=\d{5,}/.test(rangedLog)) pass('跳转走 ranged 起流（sidx 定位）', rangedLog.replace(/^\[dash\] /, '').slice(0, 110))
+      else warn(`跳转未走 ranged 起流（回退顺序拉流，慢但可用） :: ${rangedLog ? rangedLog.replace(/^\[dash\] /, '').slice(0, 110) : '无 ranged/streamFrom 偏移日志'}`)
+    } catch (err) {
+      fail('跳转后能继续播放', `探针异常：${err.message}`)
     }
   }
 

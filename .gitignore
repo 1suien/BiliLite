@@ -31,6 +31,9 @@ dist.done
 deliver.done
 desk-smoke.done
 package-smoke.done
+# 冒烟/打包过程标记（名字随批次变化，统一忽略）
+*.done
+*.out
 shots/
 shots-*/
 dist.log

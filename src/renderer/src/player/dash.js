@@ -113,11 +113,13 @@ function videoRank(t) {
 
 /**
  * 选视频轨：先按「本次实际下发的画质」（payload.quality）过滤，再按编码兼容性（avc1 优先）、
- * 最后按带宽降序。
+ * 再按分辨率降序、最后按带宽降序。
  *
  * 为什么必须先按 id 过滤：playurl 里同一编码可能带 1080P+/1080P/720P/480P/360P 多条轨，
  * 只看带宽会永远挑到最高那条 —— 用户选了 720P 却在拉 1080P+（实测日志 avc1.640033 ≈ 1080P+，
  * 而 UI 显示「当前 720P」），解码压力大、更容易卡顿。
+ * 为什么分辨率优先于带宽：实测有视频 360P 的 bandwidth（872kbps）反而高于 480P（851kbps），
+ * 纯按带宽排会挑到更糊的那条。
  */
 export function pickVideoTrack(tracks = [], preferQuality = 0) {
   const usable = [...tracks].filter((t) => trackUrl(t))
@@ -125,7 +127,12 @@ export function pickVideoTrack(tracks = [], preferQuality = 0) {
   const wanted = Number(preferQuality) || 0
   const matched = wanted ? usable.filter((t) => Number(t.id) === wanted) : []
   const pool = matched.length ? matched : usable
-  return pool.sort((a, b) => videoRank(a) - videoRank(b) || (b.bandwidth || 0) - (a.bandwidth || 0))[0]
+  return pool.sort(
+    (a, b) =>
+      videoRank(a) - videoRank(b) ||
+      (b.width || 0) * (b.height || 0) - (a.width || 0) * (a.height || 0) ||
+      (b.bandwidth || 0) - (a.bandwidth || 0)
+  )[0]
 }
 
 export function pickAudioTrack(tracks = []) {
@@ -164,15 +171,17 @@ function parseSidx(head) {
   }
   if (!box || box.offset + box.size > head.byteLength) return null
 
-  const version = head[box.offset + 8]
+  // body 的第一段是 fullbox 头（version 1 字节 + flags 3 字节），必须先跳过去，
+  // 否则后面整体错位 4 字节、reference_count 会读到 reserved 的 0，永远解析不出片段表。
   const body = new DataView(head.buffer, head.byteOffset + box.offset + box.headerSize)
-  let p = 0
+  const version = body.getUint8(0)
+  let p = 4 // version + flags
   p += 4 // reference_ID
   const timescale = body.getUint32(p)
   p += 4
   let firstOffset = 0
   if (version === 0) {
-    p += 4
+    p += 4 // earliest_presentation_time
     firstOffset = body.getUint32(p)
     p += 4
   } else {
@@ -180,11 +189,12 @@ function parseSidx(head) {
     firstOffset = Number(body.getBigUint64(p))
     p += 8
   }
-  p += 2
+  p += 2 // reserved
   const count = body.getUint16(p)
   p += 2
   const refs = []
-  for (let i = 0; i < count && p + 12 <= body.byteLength; i++) {
+  const bodyEnd = Math.min(body.byteLength, box.size - box.headerSize)
+  for (let i = 0; i < count && p + 12 <= bodyEnd; i++) {
     const w0 = body.getUint32(p)
     p += 4
     const dur = body.getUint32(p)
@@ -225,8 +235,12 @@ export class DashPlayer {
     this.durationHint = 0
     this.ready = false
     this.restarting = false
+    this.recovering = false
+    this.recoveries = 0
     this.aborts = new Set()
     this.usedFallbackFromZero = false
+    this.bufferingMsg = false // 当前是否正显示「缓冲中…」提示（用来及时清掉）
+    this.statusAt = 0
     this.wantTime = 0
     this.bound = {}
     this.attach()
@@ -245,13 +259,20 @@ export class DashPlayer {
     on('seeking', () => this.onSeeking())
     on('ended', () => this.hooks.onEnded && this.hooks.onEnded())
     on('play', () => this.hooks.onState && this.hooks.onState('playing'))
+    // MSE 欠载恢复后 Chromium 只补发 `playing`（不会再来一次 `play`）：漏掉它会让 UI 认为
+    // 「还没开始播」，从此一直挂着「缓冲中…」遮罩，即使画面早就在正常播放。
+    on('playing', () => this.hooks.onState && this.hooks.onState('playing'))
     on('pause', () => this.hooks.onState && this.hooks.onState('paused'))
     on('waiting', () => this.hooks.onState && this.hooks.onState('waiting'))
     on('error', () => {
       // 重建流时清空 src 会触发一次空错误，这里忽略
       if (!this.ready || this.restarting || this.destroyed) return
       const e = el.error
-      if (e && this.hooks.onError) this.hooks.onError(new Error(`媒体错误 code=${e.code}`))
+      const detail = e ? `code=${e.code}${e.message ? ' ' + e.message : ''}` : 'unknown'
+      dbg('media element error', detail)
+      // 元素一旦进入 error 状态，后续 appendBuffer 全部会抛 InvalidStateError（画面直接冻住），
+      // 所以先尝试自动重连（换一条线路重建流），重试上限用尽才把错误抛给界面。
+      this.recoverFromElementError(detail)
     })
   }
 
@@ -298,6 +319,7 @@ export class DashPlayer {
     const start = Math.max(0, opts.startTime || 0)
     this.destroyed = false
     this.ready = false
+    this.recoveries = 0
     this.payload = payload
     this.duration = payload && payload.dash ? (payload.dash.duration || 0) / 1000 : 0
 
@@ -315,9 +337,11 @@ export class DashPlayer {
     }
 
     if (opts.autoplay !== false) {
+      this.wasPlaying = true
       try {
         await this.el.play()
       } catch {
+        this.wasPlaying = false
         this.hooks.onState && this.hooks.onState('blocked')
       }
     }
@@ -359,6 +383,7 @@ export class DashPlayer {
   async openDash(payload, start) {
     const gen = ++this.gen
     this.teardownMedia()
+    this.usedFallbackFromZero = false
 
     const video = pickVideoTrack(payload.dash.video, payload.quality)
     const audio = pickAudioTrack(payload.dash.audio || [])
@@ -380,50 +405,16 @@ export class DashPlayer {
       Math.round((video.bandwidth || 0) / 1000) + 'kbps',
       'candidates=' + (payload.dash.video || []).map((t) => t.id + ':' + (t.width || '?') + 'x' + (t.height || '?')).join(',')
     )
-    this.ms = new MediaSource()
-    this.objectUrl = URL.createObjectURL(this.ms)
-    this.el.src = this.objectUrl
-    await waitEvent(this.ms, 'sourceopen', 8000)
-    if (this.destroyed || gen !== this.gen) {
-      dbg('abort after sourceopen', 'destroyed=' + this.destroyed, 'gen=' + gen, 'cur=' + this.gen)
-      return
-    }
-    dbg('sourceopen ok, readyState=' + this.ms.readyState)
+    this.vMime = vMime
+    this.aMime = `audio/mp4; codecs="${audio.codecs}"`
+    if (!(await this.setupMedia(gen))) return
 
-    this.vsb = this.ms.addSourceBuffer(vMime)
-    this.vsb.mode = 'segments'
-    this.asb = null
-    const aMime = `audio/mp4; codecs="${audio.codecs}"`
-    if (window.MediaSource.isTypeSupported(aMime)) {
-      try {
-        this.asb = this.ms.addSourceBuffer(aMime)
-        this.asb.mode = 'segments'
-      } catch {
-        this.asb = null
-      }
-    }
-
-    this.status('缓冲中…')
-    // MSE 必须先有 duration 才会进 HAVE_METADATA；但若时长是垃圾值（小到不可能，例如 1000ms），
-    // Chromium 会把超出该时长的帧全部丢掉（buffered 一直 empty、画面永远「缓冲中…」）。
-    // 所以：payload 时长合理才用 → 否则用页面给的 hint → 都不合理就先给 Infinity，
-    // 等整条轨拉完后由 settleDuration() 用 buffered 末尾修回真实时长。
-    const dur = this.saneSeconds(this.duration) ? this.duration : this.saneSeconds(this.durationHint) ? this.durationHint : Infinity
-    try {
-      this.ms.duration = dur
-      dbg('ms.duration =', dur === Infinity ? 'Infinity(待收尾修正)' : dur)
-    } catch {
-      /* ignore */
-    }
     const vUrls = trackUrls(video)
     const aUrls = trackUrls(audio)
 
     // 起流不阻塞 load()：一边拉一边播。只等首段数据进来就返回，
     // 否则 load() 要等整条视频拉完才 resolve —— 学习计时器/状态文案都会被卡死。
-    const streaming = Promise.all([
-      this.startTrack('video', vUrls, gen, start),
-      this.startTrack('audio', aUrls, gen, start)
-    ])
+    const streaming = this.startStreams(gen, start, vUrls, aUrls)
     streaming.catch((err) => {
       if (gen === this.gen && !this.destroyed) {
         dbg('streaming failed', err && err.message)
@@ -465,21 +456,158 @@ export class DashPlayer {
     return false
   }
 
-  /** 从字节 0 顺序拉完整条轨；若 needSeek 则先 append init 段再从目标偏移续传。 */
-  async startTrack(kind, urls, gen, start) {
-    const sb = kind === 'video' ? this.vsb : this.asb
-    if (!sb || !urls.length) return
-
-    if (start > 1) {
-      const ranged = await this.tryRangedStart(kind, urls, gen, start)
-      if (ranged) {
+  /**
+   * 起流：优先「按时间定位 + Range 续传」（长视频续播/拖动进度条不用先把前面几十 MB 拉完）。
+   * 但必须音视频一起成功：只有一条轨定位到中途、另一条从 0 顺序拉，当前播放位置就缺一半数据，
+   * 播放会直接卡住 —— 所以任一轨定位失败就两条一起从 0 顺序拉。
+   */
+  async startStreams(gen, start, vUrls, aUrls) {
+    const needSeek = start > 1
+    // 重建 MediaSource / SourceBuffer 都会把元素退回暂停态，所以恢复播放以 `this.wasPlaying` 为准
+    // （play()/load 自动播放会置 true，pause() 置 false —— 用户主动暂停就不该被自动拉回播放）
+    let vPlan = null
+    let aPlan = null
+    if (needSeek) {
+      ;[vPlan, aPlan] = await Promise.all([
+        this.probeRanged('video', vUrls, gen, start),
+        this.probeRanged('audio', aUrls, gen, start)
+      ])
+    }
+    if (vPlan && aPlan && gen === this.gen && !this.destroyed) {
+      dbg('ranged start', 'v=' + vPlan.offset, 'a=' + aPlan.offset)
+      const [vOk, aOk] = await Promise.all([this.streamRanged('video', vPlan, gen), this.streamRanged('audio', aPlan, gen)])
+      if (vOk && aOk && gen === this.gen && !this.destroyed) {
         this.settleDuration()
+        if (this.wasPlaying) this.ensurePlaying(gen).catch(() => {})
         return
       }
+      if (gen !== this.gen || this.destroyed) return
+      // 续流中途才失败（例如 CDN 对中段 Range 临时回 200/416）：SourceBuffer 里已经留下 init 段或半截
+      // 数据，直接接着从 0 顺序 append 会重复 init、时间轴打架 → 连 MediaSource 一起换新的再从 0 拉。
+      // 先立起 usedFallbackFromZero，openDash 那边据此改走 jumpWhenBuffered（它在 waitFirstBuffer 之后读这个标志）。
       this.usedFallbackFromZero = true
+      dbg('ranged stream failed, 重建缓冲后从 0 顺序拉', 'v=' + vOk, 'a=' + aOk)
+      if (!(await this.recreateMedia(gen))) return
+    } else if (needSeek) {
+      this.usedFallbackFromZero = true
+      dbg('ranged unusable, 从 0 顺序拉', 'v=' + !!vPlan, 'a=' + !!aPlan)
     }
-    await this.streamFrom(kind, urls, gen, 0)
+    if (needSeek) this.usedFallbackFromZero = true
+    const streams = Promise.all([this.streamFrom('video', vUrls, gen, 0), this.streamFrom('audio', aUrls, gen, 0)])
+    // streamFrom 要等整条轨拉完才 resolve，所以恢复播放/跳转都不能等它：
+    // 缓冲被重建后元素是暂停态，这里立刻把它拉回播放（只有之前在播才拉，用户暂停着拖进度条不该自动开播）。
+    if (this.wasPlaying) this.ensurePlaying(gen).catch(() => {})
+    if (needSeek && gen === this.gen && !this.destroyed) this.jumpWhenBuffered(start, gen).catch(() => {})
+    await streams
     this.settleDuration()
+    // 回退到从 0 顺序拉时，等缓冲覆盖到目标位置再跳过去（同上，重复调用无害）
+    if (needSeek && gen === this.gen && !this.destroyed) this.jumpWhenBuffered(start, gen).catch(() => {})
+  }
+
+  /** 缓冲被重建后元素会退回暂停态；只要之前是在播就把它拉回播放（play() 可能被 Interrupted 拒绝，重试几次） */
+  async ensurePlaying(gen, tries = 6) {
+    for (let i = 0; i < tries; i++) {
+      if (gen !== this.gen || this.destroyed) return
+      if (this.el && !this.el.paused) return
+      try {
+        await this.el.play()
+        dbg('ensurePlaying ok', 'try=' + i)
+        return
+      } catch (err) {
+        dbg('ensurePlaying retry', 'try=' + i, err && err.message)
+        await sleep(400)
+      }
+    }
+  }
+
+  /**
+   * 媒体元素报错后的自动恢复：`<video>` 一旦进入 error 状态，appendBuffer 会一直抛
+   * `InvalidStateError: The HTMLMediaElement.error attribute is not null`，画面就永久冻住。
+   * 这里从当前进度（太靠前就从头）重建一次流，最多重试 2 次，仍失败才把错误抛给界面。
+   */
+  async recoverFromElementError(detail) {
+    if (this.destroyed || this.restarting || this.recovering) return
+    if (this.recoveries >= 2) {
+      dbg('element error 重试上限已到', detail)
+      this.hooks.onError && this.hooks.onError(new Error(`播放出错（${detail}）`))
+      return
+    }
+    this.recoveries += 1
+    this.recovering = true
+    const payload = this.payload
+    const at = Math.floor(this.el ? this.el.currentTime : 0)
+    const wasPlaying = !!this.wasPlaying
+    dbg('element error → 自动重连', detail, 'at=' + at, 'try=' + this.recoveries)
+    try {
+      await sleep(600)
+      if (this.destroyed || !payload) return
+      this.wasPlaying = wasPlaying
+      await this.openDash(payload, at > 2 ? at : 0)
+      if (wasPlaying) await this.ensurePlaying(this.gen, 6)
+      dbg('自动重连完成', 'at=' + at)
+    } catch (err) {
+      dbg('自动重连失败', err && err.message)
+    } finally {
+      this.recovering = false
+    }
+  }
+
+  /**
+   * 建 MediaSource + SourceBuffer，并把时长先定下来。
+   * MSE 必须先有 duration 才会进 HAVE_METADATA；但若时长是垃圾值（小到不可能，例如 1000ms），
+   * Chromium 会把超出该时长的帧全部丢掉（buffered 一直 empty、画面永远「缓冲中…」）。
+   * 所以：payload 时长合理才用 → 否则用页面给的 hint → 都不合理就先给 Infinity，
+   * 等整条轨拉完后由 settleDuration() 用 buffered 末尾修回真实时长。
+   */
+  async setupMedia(gen) {
+    this.ms = new MediaSource()
+    this.objectUrl = URL.createObjectURL(this.ms)
+    this.el.src = this.objectUrl
+    await waitEvent(this.ms, 'sourceopen', 8000)
+    if (this.destroyed || gen !== this.gen || !this.ms || this.ms.readyState !== 'open') {
+      dbg('abort after sourceopen', 'destroyed=' + this.destroyed, 'gen=' + gen, 'cur=' + this.gen)
+      return false
+    }
+    dbg('sourceopen ok, readyState=' + this.ms.readyState)
+
+    this.vsb = this.ms.addSourceBuffer(this.vMime)
+    this.vsb.mode = 'segments'
+    this.asb = null
+    if (this.aMime && window.MediaSource.isTypeSupported(this.aMime)) {
+      try {
+        this.asb = this.ms.addSourceBuffer(this.aMime)
+        this.asb.mode = 'segments'
+      } catch {
+        this.asb = null
+      }
+    }
+    this.status('缓冲中…')
+    const dur = this.saneSeconds(this.duration) ? this.duration : this.saneSeconds(this.durationHint) ? this.durationHint : Infinity
+    try {
+      this.ms.duration = dur
+      dbg('ms.duration =', dur === Infinity ? 'Infinity(待收尾修正)' : dur)
+    } catch {
+      /* ignore */
+    }
+    return true
+  }
+
+  /**
+   * 整个换一个新的 MediaSource。
+   * 不能只换 SourceBuffer：Chromium 对「同一个 MediaSource 上创建过的 SourceBuffer 总数」有上限
+   * （`removeSourceBuffer` 不会把额度还回来，实测再 add 会报 `This MediaSource has reached the limit of
+   * SourceBuffer objects it can handle`），所以续流失败要整条重来时只能连 MediaSource 一起换。
+   */
+  async recreateMedia(gen) {
+    if (gen !== this.gen || this.destroyed) return false
+    dbg('重建 MediaSource（续流失败，回退到从 0 顺序拉）')
+    this.teardownMedia()
+    try {
+      return await this.setupMedia(gen)
+    } catch (err) {
+      dbg('recreateMedia failed', err && err.message)
+      return false
+    }
   }
 
   /**
@@ -510,24 +638,56 @@ export class DashPlayer {
     }
   }
 
-  async tryRangedStart(kind, urls, gen, start) {
-    for (const url of urls) {
+  /**
+   * 按时间定位：探测 + 解析 sidx，返回「从哪个字节开始续传」。
+   *
+   * 探测失败一律试下一个备用地址（早期实现第一条线路不通就整段放弃 → 长视频续播要先从 0 拉几十 MB，
+   * 看起来就是「一直缓冲」）。这里只做定位，不 append、不拉流 —— 由调用方决定音视频是否一起用。
+   */
+  async probeRanged(kind, urls, gen, start) {
+    for (let i = 0; i < urls.length; i++) {
+      const url = urls[i]
       try {
-        const head = await this.fetchBytes(url, 0, HEAD_PROBE_BYTES - 1, gen)
-        if (!head) return false
-        if (head.status !== 206) return false
-        const sidx = parseSidx(head.bytes)
-        if (!sidx) return false
-        const initBytes = head.bytes.subarray(0, sidx.initEnd)
-        if (!(await this.append(kind, initBytes, gen))) return false
-        const offset = sidxByteOffsetForTime(sidx, start)
-        await this.streamFrom(kind, [url], gen, offset)
-        return true
-      } catch {
-        /* 换下一个备用地址 */
+        let head = await this.fetchBytes(url, 0, HEAD_PROBE_BYTES - 1, gen)
+        if (!head) {
+          dbg('ranged probe miss', 'no-response', url.slice(0, 70))
+          continue
+        }
+        dbg('ranged probe', 'status=' + head.status, 'bytes=' + head.bytes.length, url.slice(0, 70))
+        if (head.status !== 206) continue
+        let sidx = parseSidx(head.bytes)
+        if (!sidx) {
+          // 有的视频 init 段比较大，sidx 落在 64KB 之后：放大到 512KB 再探一次
+          head = await this.fetchBytes(url, 0, HEAD_PROBE_BYTES * 8 - 1, gen)
+          if (!head || head.status !== 206) continue
+          sidx = parseSidx(head.bytes)
+          dbg('ranged re-probe', 'bytes=' + head.bytes.length, sidx ? 'refs=' + sidx.refs.length : 'no-sidx')
+        } else {
+          dbg('ranged sidx', 'refs=' + sidx.refs.length, 'initEnd=' + sidx.initEnd)
+        }
+        if (!sidx) continue
+        return {
+          urls: urls.slice(i),
+          offset: sidxByteOffsetForTime(sidx, start),
+          initBytes: head.bytes.subarray(0, sidx.initEnd)
+        }
+      } catch (err) {
+        // 换下一个备用地址（把原因记下来，不然这条线路为什么失败完全查不到）
+        dbg('ranged try failed', url.slice(0, 60), (err && err.message) || String(err))
       }
     }
-    return false
+    return null
+  }
+
+  /** 用 probeRanged 的结果起流：先 append init 段，再从目标字节续传 */
+  async streamRanged(kind, plan, gen) {
+    if (!(await this.append(kind, plan.initBytes, gen))) {
+      dbg('ranged init append failed', kind)
+      return false
+    }
+    const ok = await this.streamFrom(kind, plan.urls, gen, plan.offset)
+    dbg('ranged stream', kind, 'offset=' + plan.offset, 'ok=' + ok, 'url=' + String(plan.urls[0]).slice(0, 60))
+    return ok
   }
 
   /**
@@ -536,8 +696,10 @@ export class DashPlayer {
    */
   async streamFrom(kind, urls, gen, offset) {
     let lastErr = null
+    // 是否真的把数据交给过 SourceBuffer：调用方（tryRangedStart）靠它判断要不要回退到「从 0 拉」
+    let appended = false
     for (const url of urls) {
-      if (gen !== this.gen || this.destroyed) return
+      if (gen !== this.gen || this.destroyed) return appended
       const ac = new AbortController()
       this.aborts.add(ac)
       try {
@@ -547,6 +709,18 @@ export class DashPlayer {
           signal: ac.signal
         })
         dbg('streamFrom', kind, 'offset=' + offset, 'status=' + res.status, 'url=' + url.slice(0, 90))
+        // 中段续流必须真的走 Range：有的 CDN 对 `bytes=<大偏移>-` 直接回 200（整个文件）或 416。
+        // 把这种响应体当成「从 offset 开始」append 会得到错位数据（画面卡住、buffered 为空）→ 换线路。
+        if (offset > 0 && res.status !== 206) {
+          dbg('streamFrom range 被忽略，换线路', kind, 'status=' + res.status, 'offset=' + offset)
+          this.aborts.delete(ac)
+          try {
+            if (res.body) await res.body.cancel()
+          } catch {
+            /* ignore */
+          }
+          continue
+        }
         if (!res.ok && res.status !== 206) throw new Error(`HTTP ${res.status}`)
         if (!res.body) throw new Error('响应没有可读流')
         const reader = res.body.getReader()
@@ -563,7 +737,9 @@ export class DashPlayer {
           pending = []
           pendingBytes = 0
           pendingSince = 0
-          return this.append(kind, bytes, gen)
+          const ok = await this.append(kind, bytes, gen)
+          if (ok) appended = true
+          return ok
         }
         for (;;) {
           if (gen !== this.gen || this.destroyed) {
@@ -572,10 +748,10 @@ export class DashPlayer {
             } catch {
               /* ignore */
             }
-            return
+            return appended
           }
           while (this.ahead(kind) > AHEAD_MAX && gen === this.gen && !this.destroyed) {
-            if (!(await flush())) return // 背压时先把攒下的数据交出去，避免手里囤着没 append 的块
+            if (!(await flush())) return appended // 背压时先把攒下的数据交出去，避免手里囤着没 append 的块
             await sleep(220)
           }
           const { done, value } = await reader.read()
@@ -587,24 +763,38 @@ export class DashPlayer {
           readBytes += value.byteLength
           chunks += 1
           if (chunks === 1 || pendingBytes >= batchBytes || Date.now() - pendingSince >= BATCH_MS) {
-            if (!(await flush())) return
+            if (!(await flush())) return appended
           }
+          // 「缓冲中… 已加载 XMB」只在画面还没出来（欠载/暂停）时才提示：否则正常播放时这个
+          // 遮罩会一直盖在画面上，看着像永远在缓冲。
           if (kind === 'video' && this.usedFallbackFromZero && offset === 0) {
-            this.status('缓冲中… 已加载 ' + Math.round(readBytes / 1048576) + 'MB')
+            const stalled = !this.el || this.el.readyState < 3 || this.el.paused
+            const now = Date.now()
+            if (stalled) {
+              if (now - (this.statusAt || 0) > 500) {
+                this.statusAt = now
+                this.bufferingMsg = true
+                this.status('缓冲中… 已加载 ' + Math.round(readBytes / 1048576) + 'MB')
+              }
+            } else if (this.bufferingMsg) {
+              this.bufferingMsg = false
+              this.status('')
+            }
           }
         }
-        if (!(await flush())) return
+        if (!(await flush())) return appended
         this.aborts.delete(ac)
-        return
+        return appended
       } catch (err) {
         this.aborts.delete(ac)
         lastErr = err
-        if (gen !== this.gen || this.destroyed) return
+        if (gen !== this.gen || this.destroyed) return appended
       }
     }
-    if (lastErr && gen === this.gen && !this.destroyed) {
+    if (!appended && lastErr && gen === this.gen && !this.destroyed) {
       this.hooks.onError && this.hooks.onError(new Error(`拉流失败：${lastErr.message}`))
     }
+    return appended
   }
 
   async append(kind, bytes, gen) {
@@ -750,6 +940,9 @@ export class DashPlayer {
     if (!this.ready || this.restarting || this.destroyed) return
     const t = this.el.currentTime
     if (this.isBuffered(t)) return
+    // 记下跳转前的播放状态：openDash 会重建 MediaSource（元素被重置为暂停），
+    // 不记住的话跳转后就停在暂停态不动了（拖一次进度条视频就「死」住）
+    const resume = !this.el.paused || this.wasPlaying
     this.restarting = true
     this.status('正在跳转…')
     const payload = this.payload
@@ -757,7 +950,12 @@ export class DashPlayer {
       if (payload) await this.openDash(payload, t)
       const vol = this.el.volume
       this.el.volume = vol
-      if (this.wasPlaying) await this.el.play().catch(() => {})
+      if (resume) {
+        this.wasPlaying = true
+        // openDash 里可能重建过 SourceBuffer（元素被重置成暂停），而重建又是异步的，
+        // 所以这里用 ensurePlaying 反复确认，直到元素真的回到播放状态
+        await this.ensurePlaying(this.gen, 6)
+      }
     } catch (err) {
       this.hooks.onError && this.hooks.onError(err)
     } finally {
@@ -769,6 +967,13 @@ export class DashPlayer {
   async fetchBytes(url, start, end, gen) {
     const ac = new AbortController()
     this.aborts.add(ac)
+    const timer = setTimeout(() => {
+      try {
+        ac.abort()
+      } catch {
+        /* ignore */
+      }
+    }, 8000)
     try {
       const res = await fetch(url, {
         method: 'GET',
@@ -776,10 +981,32 @@ export class DashPlayer {
         signal: ac.signal
       })
       if (!res.ok && res.status !== 206) throw new Error(`HTTP ${res.status}`)
+      const want = end - start + 1
+      // 有的 CDN（实测 mcdn.bilivideo.cn:8082）忽略 Range，直接 200 + 整个文件：
+      // 这时必须只读前 want 字节就掐断，否则这次探测会把整条视频下载完 —— 续播/拖动进度条看起来就是「一直缓冲」
+      if (res.status !== 206 && res.body) {
+        const reader = res.body.getReader()
+        const parts = []
+        let got = 0
+        while (got < want) {
+          const { done, value } = await reader.read()
+          if (done) break
+          parts.push(value)
+          got += value.byteLength
+        }
+        try {
+          await reader.cancel()
+        } catch {
+          /* ignore */
+        }
+        if (gen != null && gen !== this.gen) return null
+        return { status: res.status, bytes: concatBytes(parts, got) }
+      }
       const buf = new Uint8Array(await res.arrayBuffer())
       if (gen != null && gen !== this.gen) return null
       return { status: res.status, bytes: buf }
     } finally {
+      clearTimeout(timer)
       this.aborts.delete(ac)
     }
   }
@@ -867,6 +1094,8 @@ export class DashPlayer {
     }
     this.ready = false
     this.usedFallbackFromZero = false
+    this.bufferingMsg = false
+    this.statusAt = 0
   }
 
   destroy() {

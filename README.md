@@ -132,7 +132,10 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 控制栏含倍速/字幕/静音/全屏控件、播放页已移除弹幕/画中画/在线人数 UI（`.dm-bar`、`.dm-layer`、画中画按钮、
 「N 人正在看」四者都不存在）、视频轨按画质挑选（`[dash] picked quality` 的 `got` 与按 `playurl.quality`
 推算出的轨道一致）、「当前清晰度」显示实播画质（清晰度面板的 `.muted` 文本与 `.chip.on` 都是实播档位）、
-倍速切换生效（点 2x → `video.playbackRate === 2` → 还原）、字幕菜单能打开。
+倍速切换生效（点 2x → `video.playbackRate === 2` → 还原）、字幕菜单能打开、
+播放中不显示「缓冲中」遮罩（视频推进后 `.player-msg` 必须已消失）、
+跳转后能继续播放（`currentTime = 120` → `readyState ≥ 3`、`currentTime` 落在 120s 附近并继续推进、遮罩已消失；
+再单独一条 `跳转走 ranged 起流（sidx 定位）`：`[dash] streamFrom video offset=<≥5 位数>`，CDN 不配合时降级为 WARN）。
 
 > 冒烟断言的时序坑：`.scroll` 是 `scroll-behavior: smooth`，滚动是**动画**，`el.scrollTop = el.scrollHeight` 之后
 > 固定等 700ms 在机器忙时不够（曾出现「页面可上下滚动」PASS 但「下拉后出现顶部按钮」FAIL 的假失败）。
@@ -154,6 +157,57 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 > `StudyBili.exe: bad option: --no-sandbox`（退出码 9，也不写报告）。跑打包版冒烟前先
 > `Remove-Item Env:ELECTRON_RUN_AS_NODE`。
 
+> 播放遮罩坑（已修）：MSE 欠载时元素先发 `waiting`，恢复时 Chromium **只补发 `playing`**（不会再发一次 `play`）。
+> 播放器原来只听 `play`，于是 UI 的 `isPlaying` 被 `waiting` 置为 false 后再也回不来 —— 播放页里那个
+> `<div v-if="statusText && !isPlaying" class="player-msg">` 遮罩就永远盖在画面上，配着「缓冲中… 已加载 XXMB」
+> 文字，看起来像一直在缓冲（其实 `currentTime` 正常前进）。修法：`dash.js` 同时监听 `play` 与 `playing`；
+> 那句话也改成只在真的欠载（`readyState < 3` 或暂停）时才刷新、500ms 节流，画面一恢复立刻清空。
+>
+> 续流坑（已修）：`tryRangedStart()` 里探测失败原本直接 `return false`（等于「第一条线路不通过就整段放弃」），
+> 而且只把**探测成功的那一条** URL 带进 `streamFrom()`；更糟的是 `streamFrom()` 无论成功失败都返回 `undefined`，
+> 调用方拿不到结果，于是「续流其实失败了」也会被当成成功、不回退到「从 0 顺序拉」——表现出来就是一直空转/缓冲。
+> 现在：探测失败/非 206/64KB 里找不到 `sidx` 都只是**换下一条备用线路**（`sidx` 找不到会把探测范围放大到 512KB
+> 再试一次），续流时带着剩余备用地址，`streamFrom()` 返回「是否真的 append 过」，据此决定换线路还是回退到 0。
+>
+> `sidx` 解析错位坑（已修，是「续播/拖进度条要重新拉几十 MB」的真根因）：`parseSidx()` 拿着 sidx box 的 body
+> 直接当 `reference_ID` 开始读，**漏掉了 fullbox 头的 4 字节（version 1 + flags 3）**，于是整段错位 4 字节 ——
+> `reference_count` 正好读到 reserved 的 `0`，函数永远返回 `null`（"no-sidx"）。而 playurl 的 SegmentBase 明明
+> 写着 `initialization=0-934, index_range=935-3530`，文件头也确实是 `ftyp@0 moov@32 sidx@935 moof@3531 mdat@5435`。
+> 结果就是**任何**续播/拖动进度条都定位不了，只能从 0 顺序重拉（长视频前半段几十 MB 全下完才开始播，看着就是
+> 「一直在缓冲」）。修好后实测同一视频：`[dash] ranged sidx refs=515 initEnd=7156`、
+> `streamFrom video offset=10941634 status=206`，跳到 120s 立即从 10.9MB 处续流并正常播放。
+>
+> 音视频一起定位坑（已修）：续流定位必须**两条轨一起成功**（`startStreams()` 先并行 `probeRanged()`，两者都有
+> `sidx` 才一起按偏移续流），否则只有一条轨跳到中途、另一条从 0 顺序拉，当前播放位置就缺一半数据，播放会直接
+> 卡死。任一轨定位失败就两条一起从 0 顺序拉（`usedFallbackFromZero`）。
+>
+> 中段 Range 被忽略坑（已修）：即使 `sidx` 解析出偏移，也不能假定 CDN 认这个 Range —— 实测打包版里
+> `upos-sz-mirrorcoso1` 对 `bytes=7288735-` 直接回 **200（整个文件）**，同一条音轨回 **416**。旧逻辑会把
+> 200 的响应体当成「从 offset 开始」的数据 append 进 SourceBuffer，得到的是错位数据：`buffered` 为空、
+> `currentTime` 停在跳转目标、`readyState` 掉回 1（第 9 行那条断言就是这么假失败/真卡住的）。
+> 现在 `streamFrom()` 见到「`offset > 0` 但不是 206」就换线路、不 append；两条轨的续流只要有一条没成，
+> 就**连 MediaSource 一起换一个新的**再从 0 顺序拉，并按目标位置等缓冲覆盖到位后跳过去。
+>
+> SourceBuffer 数量上限坑（已修）：回退时最初只想「换一对 SourceBuffer」，但 Chromium 对**同一个 MediaSource
+> 上创建过的 SourceBuffer 总数**有上限，`removeSourceBuffer()` 不会把额度还回来 —— 实测第二次 `addSourceBuffer()`
+> 直接报 `This MediaSource has reached the limit of SourceBuffer objects it can handle. No additional SourceBuffer
+> objects may be added.`，回退路径整个失效（元素停在 `paused`、`buffered` 为空）。现在改成 `recreateMedia()`：
+> `teardownMedia()` 后重建 MediaSource + objectURL + `el.src`（`setupMedia()` 与首次起流共用同一段代码）。
+>
+> 媒体元素 error 坑（已修）：`<video>` 一旦进入 error 状态，之后每次 `appendBuffer()` 都会抛
+> `InvalidStateError: The HTMLMediaElement.error attribute is not null`，数据再也进不去 —— 表现就是画面冻在某一帧、
+> 一直「缓冲中…」（实测在推荐流某条视频上偶发：`readyState` 掉到 2、`buffered` 停在 0.81s）。现在 `dash.js` 监听
+> `error`，自动从当前进度（`<3s` 就从头）重建流重连，最多 2 次；仍失败才把错误显示到界面上。
+>
+> 恢复播放坑（已修）：`openDash()` 会重建 MediaSource（元素被重置成 `paused`），而 `streamFrom()` 要等整条轨拉完
+> 才 resolve，所以「重建完再 play」不能挂在流后面。现在统一用 `this.wasPlaying`（`play()`/自动播放置 true、
+> `pause()` 置 false）作为「用户想在播」的唯一依据，`ensurePlaying(gen, tries)` 反复确认到元素真的回到播放状态
+> （`play()` 可能被 Interrupted 拒绝）；用户主动暂停着拖进度条不会被自动拉回播放。
+>
+> 选轨坑（已修）：没有匹配画质时原来只按 bandwidth 降序挑，实测有视频 **360P 的 bandwidth（872kbps）反而高于
+> 480P（851kbps）**，于是挑到更糊的那条。现在排序是「编码兼容性 → 分辨率（宽×高）降序 → 带宽降序」，
+> 冒烟里的 `expectVideoTrack()` 用同一套规则对照。
+
 > 布局坑（已修）：`.app` 是 `display:grid`，若不给 `grid-template-rows: minmax(0, 1fr)`，内容会把这一行撑高，
 > `.main` 跟着变成内容高度（实测 2354px / 窗口 717px），再被 `body{overflow:hidden}` 裁掉 —— 表现就是
 > 「页面下拉不动、右侧没有滚动条」。现在行高锁死为容器高度，`.scroll` 内部滚动正常。
@@ -168,10 +222,18 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
   音频 ≥128KB 或距上次 ≥300ms 才 flush 一次，首块立即 append 保证起播快），减少 appendBuffer 调用次数。
   可选择清晰度、分 P、自动连播；**选轨按本次下发的画质**（`playurl.quality`）挑，找不到才退回最高带宽那条，
   实测出现过「报 720P 只回 480P 轨」的降级情况，此时清晰度面板会显示真正在播的档位。
+  `sidx` 定位起流是**逐条线路试**的：探测失败 / 服务端忽略 Range / 64KB 内找不到 `sidx`（会放大到 512KB 再探一次）
+  都只是换下一条备用线路，并把剩余备用地址一起带进续流；续流函数会回报「到底有没有真的 append 成功」，
+  失败就回退到「从 0 顺序拉」，不会因为某条 CDN 403/404 就误判成功、让播放器一直空转。
+  **音视频必须一起定位成功**才按偏移续流（`startStreams()` 先并行探测两条轨），否则两条一起从 0 顺序拉 ——
+  只有一条轨跳到中途会让当前播放位置缺一半数据、直接卡死。
   `MediaSource.duration` 按「playurl 时长（合理才用）→ 投稿信息时长 → 先 `Infinity` 再按 `buffered` 收尾」取值（见下方时长坑）。
 - **播放器**：控制栏是**浮在画面底部**的浮层，鼠标不动 2.8s 自动淡出、移到画面上再出现
   （双击画面 / 快捷键 `F` 全屏）。控制栏里依次是：播放/上一 P/下一 P/时间/进度条、倍速（0.5/0.75/1/1.25/1.5/2）、
   字幕（CC，可关闭；未登录时 B 站返回 `subtitle_count=0`，会提示「这个视频没有可用字幕」）、静音、音量、全屏。
+  欠载恢复时 Chromium **只补发 `playing` 事件**（不会再来一次 `play`），播放器两个都监听，否则 UI 会一直以为
+  「还没开始播」；「缓冲中… 已加载 XXMB」也只在真的欠载（`readyState < 3` 或暂停）时才提示（500ms 节流），
+  画面一恢复就清掉 —— 不会再有遮罩一直盖在正在播放的画面上。
 - **弹幕/画中画/在线人数（已按要求从播放页移除，底层代码保留）**：弹幕走旧版 XML 接口
   `api.bilibili.com/x/v1/dm/list.so`（匿名可用，实测单段数百到数千条），长视频按 360s 分段拉取最多 8 段；
   解析后按时间轴用 Web Animations 抛出（滚动 / 顶部 / 底部三种模式，轨道复用、seek 后二分重定位）；
