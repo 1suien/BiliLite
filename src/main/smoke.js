@@ -79,11 +79,26 @@ export async function runSmoke(win) {
   // 环境性失败（接口风控等）不计入失败项，但要在报告里显式留痕
   const warn = (text) => log(`WARN  ${text}`)
 
+  // 需要在浅色/深色下都看一眼界面时用 STUDY_SMOKE_THEME 指定。
+  // 注意 settings.init() 是异步的，完成时会按落盘设置再刷一次主题，所以这里每次用时都重新强制一次。
+  const wantTheme =
+    process.env.STUDY_SMOKE_THEME === 'light' || process.env.STUDY_SMOKE_THEME === 'dark' ? process.env.STUDY_SMOKE_THEME : ''
+  const forceTheme = async () => {
+    if (!wantTheme) return
+    try {
+      await js(`document.documentElement.dataset.theme = ${JSON.stringify(wantTheme)}; document.documentElement.dataset.theme`)
+    } catch {
+      /* 忽略 */
+    }
+  }
+
   // 需要看真实界面时设置 STUDY_SMOKE_SHOT=<目录>，会顺手截几张图
   const shotDir = process.env.STUDY_SMOKE_SHOT
   const shot = async (name) => {
     if (!shotDir) return
     try {
+      await forceTheme()
+      await sleep(120)
       const img = await win.webContents.capturePage()
       writeFileSync(join(shotDir, name), img.toPNG())
       log(`      · 截图已保存：${name}`)
@@ -159,9 +174,19 @@ export async function runSmoke(win) {
   await step('bridge 已注入', 'typeof window.bili', (v) => v === 'object')
   await step('bridge 通道齐全', "Object.keys(window.bili).join(',')", (v) => /auth/.test(v) && /video/.test(v))
   await step('app:ping', 'window.bili.ping()', (v) => v === 'pong' || Boolean(v))
-  await step('侧栏导航 6 项', "document.querySelectorAll('.nav-item').length", (v) => v === 6)
+  await step('侧栏导航 5 项', "document.querySelectorAll('.nav-item').length", (v) => v === 5)
+  await step(
+    '侧栏不再有「搜索」入口（保留顶栏搜索）',
+    "Array.from(document.querySelectorAll('.nav-item')).some((e) => e.textContent.includes('搜索'))",
+    (v) => v === false
+  )
   await step('品牌文案', "document.querySelector('.brand b') && document.querySelector('.brand b').textContent", (v) => typeof v === 'string' && v.length > 0)
   await step('主题令牌已应用', "getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()", (v) => typeof v === 'string' && v.length > 0)
+  // STUDY_SMOKE_THEME=light 时用浅色主题跑一遍（浅色下更容易看出浅色描边/留白类问题）
+  if (wantTheme) {
+    await forceTheme()
+    log(`      · 主题强制为 ${wantTheme}`)
+  }
 
   // ---- 网络接口 ----
   const feed = await step(
@@ -270,6 +295,18 @@ export async function runSmoke(win) {
   if (!played || played.err) fail('播放器 <video> 存在', played)
   else if (played.readyState < 2 || played.bufferedEnd <= 1) fail('DASH 播放起流', played)
   else pass('DASH 播放起流', played)
+
+  // ---- 右栏「相关推荐」已移除，但 tab 里的相关推荐要保留 ----
+  await step(
+    '播放页右栏没有「相关推荐」',
+    "Array.from(document.querySelectorAll('.watch > aside .panel')).some((e) => e.textContent.includes('相关推荐'))",
+    (v) => v === false
+  )
+  await step(
+    '播放页 tab 仍保留「相关推荐」',
+    "Array.from(document.querySelectorAll('.tabs .tab')).some((e) => e.textContent.includes('相关推荐'))",
+    (v) => v === true
+  )
 
   // ---- 真正播放：点播放键后 currentTime 是否前进 ----
   if (played && !played.err) {
@@ -824,9 +861,128 @@ export async function runSmoke(win) {
   }
   await step('签到后日历出现绿色格子', "document.querySelectorAll('.cal .cell.on').length", (v) => typeof v === 'number' && v >= 1)
 
+  // ── 番茄钟：存在 / 倒计时 / 暂停 / 专注结束记入学习时长 ──
+  await step('学习页有番茄钟', "!!document.querySelector('.pomo-clock')", (v) => v === true)
+
+  // 排查用：记录「谁把页面导航走了」（路由/history 调用栈 + 点击目标）
+  await js(`(() => {
+    window.__navLog = []
+    const st = () => { try { return String(new Error().stack || '').split('\\n').slice(1, 5).join(' | ').slice(0, 400) } catch (e) { return '' } }
+    const keep = (row) => { if (window.__navLog.length < 400) window.__navLog.push(row) }
+    const push = history.pushState.bind(history)
+    const rep = history.replaceState.bind(history)
+    history.pushState = function (...a) { keep(['push', String(a[2]), st()]); return push(...a) }
+    history.replaceState = function (...a) { keep(['replace', String(a[2]), st()]); return rep(...a) }
+    addEventListener('hashchange', () => keep(['hash', location.hash, st()]), true)
+    addEventListener('popstate', () => keep(['pop', location.hash, st()]), true)
+    addEventListener('click', (e) => {
+      const t = e.target
+      const b = t && t.closest ? t.closest('button,a,.vcard,.rowitem,.nav-item,.mi') : null
+      keep(['click', b ? String(b.textContent || b.className).replace(/\\s+/g, ' ').trim().slice(0, 30) : (t && t.tagName) || '?', location.hash])
+    }, true)
+    return true
+  })()`)
+
+  const pressPomo = (re) =>
+    js(`(() => {
+      const b = Array.from(document.querySelectorAll('.pomo button')).find((x) => ${re}.test(x.textContent))
+      if (!b) return 'no-button'
+      b.click()
+      return b.textContent.replace(/\\s+/g, ' ').trim()
+    })()`)
+  const pomoClock = () => js("(document.querySelector('.pomo-clock') || {}).textContent.trim()")
+  const pomoHead = () =>
+    js(`(() => {
+      const el = document.querySelector('.pomo .muted')
+      return el ? el.textContent.replace(/\\s+/g, ' ').trim() : ''
+    })()`)
+  const todayChip = () =>
+    js("(document.querySelector('.top .chip') || {}).textContent.replace(/\\s+/g, ' ').trim()")
+  const pomoPanelText = () =>
+    js(`(() => {
+      const p = document.querySelector('.pomo')
+      if (!p) return ''
+      return String(p.innerText || p.textContent || '').replace(/\\s+/g, ' ').trim()
+    })()`)
+  const pomoDiag = () =>
+    js(`(() => {
+      const p = document.querySelector('.pomo')
+      const sc = document.querySelector('.scroll')
+      return {
+        hash: location.hash,
+        pomo: document.querySelectorAll('.pomo').length,
+        clock: document.querySelectorAll('.pomo-clock').length,
+        muted: document.querySelectorAll('.pomo .muted').length,
+        cls: p ? p.className : 'none',
+        panel: p ? String(p.innerText || '').replace(/\\s+/g, ' ').slice(0, 160) : '',
+        page: sc ? String(sc.innerText || '').replace(/\\s+/g, ' ').slice(0, 120) : 'no-scroll',
+        nav: (window.__navLog || []).slice(-12)
+      }
+    })()`)
+
+  // 把「专注」改 1 分钟，方便在冒烟里跑完整一轮
+  await js(`(() => {
+    const i = document.querySelector('.pomo-nums input')
+    if (!i) return false
+    i.value = '1'
+    i.dispatchEvent(new Event('input', { bubbles: true }))
+    i.dispatchEvent(new Event('change', { bubbles: true }))
+    return true
+  })()`)
+  await sleep(400)
+
+  const todayBefore = await todayChip()
+  const dur0 = await pomoClock()
+  const started = await pressPomo('/开始/')
+  await sleep(2600)
+  const dur1 = await pomoClock()
+  if (started !== 'no-button' && dur1 && dur0 && dur1 !== dur0) pass('番茄钟开始后倒计时在走', { dur0, dur1, started })
+  else fail('番茄钟开始后倒计时在走', { dur0, dur1, started })
+
+  await pressPomo('/暂停/')
+  await sleep(1500)
+  const dur2 = await pomoClock()
+  await sleep(1500)
+  const dur3 = await pomoClock()
+  if (dur2 && dur2 === dur3) pass('番茄钟暂停后不再走', { dur2, dur3 })
+  else fail('番茄钟暂停后不再走', { dur2, dur3 })
+
+  // 继续跑完这一轮（专注 1 分钟）：完成后应自动切到休息并把时长记进统计
+  const resumed = await pressPomo('/开始/')
+  log(`      · 番茄钟诊断（开始后） :: ${show(await pomoDiag())}`)
+  let done = null
+  let toastText = ''
+  for (let i = 0; i < 80; i++) {
+    await sleep(1000)
+    const head = await pomoHead()
+    const panel = await pomoPanelText()
+    if (/今日完成\s*1\s*个/.test(head) || /今日完成\s*1\s*个/.test(panel)) {
+      done = { head, panel: panel.slice(0, 90), clock: await pomoClock() }
+      toastText = await js("Array.from(document.querySelectorAll('.toast')).map((e) => e.textContent).join(' | ')")
+      break
+    }
+  }
+  const todayAfter = await todayChip()
+  if (done) {
+    pass('番茄钟专注结束（自动进入休息 + 计入学习时长）', { ...done, resumed, toast: toastText, todayBefore, todayAfter })
+    if (/番茄钟完成/.test(toastText) || todayAfter !== todayBefore) pass('番茄钟完成有提示且学习时长增加', { toast: toastText, todayBefore, todayAfter })
+    else warn(`番茄钟完成没抓到 toast/时长变化（可能是时长文案取整相同）：${todayBefore} → ${todayAfter}`)
+    await shot('4-学习页番茄钟.png')
+  } else {
+    fail('番茄钟专注结束（自动进入休息 + 计入学习时长）', {
+      resumed,
+      head: await pomoHead(),
+      diag: await pomoDiag(),
+      todayBefore,
+      todayAfter
+    })
+  }
+
   const errs = await js(`String(window.__smokeErr || '')`).catch(() => '')
   if (errs) log(`渲染层异常汇总 :: ${show(errs)}`)
   else log('渲染层异常汇总 :: 无')
+  const navTail = await js('(window.__navLog || []).slice(-8)').catch(() => '')
+  if (navTail && navTail.length) log(`      · 导航/点击日志（末尾 8 条） :: ${show(navTail)}`)
   log(`=== 冒烟测试结束：失败 ${fails.length} 项${fails.length ? ' → ' + fails.join(' | ') : ''} ===`)
   return fails.length ? 1 : 0
 }

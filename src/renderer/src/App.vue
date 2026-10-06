@@ -45,7 +45,6 @@ watch(
 const NAV = [
   { to: '/', icon: 'home', label: '首页' },
   { to: '/ups', icon: 'users', label: 'UP 管理' },
-  { to: '/search', icon: 'search', label: '搜索' },
   { to: '/fav', icon: 'star', label: '收藏' },
   { to: '/learn', icon: 'book', label: '学习' },
   { to: '/settings', icon: 'settings', label: '设置' }

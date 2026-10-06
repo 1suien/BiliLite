@@ -7,12 +7,26 @@ import Icon from '../components/Icon.vue'
 import { useLearnStore } from '../stores/learn'
 import { useSettingsStore } from '../stores/settings'
 import { useUiStore } from '../stores/ui'
+import { usePomodoroStore } from '../stores/pomodoro'
 import { fmtHours, fmtDuration, fmtAgo } from '../utils/format'
 
 const router = useRouter()
 const learn = useLearnStore()
 const settings = useSettingsStore()
 const ui = useUiStore()
+const pomo = usePomodoroStore()
+
+// 番茄钟时长输入框（改完回写 store，超范围会被 store 夹回合法值）
+const focusInput = ref(pomo.focusMin)
+const shortInput = ref(pomo.shortMin)
+const longInput = ref(pomo.longMin)
+
+function applyDurations() {
+  pomo.setDurations({ focusMin: focusInput.value, shortMin: shortInput.value, longMin: longInput.value })
+  focusInput.value = pomo.focusMin
+  shortInput.value = pomo.shortMin
+  longInput.value = pomo.longMin
+}
 
 const tab = ref('recent')
 const ready = ref(false)
@@ -165,6 +179,10 @@ onMounted(async () => {
   } catch (err) {
     ui.err(err.message)
   }
+  pomo.init()
+  focusInput.value = pomo.focusMin
+  shortInput.value = pomo.shortMin
+  longInput.value = pomo.longMin
   ready.value = true
 })
 </script>
@@ -185,6 +203,46 @@ onMounted(async () => {
           <Icon :name="s.icon" :size="13" /> {{ s.label }}
         </div>
         <div class="v">{{ s.value }}</div>
+      </div>
+    </div>
+
+    <!-- 番茄钟 -->
+    <div class="panel pomo" style="margin: 18px 0 0">
+      <div class="row" style="margin-bottom: 10px">
+        <Icon name="clock" :size="15" />
+        <strong style="font-size: 13.5px">番茄钟</strong>
+        <span class="grow" />
+        <span class="muted" style="font-size: 12.5px">
+          今日完成 {{ pomo.doneToday }} 个 · {{ pomo.modeLabel }}
+        </span>
+      </div>
+
+      <div class="pomo-row">
+        <div class="pomo-clock" :class="{ run: pomo.running }">{{ pomo.clock }}</div>
+        <div class="pomo-side">
+          <div class="row pomo-modes" style="gap: 6px; flex-wrap: wrap">
+            <span class="chip" :class="{ on: pomo.mode === 'focus' }" @click="pomo.setMode('focus')">专注</span>
+            <span class="chip" :class="{ on: pomo.mode === 'short' }" @click="pomo.setMode('short')">短休息</span>
+            <span class="chip" :class="{ on: pomo.mode === 'long' }" @click="pomo.setMode('long')">长休息</span>
+          </div>
+          <div class="pomo-bar"><i :style="{ width: Math.round(pomo.progress * 100) + '%' }" /></div>
+          <div class="row pomo-ctl" style="gap: 8px; flex-wrap: wrap">
+            <button class="btn sm primary" @click="pomo.toggle()">
+              <Icon :name="pomo.running ? 'pause' : 'play'" :size="14" />
+              {{ pomo.running ? '暂停' : '开始' }}
+            </button>
+            <button class="btn sm ghost" @click="pomo.reset()"><Icon name="refresh" :size="14" /> 重置</button>
+            <button class="btn sm ghost" @click="pomo.finish(false)">跳过</button>
+            <span class="grow" />
+            <span class="muted" style="font-size: 11.5px">专注结束自动计入学习时长</span>
+          </div>
+          <div class="row pomo-nums">
+            <span class="muted" style="font-size: 11.5px">时长（分钟）</span>
+            <label>专注 <input v-model.number="focusInput" class="input" type="number" min="1" max="180" @change="applyDurations" /></label>
+            <label>短休 <input v-model.number="shortInput" class="input" type="number" min="1" max="180" @change="applyDurations" /></label>
+            <label>长休 <input v-model.number="longInput" class="input" type="number" min="1" max="180" @change="applyDurations" /></label>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -465,5 +523,70 @@ onMounted(async () => {
   height: 9px;
   border-radius: 50%;
   flex: none;
+}
+/* ── 番茄钟 ───────────────────────────────── */
+.pomo-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.pomo-clock {
+  font-family: var(--mono);
+  font-size: 42px;
+  line-height: 1;
+  letter-spacing: 1px;
+  font-variant-numeric: tabular-nums;
+  min-width: 150px;
+  color: var(--t2);
+}
+.pomo-clock.run {
+  color: var(--t1);
+}
+.pomo-side {
+  flex: 1;
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  justify-content: center;
+}
+/* 视觉顺序：模式 → 控制按钮 → 进度条 → 时长设置（DOM 顺序不用动，只调 order） */
+.pomo-modes {
+  order: 1;
+}
+.pomo-ctl {
+  order: 2;
+}
+.pomo-bar {
+  order: 3;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--soft);
+  overflow: hidden;
+}
+.pomo-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.25s linear;
+}
+.pomo-nums {
+  order: 4;
+  gap: 12px;
+  flex-wrap: wrap;
+  color: var(--t2);
+}
+.pomo-nums label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+}
+.pomo-nums .input {
+  width: 62px;
+  padding: 3px 6px;
+  font-size: 12px;
 }
 </style>

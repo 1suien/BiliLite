@@ -1,8 +1,8 @@
 # StudyBili · 学习 B 站
 
 学习专注型的 B 站桌面客户端（Windows / Electron）。参考 [BiliLite](https://github.com/ywmoyue/biliuwp-lite) 的功能取舍重新实现：
-保留**扫码登录、UP 管理、首页（只看关注 UP 更新）、搜索、视频播放（分 P / 画质 / DASH）、本机收藏 + B 站收藏夹、UP 主主页、学习记录与打卡**，
-界面走黑白极简 token 体系，不引入娱乐化的信息流。
+保留**扫码登录、UP 管理、首页（只看关注 UP 更新）、搜索、视频播放（分 P / 画质 / DASH）、本机收藏 + B 站收藏夹、UP 主主页、学习记录 / 打卡 / 番茄钟**，
+界面走黑白极简 token 体系，不引入娱乐化的信息流。播放页右栏只留「清晰度 + 分P列表」（相关推荐只在下方 tab 里）。
 
 > 仅限个人学习用途。本项目不提供任何视频内容，只做本机客户端；登录凭证只加密保存在本机。
 
@@ -30,10 +30,10 @@ src/
   renderer/
     index.html              含 CSP meta
     src/
-      router.js  App.vue     布局（侧栏 6 项 + 顶栏搜索）
+      router.js  App.vue     布局（侧栏 5 项 + 顶栏搜索；侧栏不再放搜索入口）
       api/index.js           window.bili 门面
       db/index.js            Dexie：progress / daily / notes / shelf / ups / collect / checkins / upTime
-      stores/                ui / settings / auth / learn / ups / collect
+      stores/                ui / settings / auth / learn / ups / collect / pomodoro
       player/dash.js         DASH 播放核心
       views/                 Home / UpManage / Search / Video / Fav / FavFolder / Up / Learn / Settings
       components/            Icon / BiliImage / VideoCard / Pager / DanmakuLayer / PageFloat / LoginModal / ConfirmModal / CollectModal …
@@ -122,20 +122,28 @@ $env:STUDY_SMOKE_SHOT = "$PWD\shots"   # 可选：顺手把真实界面截图存
 Get-Content smoke-pkg-report.txt -Encoding UTF8
 ```
 
-断言项：bridge 注入/通道齐全/`app:ping`、侧栏 6 项、主题令牌、`home.feed`、`search.videos`、`video.view`、
+断言项：bridge 注入/通道齐全/`app:ping`、侧栏 5 项、侧栏不再有「搜索」入口（搜索只保留顶栏）、主题令牌、`home.feed`、`search.videos`、`video.view`、
 `video.playurl`（DASH 轨道）、视频页渲染、`<video>` 起流（`readyState=4`）、点播放后 `currentTime` 前进、
-学习进度写入 IndexedDB、顶栏搜索跳转、侧栏 6 个路由真实点击可达，以及本机 UP 名单（写入/渲染/首页只显示名单）、
+学习进度写入 IndexedDB、顶栏搜索跳转、侧栏 5 个路由真实点击可达，以及本机 UP 名单（写入/渲染/首页只显示名单）、
 `up.latest`（匿名可拉取，失败才软跳过）、本机收藏写入、学习页 5 卡 / 371 格签到日历 /
-近 14 天条形图 / 按 UP 分布饼图、手动打卡写入 `checkins`、UP 主页投稿列表（同一接口，含分页 `count`）、
+近 14 天条形图 / 按 UP 分布饼图、手动打卡写入 `checkins`、番茄钟（学习页有 `.pomo-clock`；改「专注」为 1 分钟后
+开始 → 倒计时前进；暂停 → 倒计时不动；跑完一轮 → 自动进入短休息、`今日完成 1 个`、toast「番茄钟完成」且
+顶栏「今日」时长增加）、UP 主页投稿列表（同一接口，含分页 `count`）、
 右侧悬浮操作组、页面确实可上下滚动（`.scroll` 的 `scrollHeight > clientHeight`）、下拉后出现「顶部」并点回顶部、
 「换一换」后页面重新渲染、切换页面自动回到顶部（先在长列表拉到 480/1224px，再进视频页 `scrollTop=0`）、
-控制栏含倍速/字幕/静音/全屏控件、播放页已移除弹幕/画中画/在线人数 UI（`.dm-bar`、`.dm-layer`、画中画按钮、
+控制栏含倍速/字幕/静音/全屏控件、播放页右栏没有「相关推荐」（`.watch > aside .panel` 里没有它，但 tab 栏仍保留）、
+播放页已移除弹幕/画中画/在线人数 UI（`.dm-bar`、`.dm-layer`、画中画按钮、
 「N 人正在看」四者都不存在）、视频轨按画质挑选（`[dash] picked quality` 的 `got` 与按 `playurl.quality`
 推算出的轨道一致）、「当前清晰度」显示实播画质（清晰度面板的 `.muted` 文本与 `.chip.on` 都是实播档位）、
 倍速切换生效（点 2x → `video.playbackRate === 2` → 还原）、字幕菜单能打开、
 播放中不显示「缓冲中」遮罩（视频推进后 `.player-msg` 必须已消失）、
 跳转后能继续播放（`currentTime = 120` → `readyState ≥ 3`、`currentTime` 落在 120s 附近并继续推进、遮罩已消失；
 再单独一条 `跳转走 ranged 起流（sidx 定位）`：`[dash] streamFrom video offset=<≥5 位数>`，CDN 不配合时降级为 WARN）。
+
+> 主题验收：设置 `STUDY_SMOKE_THEME=light`（或 `dark`）会让冒烟把主题强制成对应主题再跑一遍，
+> 每次截图前也会重新强制一次 —— `settings.init()` 是异步的，完成时会按落盘设置把主题刷回来，
+> 只在开头强制一次会偶发截到默认主题（浅色下的浅色描边/留白问题要靠它才看得出来）。
+> 另外把 `study-bili.json` 预写进 `STUDY_USER_DATA` **不管用**：应用启动时会 persist 默认设置把它覆盖掉。
 
 > 冒烟断言的时序坑：`.scroll` 是 `scroll-behavior: smooth`，滚动是**动画**，`el.scrollTop = el.scrollHeight` 之后
 > 固定等 700ms 在机器忙时不够（曾出现「页面可上下滚动」PASS 但「下拉后出现顶部按钮」FAIL 的假失败）。
@@ -234,6 +242,8 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
   欠载恢复时 Chromium **只补发 `playing` 事件**（不会再来一次 `play`），播放器两个都监听，否则 UI 会一直以为
   「还没开始播」；「缓冲中… 已加载 XXMB」也只在真的欠载（`readyState < 3` 或暂停）时才提示（500ms 节流），
   画面一恢复就清掉 —— 不会再有遮罩一直盖在正在播放的画面上。
+  `.player-wrap` 的描边固定用纯黑（`border: 1px solid #000`）：浅色主题下 `--line` 是 `#e2e2e6`，
+  围着黑画面就是一圈白边（用户反馈的「视频有白边」），播放器卡片必须用黑边。
 - **弹幕/画中画/在线人数（已按要求从播放页移除，底层代码保留）**：弹幕走旧版 XML 接口
   `api.bilibili.com/x/v1/dm/list.so`（匿名可用，实测单段数百到数千条），长视频按 360s 分段拉取最多 8 段；
   解析后按时间轴用 Web Animations 抛出（滚动 / 顶部 / 底部三种模式，轨道复用、seek 后二分重定位）；
@@ -250,6 +260,11 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 - **学习记录**：播放中每秒计时、每 5s 落一次进度，>95% 自动标记完成；按 UP 累计学习时长；
   学习页有签到日历、近 14 天条形图、按 UP 分布饼图、连续签到天数，支持手动打卡与（设置里）播放满 5 分钟自动打卡。
   数据可导出 JSON。
+- **番茄钟**（学习页顶部卡片，`stores/pomodoro.js`）：专注 / 短休息 / 长休息三种模式，可开始暂停、重置、跳过，
+  三个时长（默认 25/5/15 分钟）可改；倒计时按**结束时间戳**推算（只用 250ms 的 `setInterval` 刷新显示），
+  挂机久了也不会走偏；一轮专注跑完自动进入休息（每 4 轮走长休息），Web Audio 抖一声 + 系统通知，
+  并把这一轮的专注分钟数通过 `learn.addSeconds()` 记进当天学习时长（所以会体现在「今日」「近 14 天条形图」里）。
+  `doneToday` 每天跨天归零，状态持久化在 localStorage（`study-bili-pomodoro`）。
 
 > 说明：网页版 `x/space/wbi/arc/search`（UP 空间投稿接口）匿名访问在本机（云电脑 IP）被 B 站**IP 级风控**，
 > 实测固定返回 `-412 request was banned` / `-352 风控校验失败`（换 Referer、补 `dm_img_*` 参数、去掉 wbi 签名都无效）。

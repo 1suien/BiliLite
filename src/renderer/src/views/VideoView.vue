@@ -937,27 +937,6 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </div>
-
-      <div class="panel" style="padding: 13px">
-        <div class="row" style="margin-bottom: 9px">
-          <Icon name="film" :size="15" />
-          <b style="font-size: 13px">相关推荐</b>
-        </div>
-        <div v-if="!related.length" class="muted" style="font-size: 12px">暂无推荐</div>
-        <div
-          v-for="r in related.slice(0, 12)"
-          :key="r.bvid"
-          class="rowitem"
-          style="padding: 6px; gap: 9px"
-          @click="router.push({ name: 'video', params: { bvid: r.bvid } })"
-        >
-          <BiliImage :src="r.cover" :alt="r.title" style="width: 84px; border-radius: 6px" />
-          <div class="info">
-            <div class="t clamp-2" style="font-size: 12.5px">{{ r.title }}</div>
-            <div class="d" style="font-size: 11.5px">{{ r.upName }}</div>
-          </div>
-        </div>
-      </div>
     </aside>
 
     <CollectModal :open="collectOpen" :video="collectTarget" @close="collectOpen = false" />

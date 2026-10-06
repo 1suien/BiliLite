@@ -675,7 +675,9 @@ textarea {
 }
 .player-wrap {
   background: #000;
-  border: 1px solid var(--line);
+  /* 播放器四周不要任何浅色描边/留白：浅色主题下 --line 是接近白色的 #e2e2e6，
+     会在黑色画面上围出一圈「白边」，所以这里固定用黑色边框。 */
+  border: 1px solid #000;
   border-radius: var(--radius);
   overflow: hidden;
 }
