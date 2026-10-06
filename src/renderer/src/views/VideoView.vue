@@ -6,7 +6,10 @@ import { DashPlayer } from '../player/dash.js'
 import BiliImage from '../components/BiliImage.vue'
 import Icon from '../components/Icon.vue'
 import EmptyBlock from '../components/EmptyBlock.vue'
+import CollectModal from '../components/CollectModal.vue'
 import { useLearnStore } from '../stores/learn'
+import { useCollectStore } from '../stores/collect'
+import { useUpsStore, DEFAULT_GROUP } from '../stores/ups'
 import { useSettingsStore } from '../stores/settings'
 import { useUiStore } from '../stores/ui'
 import { useAuthStore } from '../stores/auth'
@@ -17,6 +20,8 @@ import { db } from '../db'
 const route = useRoute()
 const router = useRouter()
 const learn = useLearnStore()
+const collect = useCollectStore()
+const ups = useUpsStore()
 const settings = useSettingsStore()
 const ui = useUiStore()
 const auth = useAuthStore()
@@ -31,6 +36,9 @@ let saveTimer = null
 let pendingSeconds = 0
 let lastSavedSeconds = -1
 let lastVolumeSent = 0
+/** 本次播放累计观看秒数（自动打卡判断用） */
+let watchedTotal = 0
+let autoChecked = false
 
 const loading = ref(true)
 const errorMsg = ref('')
@@ -50,6 +58,7 @@ const muted = ref(false)
 const tab = ref('intro')
 const noteText = ref('')
 const notes = ref([])
+const collectOpen = ref(false)
 
 const info = computed(() => (view.value ? view.value : {}))
 const cid = computed(() => {
@@ -68,6 +77,29 @@ const currentPageTitle = computed(() => {
   return p && pageList.value.length > 1 ? `P${p.page} ${p.title}` : ''
 })
 const inShelf = computed(() => (bvid.value ? learn.inShelf(bvid.value) : false))
+const collectCount = computed(() => collect.items.filter((x) => x.bvid === bvid.value).length)
+const collectTarget = computed(() => ({ ...meta(), upName: info.value.upName }))
+const inUpsList = computed(() =>
+  Boolean(info.value.upMid) && ups.items.some((x) => String(x.mid) === String(info.value.upMid))
+)
+
+async function addCurrentUp() {
+  if (!info.value.upMid) return
+  try {
+    await ups.addUp(
+      {
+        mid: info.value.upMid,
+        name: info.value.upName,
+        face: (info.value.owner && info.value.owner.face) || '',
+        sign: ''
+      },
+      ups.activeGroup && ups.activeGroup !== 'all' ? ups.activeGroup : DEFAULT_GROUP
+    )
+    ui.ok(`已加入 UP 管理：${info.value.upName}`)
+  } catch (err) {
+    ui.err(err.message || '加入失败')
+  }
+}
 
 function applySettings() {
   volume.value = settings.settings.playerVolume
@@ -137,9 +169,19 @@ function meta() {
     title: currentPageTitle.value || v.title || '',
     cover: v.cover || '',
     upName: v.upName || '',
+    upMid: (v.owner && v.owner.mid) || v.upMid || null,
     page: pageList.value[pageIndex.value] ? pageList.value[pageIndex.value].page : 1,
     duration: duration.value || v.duration || 0
   }
+}
+
+/** 当前视频所属 UP（用于按 UP 统计学习时长） */
+function upRef() {
+  const v = info.value
+  const name = v.upName || (v.owner && v.owner.name) || ''
+  const mid = (v.owner && v.owner.mid) || v.upMid || null
+  if (!name && !mid) return null
+  return { mid, name }
 }
 
 function startSeconds() {
@@ -157,6 +199,8 @@ async function startPlay() {
   const qn = Number(settings.settings.defaultQuality) || 80
   statusText.value = '正在获取播放地址…'
   errorMsg.value = ''
+  watchedTotal = 0
+  autoChecked = false
   try {
     const data = await api.video.playurl(bvid.value, cid.value, qn)
     playurl.value = data
@@ -225,16 +269,35 @@ function teardown() {
 }
 
 /* ── 学习记录 ─────────────────────────────────────────── */
+/** 播放满 5 分钟自动打卡（可在设置里关掉） */
+function maybeAutoCheckin() {
+  if (autoChecked || watchedTotal < 300) return
+  if (!settings.settings.autoCheckin) return
+  if (learn.isChecked()) {
+    autoChecked = true
+    return
+  }
+  autoChecked = true
+  learn
+    .checkin()
+    .then((added) => {
+      if (added) ui.toast(`已自动打卡 · 连续 ${learn.checkinStreak} 天`)
+    })
+    .catch(() => {})
+}
+
 function startTimers() {
   stopTimers()
   tickTimer = setInterval(() => {
     if (!player || !videoEl.value) return
     if (!videoEl.value.paused && !videoEl.value.ended) {
       pendingSeconds += 1
+      watchedTotal += 1
+      maybeAutoCheckin()
       if (pendingSeconds >= 10) {
         const n = pendingSeconds
         pendingSeconds = 0
-        learn.addSeconds(n).catch((e) => console.error('[learn] 学习时长写入失败', (e && e.message) || e))
+        learn.addSeconds(n, upRef()).catch((e) => console.error('[learn] 学习时长写入失败', (e && e.message) || e))
       }
     }
     updateBuffered()
@@ -268,7 +331,7 @@ function stopTimers() {
   if (pendingSeconds > 0) {
     const n = pendingSeconds
     pendingSeconds = 0
-    learn.addSeconds(n).catch((e) => console.error('[learn] 学习时长写入失败', (e && e.message) || e))
+    learn.addSeconds(n, upRef()).catch((e) => console.error('[learn] 学习时长写入失败', (e && e.message) || e))
   }
 }
 
@@ -457,6 +520,12 @@ watch(
 onMounted(async () => {
   await settings.init()
   await learn.init()
+  try {
+    await collect.init()
+    await ups.init()
+  } catch (err) {
+    console.warn('[video] 本机收藏/UP 名单初始化失败：', err && err.message)
+  }
   await loadAll()
   startTimers()
   window.addEventListener('keydown', onKey)
@@ -556,6 +625,13 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <div class="row" style="flex: none">
+          <button class="btn sm" @click="collectOpen = true">
+            <Icon :name="collectCount ? 'check' : 'star'" :size="14" />
+            {{ collectCount ? `已收藏 ${collectCount > 1 ? collectCount + ' 处' : ''}` : '收藏' }}
+          </button>
+          <button v-if="info.upMid && !inUpsList" class="btn sm" title="加入 UP 管理名单，首页就会显示 TA 的更新" @click="addCurrentUp">
+            <Icon name="users" :size="14" /> 关注
+          </button>
           <button class="btn sm" @click="toggleShelf">
             <Icon :name="inShelf ? 'check' : 'plus'" :size="14" /> {{ inShelf ? '已加入学习清单' : '加入学习清单' }}
           </button>
@@ -697,5 +773,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </aside>
+
+    <CollectModal :open="collectOpen" :video="collectTarget" @close="collectOpen = false" />
   </div>
 </template>

@@ -1,7 +1,7 @@
 # StudyBili · 学习 B 站
 
 学习专注型的 B 站桌面客户端（Windows / Electron）。参考 [BiliLite](https://github.com/ywmoyue/biliuwp-lite) 的功能取舍重新实现：
-保留**扫码登录、首页推荐、搜索、视频播放（分 P / 画质 / DASH）、收藏夹、UP 主主页、学习记录**，
+保留**扫码登录、UP 管理、首页（只看关注 UP 更新）、搜索、视频播放（分 P / 画质 / DASH）、本机收藏 + B 站收藏夹、UP 主主页、学习记录与打卡**，
 界面走黑白极简 token 体系，不引入娱乐化的信息流。
 
 > 仅限个人学习用途。本项目不提供任何视频内容，只做本机客户端；登录凭证只加密保存在本机。
@@ -30,13 +30,13 @@ src/
   renderer/
     index.html              含 CSP meta
     src/
-      router.js  App.vue     布局（侧栏 5 项 + 顶栏搜索）
+      router.js  App.vue     布局（侧栏 6 项 + 顶栏搜索）
       api/index.js           window.bili 门面
-      db/index.js            Dexie：progress / daily / marks / notes / shelf
-      stores/                ui（toast + 确认框）/ settings / auth / learn
+      db/index.js            Dexie：progress / daily / notes / shelf / ups / collect / checkins / upTime
+      stores/                ui / settings / auth / learn / ups / collect
       player/dash.js         DASH 播放核心
-      views/                 Home / Search / Video / Fav / FavFolder / Up / Learn / Settings
-      components/            Icon / BiliImage / VideoCard / Pager / LoginModal / ConfirmModal …
+      views/                 Home / UpManage / Search / Video / Fav / FavFolder / Up / Learn / Settings
+      components/            Icon / BiliImage / VideoCard / Pager / LoginModal / ConfirmModal / CollectModal …
 ```
 
 ## 本地开发与运行
@@ -121,17 +121,25 @@ $env:STUDY_USER_DATA = "$PWD\tmp-userdata-pkg"
 Get-Content smoke-pkg-report.txt -Encoding UTF8
 ```
 
-断言项：bridge 注入/通道齐全/`app:ping`、侧栏 5 项、主题令牌、`home.feed`、`search.videos`、`video.view`、
+断言项：bridge 注入/通道齐全/`app:ping`、侧栏 6 项、主题令牌、`home.feed`、`search.videos`、`video.view`、
 `video.playurl`（DASH 轨道）、视频页渲染、`<video>` 起流（`readyState=4`）、点播放后 `currentTime` 前进、
-学习进度写入 IndexedDB、顶栏搜索跳转、侧栏 5 个路由真实点击可达。
+学习进度写入 IndexedDB、顶栏搜索跳转、侧栏 6 个路由真实点击可达，以及本机 UP 名单（写入/渲染/首页只显示名单）、
+`up.latest`（匿名访问空间投稿接口可能被 B 站风控，此时软跳过）、本机收藏写入、学习页 5 卡 / 371 格签到日历 /
+近 14 天条形图 / 按 UP 分布饼图、手动打卡写入 `checkins`。
 
 ## 功能与数据
 
 - **登录**：B 站二维码扫码（`qrcode` 渲染），凭证经 Electron `safeStorage`（DPAPI）加密后存于 `userData/study-bili.json`。
+- **UP 管理**：本机维护专注名单（UID / 空间链接 / 昵称添加，支持分组，登录后一键导入 B 站关注）；首页只显示这批 UP 的最新投稿。
 - **播放**：DASH 按 `sidx` 直接定位到目标字节偏移起流；缓冲超前超过 30s 暂停拉流、低于 12s 恢复；
   配额不足时淘汰播放点前 5s 之外的缓冲。可选择清晰度（默认 1080P）、分 P、自动连播。
-- **学习记录**：播放中每秒计时、每 5s 落一次进度，>95% 自动标记完成；学习页有 30 天柱状图、
-  已完成统计、连续天数、学习清单与 JSON 导出。
+- **收藏**：本机收藏（文件夹管理、可离线）与 B 站账户收藏（需登录）双 tab。
+- **学习记录**：播放中每秒计时、每 5s 落一次进度，>95% 自动标记完成；按 UP 累计学习时长；
+  学习页有签到日历、近 14 天条形图、按 UP 分布饼图、连续签到天数，支持手动打卡与（设置里）播放满 5 分钟自动打卡。
+  数据可导出 JSON。
+
+> 说明：`x/space/wbi/arc/search`（UP 空间投稿接口）匿名访问在本机（云电脑 IP）容易被 B 站风控，表现为
+> 首页「关注的 UP 更新」拿不到卡片、UP 主页投稿列表为空；登录后成功率更高，程序已做失败兜底与友好空态。
 
 ## 免责声明
 

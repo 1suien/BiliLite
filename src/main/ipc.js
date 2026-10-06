@@ -7,7 +7,7 @@ import { fetchView, fetchPages, fetchPlayurl, fetchRelated } from './bili/video.
 import { searchVideo, searchUp } from './bili/search.js'
 import { fetchRecommend, fetchPopular } from './bili/home.js'
 import { fetchFavFolders, fetchCollectedFolders, fetchFavResources } from './bili/fav.js'
-import { fetchUpInfo, fetchUpVideos } from './bili/space.js'
+import { fetchUpInfo, fetchUpVideos, fetchLatestByMids, fetchFollowings, resolveUp } from './bili/space.js'
 
 function wrap(handler) {
   return async (_event, payload) => {
@@ -51,6 +51,11 @@ const handlers = {
   // ---- UP 主 ----
   'up:info': wrap(async ({ mid }) => fetchUpInfo(mid)),
   'up:videos': wrap(async ({ mid, pn, keyword }) => fetchUpVideos(mid, pn || 1, 30, keyword || '')),
+  'up:resolve': wrap(async ({ query }) => resolveUp(query)),
+  'up:latest': wrap(async ({ mids, perUp }) => fetchLatestByMids(mids, perUp || 2)),
+  'up:followings': wrap(async ({ pn, ps }) =>
+    fetchFollowings(store.state.user && store.state.user.mid, pn || 1, ps || 50)
+  ),
 
   // ---- 收藏 ----
   'fav:folders': wrap(async () => ({

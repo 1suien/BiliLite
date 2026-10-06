@@ -8,7 +8,8 @@ const DEFAULT_SETTINGS = {
   autoNext: true,
   seekStep: 5,
   backupPath: '',
-  playerVolume: 0.8
+  playerVolume: 0.8,
+  autoCheckin: true
 }
 
 function filePath() {

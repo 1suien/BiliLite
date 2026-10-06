@@ -48,7 +48,10 @@ export const api = {
 
   up: {
     info: proxy((mid) => bridge.up.info(mid)),
-    videos: proxy((mid, pn, keyword) => bridge.up.videos(mid, pn, keyword))
+    videos: proxy((mid, pn, keyword) => bridge.up.videos(mid, pn, keyword)),
+    resolve: proxy((query) => bridge.up.resolve(query)),
+    latest: proxy((mids, perUp) => bridge.up.latest(mids, perUp)),
+    followings: proxy((pn, ps) => bridge.up.followings(pn, ps))
   },
 
   fav: {

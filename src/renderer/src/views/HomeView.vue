@@ -1,24 +1,25 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import api from '../api'
 import VideoCard from '../components/VideoCard.vue'
 import SkeletonGrid from '../components/SkeletonGrid.vue'
 import EmptyBlock from '../components/EmptyBlock.vue'
 import Icon from '../components/Icon.vue'
 import { useLearnStore } from '../stores/learn'
+import { useUpsStore } from '../stores/ups'
+import { useAuthStore } from '../stores/auth'
 import { useUiStore } from '../stores/ui'
-import { fmtHours } from '../utils/format'
+import { fmtHours, fmtAgo } from '../utils/format'
 
 const router = useRouter()
 const learn = useLearnStore()
+const ups = useUpsStore()
+const auth = useAuthStore()
 const ui = useUiStore()
 
-const loading = ref(true)
-const items = ref([])
-const source = ref('recommend')
-const page = ref(1)
-const failed = ref('')
+/** 当前筛选的 UP：'all' 或 mid 字符串 */
+const only = ref('all')
+const imported = ref(false)
 
 const continueList = computed(() =>
   learn.list
@@ -30,25 +31,25 @@ const continueList = computed(() =>
     }))
 )
 
-async function load(reset = true) {
-  loading.value = true
-  failed.value = ''
-  if (reset) page.value = 1
-  try {
-    const data = await api.home.feed(page.value)
-    items.value = reset ? data.items : [...items.value, ...data.items]
-    source.value = data.source
-  } catch (err) {
-    failed.value = err.message || '加载失败'
-  } finally {
-    loading.value = false
-  }
-}
+/** 首页推荐 = 本机 UP 名单里最新的投稿 */
+const items = computed(() => {
+  const list = ups.latest.map((it) => ({ ...it, reason: it.pubdate ? fmtAgo(it.pubdate) : '' }))
+  if (only.value === 'all') return list
+  return list.filter((it) => String(it.upMid) === only.value)
+})
 
-function more() {
-  page.value += 1
-  load(false)
-}
+const upChips = computed(() => {
+  const names = new Map()
+  for (const it of ups.latest) {
+    const k = String(it.upMid)
+    if (!names.has(k)) names.set(k, it.upName)
+  }
+  const chips = [{ mid: 'all', name: '全部', n: ups.latest.length }]
+  for (const [mid, name] of names) {
+    chips.push({ mid, name, n: ups.latest.filter((x) => String(x.upMid) === mid).length })
+  }
+  return chips
+})
 
 function progressOf(item) {
   const rec = Object.values(learn.progressMap).find((x) => x.bvid === item.bvid)
@@ -56,10 +57,41 @@ function progressOf(item) {
   return Math.min(1, rec.seconds / rec.duration)
 }
 
+async function refresh() {
+  try {
+    await ups.loadLatest(true)
+    ui.ok('已刷新关注 UP 的更新')
+  } catch (err) {
+    ui.err(err.message || '刷新失败')
+  }
+}
+
+async function importFollowings() {
+  if (!auth.loggedIn) {
+    ui.askLogin()
+    return
+  }
+  imported.value = true
+  try {
+    const res = await ups.importFollowings()
+    ui.ok(`已导入 ${res.imported} 个关注`)
+    await ups.loadLatest(true)
+  } catch (err) {
+    ui.err(err.message || '导入失败')
+  } finally {
+    imported.value = false
+  }
+}
+
 onMounted(async () => {
-  await load(true)
-  const err = failed.value
-  if (err && /登录/.test(err)) ui.toast(err)
+  await ups.init(true)
+  if (ups.items.length) {
+    try {
+      await ups.loadLatest(false)
+    } catch (err) {
+      console.warn('[home] 关注 UP 更新拉取失败：', err && err.message)
+    }
+  }
 })
 </script>
 
@@ -76,32 +108,61 @@ onMounted(async () => {
         <VideoCard
           v-for="r in continueList"
           :key="r.key"
-          :item="{ bvid: r.bvid, title: r.title, cover: r.cover, upName: r.upName }"
+          :item="{ bvid: r.bvid, title: r.title, cover: r.cover, upName: r.upName, upMid: r.upMid }"
           :progress="r.progress"
         />
       </div>
     </section>
 
     <div class="page-head">
-      <h1>首页推荐</h1>
-      <p>{{ source === 'recommend' ? '来自 B 站推荐流' : source === 'popular' ? '推荐流不可用，已切换为热门' : '排行榜' }}</p>
+      <h1>关注的 UP 更新</h1>
+      <p>
+        {{ ups.count }} 个 UP 的最新投稿
+        <template v-if="ups.latestError"> · {{ ups.latestError }}</template>
+      </p>
       <span class="grow" />
-      <button class="btn sm" :disabled="loading" @click="load(true)"><Icon name="refresh" :size="14" /> 换一批</button>
-    </div>
-
-    <div v-if="failed" class="panel" style="color: var(--danger)">{{ failed }}</div>
-    <SkeletonGrid v-else-if="loading && !items.length" />
-    <EmptyBlock v-else-if="!items.length" icon="film" title="没有拿到推荐内容" desc="检查网络后重试，或先登录以获得更完整的推荐。" />
-    <div v-else class="grid">
-      <VideoCard v-for="v in items" :key="v.bvid + (v.cid || '')" :item="v" :progress="progressOf(v)" />
-    </div>
-
-    <div v-if="items.length" class="load-more">
-      <button class="btn" :disabled="loading" @click="more">
-        <Icon v-if="!loading" name="down" :size="14" />
-        <span v-if="loading" class="spinner" />
-        {{ loading ? '加载中' : '加载更多' }}
+      <RouterLink to="/ups" class="chip"><Icon name="users" :size="13" /> 管理名单</RouterLink>
+      <button class="btn sm" :disabled="ups.loadingLatest" @click="refresh">
+        <span v-if="ups.loadingLatest" class="spinner" />
+        <Icon v-else name="refresh" :size="14" />
+        刷新
       </button>
+    </div>
+
+    <div v-if="ups.count > 1" class="row" style="flex-wrap: wrap; margin-bottom: 14px">
+      <span
+        v-for="c in upChips"
+        :key="c.mid"
+        class="chip"
+        :class="{ on: only === c.mid }"
+        @click="only = c.mid"
+      >
+        {{ c.name }} {{ c.n }}
+      </span>
+    </div>
+
+    <SkeletonGrid v-if="ups.loadingLatest && !items.length" />
+    <EmptyBlock
+      v-else-if="!ups.count"
+      icon="users"
+      title="还没有添加 UP 主"
+      desc="首页只显示你自己名单里 UP 的最新投稿。先添加几个想专心学习的 UP 主，登录后还能一键导入 B 站关注。"
+    >
+      <RouterLink to="/ups" class="btn primary"><Icon name="plus" :size="15" /> 去添加 UP</RouterLink>
+      <button class="btn" :disabled="imported" @click="importFollowings">
+        <span v-if="imported" class="spinner" />
+        <Icon v-else name="download" :size="15" />
+        导入 B 站关注
+      </button>
+    </EmptyBlock>
+    <EmptyBlock
+      v-else-if="!items.length"
+      icon="film"
+      title="这些 UP 最近没有更新"
+      desc="换个 UP 看看，或者点「刷新」重新拉取。"
+    />
+    <div v-else class="grid">
+      <VideoCard v-for="v in items" :key="v.bvid" :item="v" :progress="progressOf(v)" />
     </div>
   </div>
 </template>

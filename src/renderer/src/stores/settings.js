@@ -35,7 +35,9 @@ export const useSettingsStore = defineStore('settings', {
       backupPath: '',
       playerVolume: 0.8,
       hideDanmakuArea: true,
-      autoMark: true
+      autoMark: true,
+      /** 播放超过 5 分钟后自动打卡 */
+      autoCheckin: true
     }
   }),
   actions: {

@@ -7,11 +7,15 @@ import EmptyBlock from '../components/EmptyBlock.vue'
 import Pager from '../components/Pager.vue'
 import Icon from '../components/Icon.vue'
 import { useLearnStore } from '../stores/learn'
+import { useUpsStore, DEFAULT_GROUP } from '../stores/ups'
+import { useUiStore } from '../stores/ui'
 import { fmtCount } from '../utils/format'
 
 const route = useRoute()
 const router = useRouter()
 const learn = useLearnStore()
+const ups = useUpsStore()
+const ui = useUiStore()
 
 const mid = computed(() => String(route.params.mid || ''))
 const loading = ref(false)
@@ -55,8 +59,35 @@ function go(p) {
   loadVideos(false)
 }
 
+const inUpsList = computed(() => ups.items.some((x) => String(x.mid) === mid.value))
+
+async function addToList() {
+  if (!up.value) return
+  try {
+    await ups.addUp(
+      { mid: up.value.mid || mid.value, name: up.value.name, face: up.value.face, sign: up.value.sign },
+      ups.activeGroup && ups.activeGroup !== 'all' ? ups.activeGroup : DEFAULT_GROUP
+    )
+    ui.ok(`已加入 UP 管理：${up.value.name}`)
+  } catch (err) {
+    ui.err(err.message || '加入失败')
+  }
+}
+
+async function removeFromList() {
+  const ok = await ui.confirm('从 UP 管理名单移除？', `移除后首页不再显示「${up.value.name}」的更新。`)
+  if (!ok) return
+  await ups.removeUp(mid.value)
+  ui.ok('已移出名单')
+}
+
 onMounted(async () => {
   await learn.init()
+  try {
+    await ups.init()
+  } catch (err) {
+    console.warn('[up] UP 名单初始化失败：', err && err.message)
+  }
   loading.value = true
   await Promise.all([loadUp(), loadVideos(true)])
   loading.value = false
@@ -82,6 +113,12 @@ onMounted(async () => {
         <div class="muted" style="font-size: 12.5px">{{ up.sign || '这个人很神秘' }}</div>
       </div>
       <span class="grow" />
+      <button v-if="!inUpsList" class="btn sm primary" @click="addToList">
+        <Icon name="plus" :size="14" /> 加入 UP 管理
+      </button>
+      <button v-else class="btn sm" @click="removeFromList">
+        <Icon name="check" :size="14" /> 已在 UP 管理
+      </button>
       <button
         class="btn sm ghost"
         @click="api.sys.openExternal('https://space.bilibili.com/' + mid).catch(() => {})"

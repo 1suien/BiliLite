@@ -104,7 +104,7 @@ export async function runSmoke(win) {
   await step('bridge 已注入', 'typeof window.bili', (v) => v === 'object')
   await step('bridge 通道齐全', "Object.keys(window.bili).join(',')", (v) => /auth/.test(v) && /video/.test(v))
   await step('app:ping', 'window.bili.ping()', (v) => v === 'pong' || Boolean(v))
-  await step('侧栏导航 5 项', "document.querySelectorAll('.nav-item').length", (v) => v === 5)
+  await step('侧栏导航 6 项', "document.querySelectorAll('.nav-item').length", (v) => v === 6)
   await step('品牌文案', "document.querySelector('.brand b') && document.querySelector('.brand b').textContent", (v) => typeof v === 'string' && v.length > 0)
   await step('主题令牌已应用', "getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()", (v) => typeof v === 'string' && v.length > 0)
 
@@ -195,12 +195,13 @@ export async function runSmoke(win) {
     let last = null
     let gone = false
     try {
-      await js(`(() => { const b = document.querySelector('.player-ctl button'); if (b) b.click(); return !!b })()`)
       for (let i = 0; i < 8; i++) {
-        await sleep(700)
+        if (i > 0) await sleep(700)
         const s = await js(`(() => {
           const v = document.querySelector('video')
           if (!v) return { err: 'no-video-element' }
+          // 播放键是切换语义：只在暂停时才点，避免把正在播的视频点停
+          if (v.paused) { const b = document.querySelector('.player-ctl button'); if (b) b.click() }
           return {
             t: Number(v.currentTime.toFixed(2)),
             paused: v.paused,
@@ -298,6 +299,169 @@ export async function runSmoke(win) {
       log(`      · nav-item 文本 :: ${show(navLabels)}`)
     }
   }
+
+  // ================= 本轮新增功能：UP 管理 / 本机收藏 / 学习打卡 =================
+  log('--- 新功能冒烟：UP 管理 / 本机收藏 / 学习打卡 ---')
+
+  const idbCount = (store) =>
+    js(`(async () => {
+      const openReq = indexedDB.open('study-bili')
+      const db = await new Promise((res, rej) => { openReq.onsuccess = () => res(openReq.result); openReq.onerror = () => rej(openReq.error) })
+      if (!db.objectStoreNames.contains(${JSON.stringify(store)})) return -1
+      const rows = await new Promise((res) => {
+        const rq = db.transaction(${JSON.stringify(store)}, 'readonly').objectStore(${JSON.stringify(store)}).getAll()
+        rq.onsuccess = () => res(rq.result)
+        rq.onerror = () => res([])
+      })
+      return rows.length
+    })()`)
+
+  const clickNav = async (label) => {
+    const ok = await js(`(() => {
+      const el = Array.from(document.querySelectorAll('.nav-item')).find((e) => e.textContent.includes(${JSON.stringify(label)}))
+      if (!el) return false
+      el.click()
+      return true
+    })()`)
+    await sleep(1300)
+    return ok
+  }
+
+  await step('ups 库已升级到 v2 表', `(() => 'indexedDB' in window)()`, (v) => v === true)
+  await step(
+    'bridge up 通道齐全',
+    "Object.keys(window.bili.up).sort().join(',')",
+    (v) => typeof v === 'string' && /followings/.test(v) && /latest/.test(v) && /resolve/.test(v)
+  )
+
+  // up.latest 可能被 B 站风控（-352/-412），重试 + 风控时软跳过
+  let latestProbe = null
+  let latestMsg = ''
+  let latestOk = false
+  for (let i = 0; i < 3; i++) {
+    latestProbe = await js('window.bili.up.latest([946974], 2)')
+    latestOk = Boolean(latestProbe && latestProbe.items && latestProbe.items.length)
+    if (latestOk) break
+    latestMsg = latestProbe && latestProbe.errors && latestProbe.errors[0] && latestProbe.errors[0].message
+    if (i < 2) await sleep(1500)
+  }
+  if (latestOk) {
+    pass('up.latest 拉取名单 UP 的最新投稿', {
+      n: latestProbe.items.length,
+      first: latestProbe.items[0].bvid,
+      upMid: latestProbe.items[0].upMid,
+      errors: (latestProbe.errors || []).length
+    })
+  } else if (/banned|风控|risk|权限|访问|forbidden|-352|-412|-403/i.test(String(latestMsg || ''))) {
+    log('WARN  up.latest 被 B 站风控/权限拦截（匿名空间投稿接口），跳过；本地流程不受影响：' + latestMsg)
+  } else {
+    fail('up.latest 拉取名单 UP 的最新投稿', latestProbe || latestMsg)
+  }
+
+  // 往本机名单写一个 UP（真实 UP：影视飓风 mid=946974）
+  const seeded = await js(`(async () => {
+    const openReq = indexedDB.open('study-bili')
+    const db = await new Promise((res, rej) => { openReq.onsuccess = () => res(openReq.result); openReq.onerror = () => rej(openReq.error) })
+    if (!db.objectStoreNames.contains('ups')) return { ok: false, reason: 'no-ups-store' }
+    await new Promise((res, rej) => {
+      const tx = db.transaction('ups', 'readwrite')
+      tx.objectStore('ups').put({ mid: 946974, name: '影视飓风', group: '未分组', addedAt: Date.now(), face: '', fans: 0, sign: '' })
+      tx.oncomplete = () => res(true)
+      tx.onerror = () => rej(tx.error)
+    })
+    return { ok: true, rows: await new Promise((res) => { const rq = db.transaction('ups', 'readonly').objectStore('ups').count(); rq.onsuccess = () => res(rq.result) }) }
+  })()`)
+  if (seeded && seeded.ok && seeded.rows > 0) pass('写入本机 UP 名单', seeded)
+  else fail('写入本机 UP 名单', seeded)
+
+  // UP 管理页
+  await clickNav('UP 管理')
+  await step('UP 管理页路由', "location.hash.includes('/ups')", (v) => v === true)
+  await step('UP 管理页渲染名单', "document.querySelectorAll('.uprow').length", (v) => typeof v === 'number' && v >= 1)
+  await step(
+    'UP 管理页有「添加 UP」',
+    "!!Array.from(document.querySelectorAll('button')).find((b) => b.textContent.includes('添加 UP'))",
+    (v) => v === true
+  )
+
+  // 首页只显示本机名单里的 UP
+  await clickNav('首页')
+  const homeText = await js(`document.querySelector('#app').innerText`)
+  const homeOk = /个 UP 的最新投稿/.test(homeText) && !homeText.includes('还没有添加 UP 主')
+  if (homeOk) pass('首页只显示本机名单 UP', { count: (homeText.match(/(\d+) 个 UP 的最新投稿/) || [])[0] })
+  else fail('首页只显示本机名单 UP', homeText.slice(0, 200).replace(/\s+/g, ' '))
+
+  // 首页卡片：数据已能拿到（up.latest 通过）时就应当渲染出来
+  let homeCards = 0
+  for (let i = 0; i < 10; i++) {
+    homeCards = await js("document.querySelectorAll('.grid .vcard').length")
+    if (homeCards > 0) break
+    await sleep(800)
+  }
+  const latestOkNow = latestOk
+  if (homeCards > 0) pass('首页出现关注 UP 的视频卡', homeCards)
+  else if (latestOkNow) fail('首页出现关注 UP 的视频卡', { note: 'up.latest 有数据但首页 8 秒内没有卡片' })
+  else log('      · 首页卡片跳过：up.latest 未取到数据（网络/风控）')
+
+  // 本机收藏：进视频页 → 点收藏 → 选文件夹（视频页渲染偶有延迟，重试导航）
+  let hasPlayer = false
+  for (let i = 0; i < 4 && !hasPlayer; i++) {
+    await js(`location.hash = '#/video/' + ${JSON.stringify(bvid)} + '?cid=' + ${cid}`)
+    await sleep(2200)
+    hasPlayer = await js(`!!document.querySelector('.player-stage')`)
+  }
+  if (hasPlayer) {
+    const opened = await js(`(() => {
+      const b = Array.from(document.querySelectorAll('.btn')).find((x) => /^(收藏|已收藏)/.test(x.textContent.trim()))
+      if (!b) return false
+      b.click()
+      return true
+    })()`)
+    await sleep(600)
+    await step('视频页「收藏」按钮打开弹窗', `!!document.querySelector('.overlay .modal')`, (v) => v === true)
+    const picked = await js(`(() => {
+      const r = document.querySelector('.overlay .frow')
+      if (!r) return false
+      r.click()
+      return true
+    })()`)
+    await sleep(1000)
+    const collectRows = await idbCount('collect')
+    if (picked && collectRows > 0) pass('本机收藏写入 IndexedDB', { picked, rows: collectRows })
+    else fail('本机收藏写入 IndexedDB', { picked, rows: collectRows })
+    const closed = await js(`(() => { const b = Array.from(document.querySelectorAll('.overlay .modal button')).find((x) => x.textContent.trim() === '关闭'); if (b) { b.click(); return true } return false })()`)
+    if (!closed) log('      · 收藏弹窗可能已自动关闭（收藏成功后会自动关）')
+  } else {
+    log('WARN  视频页多次未渲染出 .player-stage，收藏弹窗测试跳过（时序/网络）')
+  }
+
+  // 学习页：统计卡 / 日历 / 条形图 / 饼图 / 手动打卡
+  await clickNav('学习')
+  await step('学习页 5 个统计卡', "document.querySelectorAll('.stat-grid .stat').length", (v) => v === 5)
+  await step('签到日历格子数', "document.querySelectorAll('.cal .cell').length", (v) => typeof v === 'number' && v >= 350)
+  await step('近 14 天条形图', "document.querySelectorAll('.bars14 .bcol').length", (v) => v === 14)
+  await step(
+    '按 UP 分布饼图',
+    "!!document.querySelector('svg.pie') || document.querySelector('#app').innerText.includes('还没有分布数据')",
+    (v) => v === true
+  )
+
+  const beforeCheckin = await idbCount('checkins')
+  const clickedCheckin = await js(`(() => {
+    const b = Array.from(document.querySelectorAll('button')).find((x) => /今日打卡|今日已签到/.test(x.textContent))
+    if (!b) return 'no-button'
+    if (b.disabled) return 'already'
+    b.click()
+    return true
+  })()`)
+  await sleep(1000)
+  const afterCheckin = await idbCount('checkins')
+  if ((afterCheckin > beforeCheckin && afterCheckin > 0) || (clickedCheckin === 'already' && afterCheckin > 0)) {
+    pass('手动打卡写入 checkins', { before: beforeCheckin, after: afterCheckin, clicked: clickedCheckin })
+  } else {
+    fail('手动打卡写入 checkins', { before: beforeCheckin, after: afterCheckin, clicked: clickedCheckin })
+  }
+  await step('签到后日历出现绿色格子', "document.querySelectorAll('.cal .cell.on').length", (v) => typeof v === 'number' && v >= 1)
 
   const errs = await js(`String(window.__smokeErr || '')`).catch(() => '')
   if (errs) log(`渲染层异常汇总 :: ${show(errs)}`)

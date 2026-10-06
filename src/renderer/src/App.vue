@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import { useSettingsStore } from './stores/settings'
 import { useLearnStore } from './stores/learn'
+import { useUpsStore } from './stores/ups'
 import { useUiStore } from './stores/ui'
 import Icon from './components/Icon.vue'
 import Toasts from './components/Toasts.vue'
@@ -17,6 +18,7 @@ const router = useRouter()
 const auth = useAuthStore()
 const settings = useSettingsStore()
 const learn = useLearnStore()
+const ups = useUpsStore()
 const ui = useUiStore()
 
 const keyword = ref('')
@@ -24,6 +26,7 @@ const searchEl = ref(null)
 
 const NAV = [
   { to: '/', icon: 'home', label: '首页' },
+  { to: '/ups', icon: 'users', label: 'UP 管理' },
   { to: '/search', icon: 'search', label: '搜索' },
   { to: '/fav', icon: 'star', label: '收藏' },
   { to: '/learn', icon: 'book', label: '学习' },
@@ -51,6 +54,11 @@ onMounted(async () => {
     await learn.init()
   } catch (err) {
     console.warn('[learn] 本地学习库初始化失败：', err && err.message)
+  }
+  try {
+    await ups.init()
+  } catch (err) {
+    console.warn('[ups] 本机 UP 名单初始化失败：', err && err.message)
   }
   window.addEventListener('keydown', (e) => {
     if (e.key === '/' && !/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName)) {

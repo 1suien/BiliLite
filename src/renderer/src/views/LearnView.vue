@@ -5,11 +5,13 @@ import BiliImage from '../components/BiliImage.vue'
 import EmptyBlock from '../components/EmptyBlock.vue'
 import Icon from '../components/Icon.vue'
 import { useLearnStore } from '../stores/learn'
+import { useSettingsStore } from '../stores/settings'
 import { useUiStore } from '../stores/ui'
 import { fmtHours, fmtDuration, fmtAgo } from '../utils/format'
 
 const router = useRouter()
 const learn = useLearnStore()
+const settings = useSettingsStore()
 const ui = useUiStore()
 
 const tab = ref('recent')
@@ -17,16 +19,88 @@ const ready = ref(false)
 
 const recent = computed(() => learn.list.slice(0, 40))
 const shelf = computed(() => learn.shelf)
-const daily = computed(() => learn.daily)
 const peak = computed(() => Math.max(1, learn.maxDailySeconds))
+const recent14 = computed(() => learn.recentDays)
 
 const stats = computed(() => [
-  { label: '今日学习', value: fmtHours(learn.todaySeconds) + ' h', icon: 'clock' },
-  { label: '累计学习', value: fmtHours(learn.totalSeconds) + ' h', icon: 'chart' },
-  { label: '学过视频', value: String(learn.totalVideos), icon: 'film' },
-  { label: '已完成', value: String(learn.completedCount), icon: 'check' },
-  { label: '连续天数', value: String(learn.streak), icon: 'fire' }
+  { label: '总学习时长', value: fmtHours(learn.totalSeconds) + ' h', icon: 'clock' },
+  { label: '看过视频', value: String(learn.totalVideos), icon: 'play' },
+  { label: '已看完', value: String(learn.completedCount), icon: 'check' },
+  { label: '在看', value: String(learn.inProgressCount), icon: 'chart' },
+  { label: '连续签到（天）', value: String(learn.checkinStreak), icon: 'fire' }
 ])
+
+// ── 签到日历 ──────────────────────────────────────────────
+const YEAR = new Date().getFullYear()
+const checkinSet = computed(() => new Set(learn.checkins))
+const checkedToday = computed(() => checkinSet.value.has(todayKeyLocal()))
+
+function keyOfDate(d) {
+  const p = (x) => String(x).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+function todayKeyLocal() {
+  return keyOfDate(new Date())
+}
+
+/** 一年 53 列 × 7 行（周一为首行） */
+const calendar = computed(() => {
+  const jan1 = new Date(YEAR, 0, 1)
+  const mondayOffset = (jan1.getDay() + 6) % 7
+  const cursor = new Date(YEAR, 0, 1 - mondayOffset)
+  const cols = []
+  while (cursor.getFullYear() <= YEAR) {
+    const week = []
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(cursor)
+      const key = keyOfDate(d)
+      week.push({
+        key,
+        day: d.getDate(),
+        inYear: d.getFullYear() === YEAR,
+        checked: checkinSet.value.has(key)
+      })
+      cursor.setDate(cursor.getDate() + 1)
+    }
+    cols.push(week)
+    if (cursor.getFullYear() > YEAR) break
+  }
+  return cols
+})
+
+const monthLabels = computed(() =>
+  calendar.value.map((week) => {
+    const first = week.find((d) => d.inYear && d.day === 1)
+    return first ? `${new Date(first.key).getMonth() + 1}月` : ''
+  })
+)
+
+async function doCheckin() {
+  const added = await learn.checkin()
+  if (added) ui.ok(`打卡成功，已连续 ${learn.checkinStreak} 天`)
+  else ui.toast('今天已经打过卡了')
+}
+
+// ── 按 UP 分布（饼图）────────────────────────────────────
+const PIE_COLORS = ['#6ea8fe', '#7fd68a', '#f0a868', '#b39ddb', '#5ad1c8', '#e879a6', '#d9d9de', '#8a8a93']
+const RADIUS = 54
+const CIRC = 2 * Math.PI * RADIUS
+
+const pie = computed(() => {
+  const rows = learn.upDistribution.slice(0, 8)
+  let acc = 0
+  return rows.map((r, i) => {
+    const len = r.pct * CIRC
+    const seg = {
+      ...r,
+      color: PIE_COLORS[i % PIE_COLORS.length],
+      dash: `${len} ${CIRC - len}`,
+      offset: -acc
+    }
+    acc += len
+    return seg
+  })
+})
 
 function pct(rec) {
   if (!rec.duration) return 0
@@ -51,7 +125,7 @@ async function removeRec(rec) {
 }
 
 async function clearAll() {
-  const ok = await ui.confirm('清空全部学习数据？', '进度、每日时长、笔记、学习清单都会被删除，且无法恢复。')
+  const ok = await ui.confirm('清空全部学习数据？', '进度、每日时长、签到、笔记、学习清单都会被删除，且无法恢复。')
   if (!ok) return
   await learn.clearAll()
   ui.ok('学习数据已清空')
@@ -60,11 +134,13 @@ async function clearAll() {
 async function exportJson() {
   try {
     const { db } = await import('../db')
-    const [progress, dailyRows, notes, shelfRows] = await Promise.all([
+    const [progress, dailyRows, notes, shelfRows, checkins, upTime] = await Promise.all([
       db.progress.toArray(),
       db.daily.toArray(),
       db.notes.toArray(),
-      db.shelf.toArray()
+      db.shelf.toArray(),
+      db.checkins.toArray(),
+      db.upTime.toArray()
     ])
     const payload = {
       app: 'study-bili',
@@ -72,7 +148,9 @@ async function exportJson() {
       progress,
       daily: dailyRows,
       notes,
-      shelf: shelfRows
+      shelf: shelfRows,
+      checkins,
+      upTime
     }
     await navigator.clipboard.writeText(JSON.stringify(payload, null, 2))
     ui.ok('学习数据已复制到剪贴板')
@@ -98,30 +176,106 @@ onMounted(async () => {
       <p>所有数据只保存在本机（IndexedDB），不会上传。</p>
       <span class="grow" />
       <button class="btn sm ghost" @click="exportJson"><Icon name="list" :size="14" /> 导出 JSON</button>
-      <button class="btn sm danger" @click="clearAll"><Icon name="trash" :size="14" /> 清空</button>
+      <button class="btn sm" style="color: var(--danger)" @click="clearAll"><Icon name="trash" :size="14" /> 清空</button>
     </div>
 
     <div class="stat-grid">
       <div v-for="s in stats" :key="s.label" class="stat">
-        <div class="row" style="gap: 6px"><Icon :name="s.icon" :size="14" /><span class="muted">{{ s.label }}</span></div>
-        <div class="num">{{ s.value }}</div>
+        <div class="k row" style="gap: 6px; align-items: center">
+          <Icon :name="s.icon" :size="13" /> {{ s.label }}
+        </div>
+        <div class="v">{{ s.value }}</div>
       </div>
     </div>
 
+    <!-- 每日签到 -->
     <div class="panel" style="margin: 18px 0">
       <div class="row" style="margin-bottom: 12px">
-        <strong style="font-size: 13px">最近 30 天</strong>
+        <strong style="font-size: 13.5px">每日签到 · {{ YEAR }}年</strong>
+        <span class="grow" />
+        <span v-if="checkedToday" class="muted" style="font-size: 12.5px; color: var(--ok)">
+          签到成功，已连续 {{ learn.checkinStreak }} 天
+        </span>
+        <span v-else class="muted" style="font-size: 12.5px">今天还没打卡</span>
+        <button class="btn sm" :class="{ primary: !checkedToday }" :disabled="checkedToday" @click="doCheckin">
+          <Icon name="calendar" :size="14" /> {{ checkedToday ? '今日已签到' : '今日打卡' }}
+        </button>
+      </div>
+
+      <div class="cal-wrap">
+        <div class="wd">
+          <span v-for="w in ['一', '二', '三', '四', '五', '六', '日']" :key="w">{{ w }}</span>
+        </div>
+        <div class="cal-scroll">
+          <div class="months">
+            <span v-for="(m, i) in monthLabels" :key="i" class="mlabel">{{ m }}</span>
+          </div>
+          <div class="cal">
+            <div v-for="(week, ci) in calendar" :key="ci" class="col">
+              <i
+                v-for="d in week"
+                :key="d.key"
+                class="cell"
+                :class="{ on: d.checked, out: !d.inYear }"
+                :title="d.inYear ? `${d.key} · ${d.checked ? '已签到' : '未签到'}` : ''"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="muted" style="margin: 10px 0 0; font-size: 12px; color: var(--ok)">绿色 = 已签到</p>
+    </div>
+
+    <!-- 近 14 天条形图 -->
+    <div class="panel" style="margin-bottom: 18px">
+      <div class="row" style="margin-bottom: 12px">
+        <strong style="font-size: 13.5px">每日学习（条形图 · 近 14 天）</strong>
         <span class="grow" />
         <span class="muted" style="font-size: 12px">峰值 {{ fmtHours(learn.maxDailySeconds) }} h / 天</span>
       </div>
-      <div class="bars">
-        <div
-          v-for="d in daily"
-          :key="d.date"
-          class="bar"
-          :title="d.date + ' · ' + fmtHours(d.seconds) + ' h'"
-        >
-          <i :style="{ height: Math.max(2, Math.round((d.seconds / peak) * 100)) + '%' }" />
+      <div class="bars14">
+        <div v-for="d in recent14" :key="d.date" class="bcol" :title="d.date + ' · ' + fmtHours(d.seconds) + ' h'">
+          <div class="btrack">
+            <i :style="{ height: Math.max(2, Math.round((d.seconds / peak) * 100)) + '%' }" />
+          </div>
+          <span class="blabel mono">{{ d.date.slice(5).replace('-', '/') }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 按 UP 分布 -->
+    <div class="panel" style="margin-bottom: 18px">
+      <div class="row" style="margin-bottom: 12px">
+        <strong style="font-size: 13.5px">按 UP 分布（饼图）</strong>
+        <span class="grow" />
+        <span class="muted" style="font-size: 12px">统计每个 UP 的累计学习时长</span>
+      </div>
+      <EmptyBlock v-if="!pie.length" icon="pie" title="还没有分布数据" desc="播放视频满 10 秒后，就会按 UP 统计学习时长。" />
+      <div v-else class="pie-wrap">
+        <svg viewBox="0 0 140 140" class="pie">
+          <circle cx="70" cy="70" :r="RADIUS" fill="none" stroke="var(--soft)" stroke-width="18" />
+          <circle
+            v-for="(s, i) in pie"
+            :key="i"
+            cx="70"
+            cy="70"
+            :r="RADIUS"
+            fill="none"
+            :stroke="s.color"
+            stroke-width="18"
+            :stroke-dasharray="s.dash"
+            :stroke-dashoffset="s.offset"
+            transform="rotate(-90 70 70)"
+          >
+            <title>{{ s.name }} · {{ fmtHours(s.seconds) }} h</title>
+          </circle>
+        </svg>
+        <div class="legend">
+          <div v-for="(s, i) in pie" :key="i" class="lgrow">
+            <span class="dot" :style="{ background: s.color }" />
+            <span class="grow clamp-1">{{ s.name }}</span>
+            <span class="muted mono" style="font-size: 12px">{{ Math.round(s.pct * 100) }}% · {{ fmtHours(s.seconds) }} h</span>
+          </div>
         </div>
       </div>
     </div>
@@ -187,25 +341,129 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.bars {
+/* ── 签到日历 ─────────────────────────────── */
+.cal-wrap {
+  display: flex;
+  gap: 6px;
+}
+.wd {
+  display: grid;
+  grid-template-rows: repeat(7, 11px);
+  gap: 3px;
+  padding-top: 16px;
+  font-size: 10.5px;
+  color: var(--t3);
+  text-align: right;
+  width: 14px;
+  flex: none;
+}
+.wd span {
+  line-height: 11px;
+}
+.cal-scroll {
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+.months {
+  display: flex;
+  gap: 3px;
+  height: 16px;
+  font-size: 10.5px;
+  color: var(--t3);
+}
+.mlabel {
+  width: 11px;
+  flex: none;
+  white-space: nowrap;
+}
+.cal {
+  display: flex;
+  gap: 3px;
+}
+.col {
+  display: grid;
+  grid-template-rows: repeat(7, 11px);
+  gap: 3px;
+}
+.cell {
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  background: var(--soft);
+  display: block;
+}
+.cell.on {
+  background: var(--ok);
+}
+.cell.out {
+  background: transparent;
+}
+
+/* ── 14 天条形图 ──────────────────────────── */
+.bars14 {
   display: flex;
   align-items: flex-end;
-  gap: 3px;
-  height: 96px;
+  gap: 6px;
+  height: 132px;
 }
-.bar {
+.bcol {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
   height: 100%;
+  gap: 6px;
+}
+.btrack {
+  flex: 1;
   display: flex;
   align-items: flex-end;
   border-radius: 3px;
   background: var(--soft);
+  overflow: hidden;
 }
-.bar i {
+.btrack i {
   display: block;
   width: 100%;
   border-radius: 3px;
   background: var(--accent);
   opacity: 0.85;
+}
+.blabel {
+  font-size: 10.5px;
+  color: var(--t3);
+  text-align: center;
+}
+
+/* ── 饼图 ─────────────────────────────────── */
+.pie-wrap {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  flex-wrap: wrap;
+}
+.pie {
+  width: 150px;
+  height: 150px;
+  flex: none;
+}
+.legend {
+  flex: 1;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.lgrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
 }
 </style>

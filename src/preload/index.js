@@ -16,6 +16,9 @@ const CHANNELS = [
   'video:related',
   'up:info',
   'up:videos',
+  'up:resolve',
+  'up:latest',
+  'up:followings',
   'fav:folders',
   'fav:resources',
   'settings:get',
@@ -76,7 +79,10 @@ const api = {
 
   up: {
     info: (mid) => call('up:info', { mid }),
-    videos: (mid, pn = 1, keyword = '') => call('up:videos', { mid, pn, keyword })
+    videos: (mid, pn = 1, keyword = '') => call('up:videos', { mid, pn, keyword }),
+    resolve: (query) => call('up:resolve', { query }),
+    latest: (mids, perUp = 2) => call('up:latest', { mids, perUp }),
+    followings: (pn = 1, ps = 50) => call('up:followings', { pn, ps })
   },
 
   fav: {

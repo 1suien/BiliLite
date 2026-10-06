@@ -7,6 +7,12 @@ import Dexie from 'dexie'
  *   marks     : 打点/书签
  *   notes     : 学习笔记
  *   shelf     : 本地「学习清单」（不依赖 B 站收藏夹）
+ *   ups       : 本机「UP 管理」名单，key = mid
+ *   upgroups  : UP 分组名
+ *   collect       : 本机收藏的视频
+ *   collectfolders: 本机收藏的文件夹名
+ *   checkins  : 手动/自动签到，key = 'YYYY-MM-DD'
+ *   upTime    : 按 UP 累计的学习时长，key = mid 或 UP 名
  */
 export const db = new Dexie('study-bili')
 
@@ -16,6 +22,20 @@ db.version(1).stores({
   marks: '++id, bvid, cid, sec',
   notes: '++id, bvid, cid, at',
   shelf: 'bvid, at'
+})
+
+db.version(2).stores({
+  progress: 'key, bvid, updatedAt, completed',
+  daily: 'date',
+  marks: '++id, bvid, cid, sec',
+  notes: '++id, bvid, cid, at',
+  shelf: 'bvid, at',
+  ups: 'mid, group, addedAt',
+  upgroups: 'name, at',
+  collect: '++id, bvid, folder, at',
+  collectfolders: 'name, at',
+  checkins: 'date, at',
+  upTime: 'key, mid, name'
 })
 
 export async function getProgress(bvid, cid) {
@@ -55,6 +75,30 @@ export async function getDailyRange(days = 30) {
     out.push({ date: key, seconds: (map.get(key) || {}).seconds || 0, videos: (map.get(key) || {}).videos || 0 })
   }
   return out
+}
+
+export async function getCheckins() {
+  const rows = await db.checkins.toArray()
+  return rows.map((r) => r.date)
+}
+
+export async function putCheckin(date) {
+  await db.checkins.put({ date, at: Date.now() })
+  return date
+}
+
+export async function addUpSeconds(up, seconds) {
+  if (!up || !seconds) return null
+  const key = String(up.mid || up.name || 'unknown')
+  const row = (await db.upTime.get(key)) || { key, mid: up.mid || null, name: up.name || '未知 UP', seconds: 0 }
+  row.seconds = Math.max(0, (row.seconds || 0) + seconds)
+  if (up.name) row.name = up.name
+  await db.upTime.put(row)
+  return row
+}
+
+export async function getUpTime() {
+  return db.upTime.toArray()
 }
 
 export default db

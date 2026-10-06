@@ -6,6 +6,7 @@ const VideoView = () => import('./views/VideoView.vue')
 const FavView = () => import('./views/FavView.vue')
 const FavFolderView = () => import('./views/FavFolderView.vue')
 const LearnView = () => import('./views/LearnView.vue')
+const UpManageView = () => import('./views/UpManageView.vue')
 const UpView = () => import('./views/UpView.vue')
 const SettingsView = () => import('./views/SettingsView.vue')
 
@@ -18,6 +19,7 @@ const router = createRouter({
     { path: '/fav', name: 'fav', component: FavView, meta: { title: '收藏' } },
     { path: '/fav/:mediaId', name: 'fav-folder', component: FavFolderView, meta: { title: '收藏夹' } },
     { path: '/learn', name: 'learn', component: LearnView, meta: { title: '学习' } },
+    { path: '/ups', name: 'ups', component: UpManageView, meta: { title: 'UP 管理' } },
     { path: '/up/:mid', name: 'up', component: UpView, meta: { title: 'UP 主' } },
     { path: '/settings', name: 'settings', component: SettingsView, meta: { title: '设置' } },
     { path: '/:pathMatch(.*)*', redirect: '/' }

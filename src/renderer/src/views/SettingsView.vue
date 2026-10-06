@@ -97,7 +97,8 @@ function resetAll() {
       seekStep: 5,
       playerVolume: 0.8,
       hideDanmakuArea: true,
-      autoMark: true
+      autoMark: true,
+      autoCheckin: true
     })
     ui.ok('已恢复默认设置')
   })
@@ -213,6 +214,14 @@ onMounted(() => {
           {{ settings.settings.autoMark ? '已开启' : '已关闭' }}
         </button>
         <p class="hint">播放超过 95% 时把该 P 记成「已完成」。</p>
+      </div>
+
+      <div class="field">
+        <label>自动打卡</label>
+        <button class="chip" :class="{ on: settings.settings.autoCheckin }" @click="settings.patch({ autoCheckin: !settings.settings.autoCheckin })">
+          {{ settings.settings.autoCheckin ? '已开启' : '已关闭' }}
+        </button>
+        <p class="hint">开启后观看满 5 分钟自动完成当天打卡；学习页也可以手动打卡。</p>
       </div>
     </section>
 
