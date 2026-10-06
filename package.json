@@ -1,5 +1,5 @@
 {
-  "name": "study-bili",
+  "name": "bililite",
   "version": "0.1.0",
   "description": "学习专注型 B 站桌面客户端（Windows / Electron，仅个人学习用途）",
   "main": "./out/main/index.js",
@@ -29,8 +29,8 @@
     "vite": "^5.4.11"
   },
   "build": {
-    "appId": "com.studybili.desktop",
-    "productName": "StudyBili",
+    "appId": "com.bililite.desktop",
+    "productName": "BiliLite",
     "directories": {
       "output": "release"
     },
@@ -48,7 +48,7 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "学习B站"
+      "shortcutName": "BiliLite"
     }
   }
 }

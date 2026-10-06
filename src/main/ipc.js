@@ -91,7 +91,7 @@ const handlers = {
   'backup:write': wrap(async ({ dir, name, text }) => {
     if (!dir) throw new Error('还没有选择备份目录')
     await mkdir(dir, { recursive: true })
-    const file = join(dir, basename(name || `study-bili-${Date.now()}.json`))
+    const file = join(dir, basename(name || `bililite-${Date.now()}.json`))
     await writeFile(file, text, 'utf8')
     return file
   })

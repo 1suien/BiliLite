@@ -67,7 +67,7 @@ async function writeBackup() {
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
     const file = await api.backup.write(
       settings.settings.backupPath,
-      `study-bili-learn-${stamp}.json`,
+      `bililite-learn-${stamp}.json`,
       JSON.stringify(payload, null, 2)
     )
     ui.ok('已写入：' + file)
@@ -257,9 +257,9 @@ onMounted(() => {
     <section class="panel">
       <h2 class="sec">关于</h2>
       <p class="hint" style="line-height: 1.8">
-        学习 B 站 v0.1.0 · Electron + Vue 3 · 本地优先。<br />
+        BiliLite v0.1.0 · Electron + Vue 3 · 本地优先。<br />
         界面与交互参考开源项目
-        <a href="#" @click.prevent="api.sys.openExternal('https://github.com/ywmoyue/biliuwp-lite').catch(() => {})">BiliLite</a>
+        <a href="#" @click.prevent="api.sys.openExternal('https://github.com/ywmoyue/biliuwp-lite').catch(() => {})">biliuwp-lite / BiliLite</a>
         的「学习专注」思路重新实现。<br />
         本软件仅用于个人学习用途，不提供任何下载、破解或绕过大会员能力；所有视频、音频均直接来自 B 站官方接口，版权归原作者所有。<br />
         登录凭证（Cookie）用系统 DPAPI 加密后保存在本机，不会上传到任何第三方服务器。

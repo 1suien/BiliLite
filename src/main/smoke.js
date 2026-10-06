@@ -175,7 +175,7 @@ export async function runSmoke(win) {
     return value
   }
 
-  log('=== study-bili 冒烟测试开始 ===')
+  log('=== BiliLite 冒烟测试开始 ===')
 
   // 尽早挂上渲染层错误钩子，后面任何异常都能在报告里看到 file:line
   await js(`(() => {

@@ -92,7 +92,7 @@ onMounted(async () => {
       <div class="brand">
         <div class="brand-mark">学</div>
         <div class="brand-text">
-          <b>学习 B 站</b>
+          <b>BiliLite</b>
           <span>专注模式 · 黑白极简</span>
         </div>
       </div>

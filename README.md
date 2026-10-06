@@ -1,10 +1,15 @@
-# StudyBili · 学习 B 站
+# BiliLite
 
 学习专注型的 B 站桌面客户端（Windows / Electron）。参考 [BiliLite](https://github.com/ywmoyue/biliuwp-lite) 的功能取舍重新实现：
 保留**扫码登录、UP 管理、首页（只看关注 UP 更新）、搜索、视频播放（分 P / 画质 / DASH）、本机收藏 + B 站收藏夹、UP 主主页、学习记录 / 打卡 / 番茄钟**，
 界面走黑白极简 token 体系，不引入娱乐化的信息流。播放页右栏只留「清晰度 + 分P列表」（相关推荐只在下方 tab 里）。
 
 > 仅限个人学习用途。本项目不提供任何视频内容，只做本机客户端；登录凭证只加密保存在本机。
+
+> 命名：应用原名「StudyBili / 学习 B 站」，2026-10 改名为 **BiliLite**（窗口标题、侧栏品牌、安装包与 exe 名都跟着改）。
+> 打包身份从 `com.studybili.desktop` 换成 `com.bililite.desktop`，但**数据目录名与所有存储 key 保持不变**
+> （`%APPDATA%\study-bili`、Dexie 库名 `study-bili`、`study-bili.json`、`study-bili-pomodoro`），
+> 所以改名不会丢学习记录、登录态和设置。
 
 ## 技术栈
 
@@ -51,8 +56,8 @@ pnpm run start        # 预览已构建产物
 打包（Windows）：
 
 ```powershell
-pnpm run package      # build + electron-builder --win --dir → release/win-unpacked/StudyBili.exe（免安装，直接跑）
-pnpm run dist         # 生成 NSIS 安装包 → release/StudyBili Setup 0.1.0.exe
+pnpm run package      # build + electron-builder --win --dir → release/win-unpacked/BiliLite.exe（免安装，直接跑）
+pnpm run dist         # 生成 NSIS 安装包 → release/BiliLite Setup 0.1.0.exe
 ```
 
 > 本机 `%TEMP%` 不可写，`pnpm run dist` 需要先把 `TEMP`/`TMP` 指到工作区内可写目录，否则
@@ -68,12 +73,16 @@ pnpm run dist
 
 | 入口 | 路径 | 实测 |
 | --- | --- | --- |
-| 桌面快捷方式「学习B站」 | `%USERPROFILE%\Desktop\学习B站.lnk` → `%LOCALAPPDATA%\Programs\StudyBili\StudyBili.exe` | 正常打开窗口「首页 · 学习 B 站」 |
-| 安装版 | `%LOCALAPPDATA%\Programs\StudyBili\StudyBili.exe` | 正常 |
-| 免安装便携版（已复制到桌面） | `%USERPROFILE%\Desktop\StudyBili\StudyBili.exe` | 正常，双击即可，无需任何参数 |
-| 安装包副本（已复制到桌面） | `%USERPROFILE%\Desktop\StudyBili-Setup-0.1.0.exe` | `Start-Process -ArgumentList '/S'` → ExitCode 0 |
+| 桌面快捷方式「BiliLite」 | `%USERPROFILE%\Desktop\BiliLite.lnk` → `%LOCALAPPDATA%\Programs\BiliLite\BiliLite.exe` | 正常打开窗口「首页 · BiliLite」 |
+| 安装版 | `%LOCALAPPDATA%\Programs\BiliLite\BiliLite.exe` | 正常 |
+| 免安装便携版（已复制到桌面） | `%USERPROFILE%\Desktop\BiliLite\BiliLite.exe` | 正常，双击即可，无需任何参数 |
+| 安装包副本（已复制到桌面） | `%USERPROFILE%\Desktop\BiliLite-Setup-0.1.0.exe` | `Start-Process -ArgumentList '/S'` → ExitCode 0 |
 
-**不要把 `release\win-unpacked\StudyBili.exe`（或 `release\` 里的安装包）在 DSH 工作区目录内双击**：
+> 数据目录仍是 `%APPDATA%\study-bili`（改名前后不变，学习记录/登录态/设置都在里面）：
+> `src/main/index.js` 在启动时显式 `app.setPath('userData', join(app.getPath('appData'), 'study-bili'))`，
+> 否则 Electron 会跟着新 productName 换到 `%APPDATA%\BiliLite`，用户会以为「记录全没了」。
+
+**不要把 `release\win-unpacked\BiliLite.exe`（或 `release\` 里的安装包）在 DSH 工作区目录内双击**：
 在 `C:\Users\zouyx\Desktop\学习APP` 内启动的 Electron 进程会在 Chromium 初始化之前就终止，窗口不出现 ——
 表现为 `-2147483645`（0x80000003 STATUS_BREAKPOINT）、`-36861`（0xFFFF7003，stderr 只有
 `crashpad_client_win.cc(868) not connected`）或静默 `EXIT=0`；连只写日志的最小 Electron 探针都在执行任何 JS 之前崩溃。
@@ -103,7 +112,7 @@ node 'C:\Users\zouyx\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\pnpm\bin
 & cmd /c "`"$PWD\node_modules\electron\dist\electron.exe`" . --no-sandbox --disable-gpu --user-data-dir=`"$PWD\tmp-userdata`""
 
 # 打包后的免安装版本
-& cmd /c "`"$PWD\release\win-unpacked\StudyBili.exe`" --no-sandbox --user-data-dir=`"$PWD\tmp-userdata`""
+& cmd /c "`"$PWD\release\win-unpacked\BiliLite.exe`" --no-sandbox --user-data-dir=`"$PWD\tmp-userdata`""
 ```
 
 在普通 Windows 机器上不需要这些参数，`pnpm run dev` / `pnpm run start` 直接可用。
@@ -118,7 +127,7 @@ $env:STUDY_SMOKE = '1'
 $env:STUDY_SMOKE_OUT = "$PWD\smoke-pkg-report.txt"
 $env:STUDY_USER_DATA = "$PWD\tmp-userdata-pkg"
 $env:STUDY_SMOKE_SHOT = "$PWD\shots"   # 可选：顺手把真实界面截图存下来
-& cmd /c "`"$PWD\release\win-unpacked\StudyBili.exe`" --no-sandbox --disable-gpu --autoplay-policy=no-user-gesture-required > smoke-pkg.out 2>&1"
+& cmd /c "`"$PWD\release\win-unpacked\BiliLite.exe`" --no-sandbox --disable-gpu --autoplay-policy=no-user-gesture-required > smoke-pkg.out 2>&1"
 Get-Content smoke-pkg-report.txt -Encoding UTF8
 ```
 
@@ -173,8 +182,8 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 > 现在 `dash.js` 只在「> 3s 且 < 24h」时才采用 payload 时长，否则用页面给的 `setDurationHint()`（投稿信息里的
 > 时长），再不行先给 `Infinity`，等整条轨拉完由 `settleDuration()` 用 `buffered.end()` 修回真实时长。
 >
-> 另一个坑：环境变量 `ELECTRON_RUN_AS_NODE=1` 会让 `StudyBili.exe` 退化成 Node，报
-> `StudyBili.exe: bad option: --no-sandbox`（退出码 9，也不写报告）。跑打包版冒烟前先
+> 另一个坑：环境变量 `ELECTRON_RUN_AS_NODE=1` 会让 `BiliLite.exe` 退化成 Node，报
+> `BiliLite.exe: bad option: --no-sandbox`（退出码 9，也不写报告）。跑打包版冒烟前先
 > `Remove-Item Env:ELECTRON_RUN_AS_NODE`。
 
 > 播放遮罩坑（已修）：MSE 欠载时元素先发 `waiting`，恢复时 Chromium **只补发 `playing`**（不会再发一次 `play`）。

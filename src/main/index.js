@@ -15,7 +15,16 @@ if (process.env.STUDY_USER_DATA) {
   try {
     app.setPath('userData', process.env.STUDY_USER_DATA)
   } catch (err) {
-    console.warn('[study-bili] 设置 userData 失败：', err && err.message)
+    console.warn('[bililite] 设置 userData 失败：', err && err.message)
+  }
+} else {
+  // 应用已改名（学习 B 站 → BiliLite），Electron 默认会跟着 productName 换到新的 userData 目录；
+  // 这里固定回原来的 study-bili，保证登录态、学习记录、番茄钟设置都不丢。
+  try {
+    app.setName('BiliLite')
+    app.setPath('userData', join(app.getPath('appData'), 'study-bili'))
+  } catch (err) {
+    console.warn('[bililite] 固定 userData 失败：', err && err.message)
   }
 }
 
@@ -81,7 +90,7 @@ function createWindow() {
     show: false,
     autoHideMenuBar: true,
     backgroundColor: '#0a0a0b',
-    title: '学习 B 站',
+    title: 'BiliLite',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
