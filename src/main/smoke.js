@@ -384,6 +384,17 @@ export async function runSmoke(win) {
     (v) => v === true
   )
 
+  // UP 主页投稿列表（走同一套 fetchUpVideos，顺带验证分页 count）
+  await js(`location.hash = '#/up/' + 946974`)
+  let upCards = 0
+  for (let i = 0; i < 10; i++) {
+    upCards = await js("document.querySelectorAll('.rowitem').length")
+    if (upCards > 0) break
+    await sleep(800)
+  }
+  if (upCards > 0) pass('UP 主页投稿列表', upCards)
+  else log('WARN  UP 主页 8 秒内没有投稿卡片（接口失败）')
+
   // 首页只显示本机名单里的 UP
   await clickNav('首页')
   const homeText = await js(`document.querySelector('#app').innerText`)

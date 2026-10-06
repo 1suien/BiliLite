@@ -13,6 +13,7 @@ __pycache__/
 
 # ---- 本地运行 / 冒烟测试产物 ----
 tmp-userdata*/
+tmp-ud*/
 tmp-temp/
 smoke.out
 smoke-*.out

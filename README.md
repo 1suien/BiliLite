@@ -124,8 +124,8 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 断言项：bridge 注入/通道齐全/`app:ping`、侧栏 6 项、主题令牌、`home.feed`、`search.videos`、`video.view`、
 `video.playurl`（DASH 轨道）、视频页渲染、`<video>` 起流（`readyState=4`）、点播放后 `currentTime` 前进、
 学习进度写入 IndexedDB、顶栏搜索跳转、侧栏 6 个路由真实点击可达，以及本机 UP 名单（写入/渲染/首页只显示名单）、
-`up.latest`（匿名访问空间投稿接口可能被 B 站风控，此时软跳过）、本机收藏写入、学习页 5 卡 / 371 格签到日历 /
-近 14 天条形图 / 按 UP 分布饼图、手动打卡写入 `checkins`。
+`up.latest`（匿名可拉取，失败才软跳过）、本机收藏写入、学习页 5 卡 / 371 格签到日历 /
+近 14 天条形图 / 按 UP 分布饼图、手动打卡写入 `checkins`、UP 主页投稿列表（同一接口，含分页 `count`）。
 
 ## 功能与数据
 
@@ -138,8 +138,11 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
   学习页有签到日历、近 14 天条形图、按 UP 分布饼图、连续签到天数，支持手动打卡与（设置里）播放满 5 分钟自动打卡。
   数据可导出 JSON。
 
-> 说明：`x/space/wbi/arc/search`（UP 空间投稿接口）匿名访问在本机（云电脑 IP）容易被 B 站风控，表现为
-> 首页「关注的 UP 更新」拿不到卡片、UP 主页投稿列表为空；登录后成功率更高，程序已做失败兜底与友好空态。
+> 说明：网页版 `x/space/wbi/arc/search`（UP 空间投稿接口）匿名访问在本机（云电脑 IP）被 B 站**IP 级风控**，
+> 实测固定返回 `-412 request was banned` / `-352 风控校验失败`（换 Referer、补 `dm_img_*` 参数、去掉 wbi 签名都无效）。
+> 因此本项目改用**移动端 App 接口** `app.bilibili.com/x/v2/space/archive`（appkey/appsec 签名，实测匿名可用，
+> `code=0` 正常返回投稿），失败时才退回网页版接口；两路都失败才报错并显示友好空态。
+> 播放量取 `play`、发布时间取 `ctime`（App 接口无 `stat.view` / `pubdate`），分页用 `pn`。
 
 ## 免责声明
 

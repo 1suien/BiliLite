@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { api, fixUrl } from './http.js'
 import { signParams, invalidateWbiKeys } from './wbi.js'
 import { searchUp } from './search.js'
@@ -7,12 +8,33 @@ const ARC_SEARCH = 'https://api.bilibili.com/x/space/wbi/arc/search'
 const CARD = 'https://api.bilibili.com/x/web-interface/card'
 const RELATION_FOLLOWINGS = 'https://api.bilibili.com/x/relation/followings'
 
+/**
+ * 移动端 App 空间投稿接口。
+ * 网页版 `x/space/wbi/arc/search` 在本机（云电脑 IP）匿名访问长期被风控，
+ * 返回 -412 request was banned / -352 风控校验失败；App 接口走另一套风控，实测匿名可用。
+ */
+const APP_SPACE_ARCHIVE = 'https://app.bilibili.com/x/v2/space/archive'
+const APP_KEY = '1d8b6e7d45233436'
+const APP_SEC = '560c52ccd288fed045859ed18bffd973'
+const APP_UA =
+  'Mozilla/5.0 BiliDroid/8.0.0 (bbcallen@gmail.com) os/android model/Pixel mobi_app/android build/8000300 channel/bili innerVer/8000300 osVer/13'
+
 /** 每个 UP 的最新投稿缓存：mid → { at, perUp, items } */
 const latestCache = new Map()
 const LATEST_TTL = 5 * 60 * 1000
 const LATEST_CONCURRENCY = 4
 
 const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms))
+
+/** B 站 App 接口的 appkey + appsec 签名（md5(排序 query + appsec)） */
+function appSign(params) {
+  const withTs = { ...params, appkey: APP_KEY, ts: Math.round(Date.now() / 1000) }
+  const query = Object.keys(withTs)
+    .sort()
+    .map((k) => `${k}=${encodeURIComponent(withTs[k])}`)
+    .join('&')
+  return { ...withTs, sign: createHash('md5').update(query + APP_SEC).digest('hex') }
+}
 
 export async function fetchUpInfo(mid) {
   const data = await api(CARD, { params: { mid, photo: false } })
@@ -27,7 +49,49 @@ export async function fetchUpInfo(mid) {
   }
 }
 
-export async function fetchUpVideos(mid, pn = 1, ps = 30, keyword = '') {
+/** 移动端空间投稿（匿名可用）：data.item[] 里 bvid/param(aid)/first_cid/duration/play/ctime */
+async function fetchUpVideosApp(mid, pn = 1, ps = 30, keyword = '') {
+  const params = {
+    vmid: mid,
+    pn,
+    ps,
+    order: 'pubdate',
+    mobi_app: 'android',
+    platform: 'android',
+    build: 8000300,
+    device: 'phone'
+  }
+  if (keyword) params.keyword = keyword
+  const data = await api(APP_SPACE_ARCHIVE, {
+    params: appSign(params),
+    headers: { 'User-Agent': APP_UA, Referer: 'https://app.bilibili.com/' }
+  })
+  const list = data.item || []
+  return {
+    source: 'app',
+    page: { count: data.count || 0, pn, ps },
+    items: list.map((v) => {
+      const aid = v.param ? Number(v.param) : v.aid
+      const duration = v.duration || lengthToSeconds(v.length)
+      return {
+        bvid: v.bvid,
+        aid,
+        cid: v.first_cid || null,
+        title: v.title,
+        cover: fixUrl(v.cover),
+        play: v.play,
+        comment: v.danmaku,
+        pubdate: v.ctime,
+        length: v.length || fmtLength(duration),
+        duration,
+        description: v.desc || ''
+      }
+    })
+  }
+}
+
+/** 网页版空间投稿（wbi 签名；登录后更稳，匿名常被风控） */
+async function fetchUpVideosWeb(mid, pn = 1, ps = 30, keyword = '') {
   const base = {
     mid,
     pn,
@@ -62,18 +126,38 @@ export async function fetchUpVideos(mid, pn = 1, ps = 30, keyword = '') {
   }
   const list = (data.list && data.list.vlist) || []
   return {
+    source: 'web',
     page: data.page || {},
     items: list.map((v) => ({
       bvid: v.bvid,
       aid: v.aid,
+      cid: null,
       title: v.title,
       cover: fixUrl(v.pic),
       play: v.play,
       comment: v.comment,
       pubdate: v.created,
       length: v.length,
+      duration: lengthToSeconds(v.length),
       description: v.description
     }))
+  }
+}
+
+/** 优先走移动端接口，失败再退回网页版（网页版在云 IP 上基本必被风控） */
+export async function fetchUpVideos(mid, pn = 1, ps = 30, keyword = '') {
+  let appErr = null
+  if (!keyword) {
+    try {
+      return await fetchUpVideosApp(mid, pn, ps, keyword)
+    } catch (err) {
+      appErr = err
+    }
+  }
+  try {
+    return await fetchUpVideosWeb(mid, pn, ps, keyword)
+  } catch (webErr) {
+    throw appErr || webErr
   }
 }
 
@@ -85,6 +169,16 @@ function lengthToSeconds(text) {
   if (parts.length >= 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
   if (parts.length === 2) return parts[0] * 60 + parts[1]
   return parts[0] || 0
+}
+
+/** 秒 → "MM:SS" / "HH:MM:SS" */
+function fmtLength(seconds) {
+  const s = Math.max(0, Math.floor(Number(seconds) || 0))
+  const pad = (n) => String(n).padStart(2, '0')
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  return h ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`
 }
 
 /**
@@ -110,7 +204,7 @@ export async function fetchLatestByMids(mids, perUp = 2, opts = {}) {
       cover: v.cover,
       play: v.play,
       pubdate: v.pubdate,
-      duration: lengthToSeconds(v.length),
+      duration: v.duration || lengthToSeconds(v.length),
       upMid: Number(mid)
     }))
     latestCache.set(mid, { at: Date.now(), perUp: limit, items: rows })
