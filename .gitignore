@@ -79,3 +79,9 @@ BiliLite/
 
 # 版本备份（安装包/bundle 体积大，不入库）
 backup/
+
+# 冒烟/调试产物
+app-launch*.out
+app-launch*.err
+smoke-report-*.txt
+tmp-ud-*/
