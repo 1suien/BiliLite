@@ -912,32 +912,7 @@ html[data-theme='light'] .player-stage .progress .track i {
   width: 0;
 }
 
-.pages-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  max-height: 208px;
-  overflow: auto;
-  padding-right: 4px;
-}
-.page-pill {
-  padding: 5px 10px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--line);
-  background: var(--soft);
-  cursor: pointer;
-  font-size: 12.5px;
-  max-width: 100%;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.page-pill.on {
-  background: var(--accent);
-  color: var(--accent-fg);
-  border-color: var(--accent);
-  font-weight: 600;
-}
+/* 分P列表的排版在 components/PartList.vue 里（单列对齐清单，等宽序号 + 单行省略标题） */
 
 .tabs {
   display: flex;

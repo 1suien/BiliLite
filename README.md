@@ -36,7 +36,7 @@ src/
       stores/                ui / settings / auth / learn / ups / collect / pomodoro
       player/dash.js         DASH 播放核心
       views/                 Home / UpManage / Search / Video / Fav / FavFolder / Up / Learn / Settings
-      components/            Icon / BiliImage / VideoCard / Pager / DanmakuLayer / PageFloat / LoginModal / ConfirmModal / CollectModal …
+      components/            Icon / BiliImage / VideoCard / Pager / DanmakuLayer / PageFloat / LoginModal / ConfirmModal / CollectModal / PartList …
 ```
 
 ## 本地开发与运行
@@ -140,12 +140,18 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 跳转后能继续播放（目标点按已知总时长给：`dur > 10` 时取 `min(120, dur * 0.6)` —— 短视频硬跳 120 秒会落到片尾之外，
 那是无效目标而不是播放器卡死；断言 `readyState ≥ 3`、`currentTime` 落在目标附近并继续推进、遮罩已消失；
 再单独一条 `跳转走 ranged 起流（sidx 定位）`：`[dash] streamFrom video offset=<≥5 位数>`，CDN 不配合时降级为 WARN）、
-分P列表带分P标题（`.pages-list .page-pill` 文案必须形如 `P2 · 课前准备｜教材·笔记·测试`、`title` 属性非空、
-「正在播放」行不含 `undefined`；要指定视频验收就设 `STUDY_SMOKE_BVID=<bvid>`，实测用 `BV1cu411r7pw` 分P 177 通过）。
+分P列表带分P标题（`.pages-list .page-pill` 里 `.pn` 必须形如 `P2`、`.pt` 非空、`title` 属性非空、`.on` 恰好一行、
+「正在播放」行不含 `undefined`；要指定视频验收就设 `STUDY_SMOKE_BVID=<bvid>`，实测用 `BV1cu411r7pw` 分P 177 通过）、
+分P列表可按关键字筛选（分P > 12 时出现 `.pages-filter`，输入「单词」后行数变少：177 → 48）。
 
 > 主题验收：设置 `STUDY_SMOKE_THEME=light`（或 `dark`）会让冒烟把主题强制成对应主题再跑一遍，
 > 每次截图前也会重新强制一次 —— `settings.init()` 是异步的，完成时会按落盘设置把主题刷回来，
 > 只在开头强制一次会偶发截到默认主题（浅色下的浅色描边/留白问题要靠它才看得出来）。
+> 强制主题时会**连强调色一起换**：`--accent` / `--accent-fg` 是 `settings.applyTheme()` 按「预设 × 主题」
+> 内联写到 `<html>` 上的（见 `src/renderer/src/stores/settings.js` 的 `ACCENT_PRESETS`），只改 `data-theme`
+> 不会重算它们 —— 否则浅色下 `--accent` 还停在深色主题的 `#ffffff`，白底白字会把截图和断言都带偏
+> （第一版分P列表「当前 P 高亮」就这么被拍成了白底白字）。截图前还会多等 400ms 让带 transition 的
+> 控件（`.input` / `.btn` / `.page-pill`）过渡完，不然会拍到半路的灰底。
 > 另外把 `study-bili.json` 预写进 `STUDY_USER_DATA` **不管用**：应用启动时会 persist 默认设置把它覆盖掉。
 
 > 冒烟断言的时序坑：`.scroll` 是 `scroll-behavior: smooth`，滚动是**动画**，`el.scrollTop = el.scrollHeight` 之后
@@ -241,6 +247,11 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 >
 > 分P列表接口失败降级：`api.video.pages()` 超时/被风控时不再让整页停在「视频信息加载失败」，而是退回
 > 「只有一个 P」的列表继续取流（取流只要有 cid，而 cid 在 `view` 里就有）。
+>
+> 分P列表排版（`src/renderer/src/components/PartList.vue`，tab 里的分P页与播放页右栏共用一套）：课程合集动辄
+> 一两百个 P，原来是 `flex-wrap` 的「按文字宽度撑开的胶囊」，右边缘参差不齐、也定位不到第几个 P。现在排成
+> 对齐的单列清单：等宽序号徽章（`P12`）+ 单行省略的标题 + 当前行整行高亮并带一个圆点，列表固定高度内部滚动
+> 并自动滚到当前 P，分P > 12 时给一个筛选框（编号或标题关键字，实测 177 P 筛「单词」剩 48 行）。
 
 > 布局坑（已修）：`.app` 是 `display:grid`，若不给 `grid-template-rows: minmax(0, 1fr)`，内容会把这一行撑高，
 > `.main` 跟着变成内容高度（实测 2354px / 窗口 717px），再被 `body{overflow:hidden}` 裁掉 —— 表现就是

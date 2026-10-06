@@ -6,6 +6,7 @@ import { DashPlayer } from '../player/dash.js'
 import BiliImage from '../components/BiliImage.vue'
 import Icon from '../components/Icon.vue'
 import EmptyBlock from '../components/EmptyBlock.vue'
+import PartList from '../components/PartList.vue'
 import CollectModal from '../components/CollectModal.vue'
 import { useLearnStore } from '../stores/learn'
 import { useCollectStore } from '../stores/collect'
@@ -851,18 +852,7 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-else-if="tab === 'pages'" class="panel">
-        <div class="pages-list">
-          <div
-            v-for="(p, i) in pageList"
-            :key="p.cid"
-            class="page-pill"
-            :class="{ on: i === pageIndex }"
-            :title="p.title || p.part"
-            @click="selectPage(i)"
-          >
-            P{{ p.page }} · {{ p.title || p.part }}
-          </div>
-        </div>
+        <PartList :parts="pageList" :index="pageIndex" @select="selectPage" />
       </div>
 
       <div v-else-if="tab === 'notes'" class="panel">
@@ -932,24 +922,7 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="panel" style="padding: 13px">
-        <div class="row" style="margin-bottom: 9px">
-          <Icon name="list" :size="15" />
-          <b style="font-size: 13px">分P列表</b>
-          <span class="grow" />
-          <span class="muted" style="font-size: 11.5px">{{ pageIndex + 1 }}/{{ pageList.length }}</span>
-        </div>
-        <div class="pages-list">
-          <div
-            v-for="(p, i) in pageList"
-            :key="p.cid"
-            class="page-pill"
-            :class="{ on: i === pageIndex }"
-            :title="p.title || p.part"
-            @click="selectPage(i)"
-          >
-            P{{ p.page }} · {{ p.title || p.part }}
-          </div>
-        </div>
+        <PartList :parts="pageList" :index="pageIndex" @select="selectPage" />
       </div>
     </aside>
 

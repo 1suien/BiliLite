@@ -111,6 +111,16 @@ function createWindow() {
       } catch (err) {
         smokeRunning = false
         console.error('[smoke] 运行崩溃：', err)
+        // 崩了就再也读不到报告了：把渲染层的现场（异常栈 + 导航/点击日志）抢救出来
+        try {
+          const dump = await mainWindow.webContents.executeJavaScript(
+            "(() => ({ hash: location.hash, err: String(window.__smokeErr || '').slice(-600), nav: (window.__navLog || []).slice(-10) }))()",
+            true
+          )
+          console.error('[smoke] 崩溃现场 ::', JSON.stringify(dump))
+        } catch (err2) {
+          console.error('[smoke] 崩溃现场读取失败：', err2)
+        }
         app.exit(1)
       }
     })
