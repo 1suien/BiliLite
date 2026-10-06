@@ -193,6 +193,7 @@ export class DashPlayer {
     this.asb = null
     this.tracks = null
     this.duration = 0
+    this.durationHint = 0
     this.ready = false
     this.restarting = false
     this.aborts = new Set()
@@ -241,6 +242,29 @@ export class DashPlayer {
   }
 
   /* --- 生命周期 --- */
+  /**
+   * 由页面告知「确信的总时长（秒）」。playurl 里的 dash.duration 偶尔是垃圾值（例如 1000ms），
+   * 页面会用投稿信息里的时长兜底，这里拿它当第二选择，避免 MSE 被错误时长锁死。
+   */
+  setDurationHint(sec) {
+    const n = Number(sec)
+    if (!Number.isFinite(n) || n <= 0) return
+    this.durationHint = n
+    const ms = this.ms
+    if (ms && ms.duration === Infinity && this.saneSeconds(n)) {
+      try {
+        ms.duration = n
+        dbg('duration set from hint', n)
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  saneSeconds(sec) {
+    return Number.isFinite(sec) && sec > 3 && sec < 86400
+  }
+
   async load(payload, opts = {}) {
     const start = Math.max(0, opts.startTime || 0)
     this.destroyed = false
@@ -342,6 +366,17 @@ export class DashPlayer {
     }
 
     this.status('缓冲中…')
+    // MSE 必须先有 duration 才会进 HAVE_METADATA；但若时长是垃圾值（小到不可能，例如 1000ms），
+    // Chromium 会把超出该时长的帧全部丢掉（buffered 一直 empty、画面永远「缓冲中…」）。
+    // 所以：payload 时长合理才用 → 否则用页面给的 hint → 都不合理就先给 Infinity，
+    // 等整条轨拉完后由 settleDuration() 用 buffered 末尾修回真实时长。
+    const dur = this.saneSeconds(this.duration) ? this.duration : this.saneSeconds(this.durationHint) ? this.durationHint : Infinity
+    try {
+      this.ms.duration = dur
+      dbg('ms.duration =', dur === Infinity ? 'Infinity(待收尾修正)' : dur)
+    } catch {
+      /* ignore */
+    }
     const vUrls = trackUrls(video)
     const aUrls = trackUrls(audio)
 
@@ -399,10 +434,42 @@ export class DashPlayer {
 
     if (start > 1) {
       const ranged = await this.tryRangedStart(kind, urls, gen, start)
-      if (ranged) return
+      if (ranged) {
+        this.settleDuration()
+        return
+      }
       this.usedFallbackFromZero = true
     }
     await this.streamFrom(kind, urls, gen, 0)
+    this.settleDuration()
+  }
+
+  /**
+   * 收尾修正 MediaSource.duration。
+   *
+   * Chromium 的 MSE 需要 `MediaSource.duration` 才会进入 HAVE_METADATA；有的视频（fMP4 分段，
+   * init 段里没写时长）不设这个值就会**永远卡在 readyState 0**：缓冲都涨到 30s 了画面还是「缓冲中…」。
+   * 拿不到 playurl 时长时先给 `Infinity` 保证能起播，整条轨拉完后用 buffered 末尾修回真实时长。
+   */
+  settleDuration() {
+    const ms = this.ms
+    if (!ms || this.destroyed || ms.duration !== Infinity) return
+    let end = 0
+    for (const sb of [this.vsb, this.asb]) {
+      if (!sb) continue
+      try {
+        if (sb.buffered.length) end = Math.max(end, sb.buffered.end(sb.buffered.length - 1))
+      } catch {
+        /* ignore */
+      }
+    }
+    if (!(end > 0)) return
+    try {
+      ms.duration = end
+      dbg('duration settled from buffered', end)
+    } catch (err) {
+      dbg('duration settle failed', err && err.message, end)
+    }
   }
 
   async tryRangedStart(kind, urls, gen, start) {

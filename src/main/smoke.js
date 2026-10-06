@@ -171,7 +171,7 @@ export async function runSmoke(win) {
   // ---- 切页回到顶部：先去一个长页面（搜索结果）拉到最底 ----
   await js(`location.hash = '#/search?q=' + encodeURIComponent('线性代数')`)
   await sleep(1500)
-  await js(`(() => { const el = document.querySelector('.scroll'); el.scrollTop = el.scrollHeight; return Math.round(el.scrollTop) })()`)
+  await js(`(() => { const el = document.querySelector('.scroll'); el.scrollTo({ top: el.scrollHeight, behavior: 'instant' }); return Math.round(el.scrollTop) })()`)
   await sleep(600)
   const scrolledBefore = await js(`Math.round(document.querySelector('.scroll').scrollTop)`)
 
@@ -199,6 +199,8 @@ export async function runSmoke(win) {
         currentTime: Number(v.currentTime.toFixed(2)),
         bufferedEnd: Number(end.toFixed(2)),
         paused: v.paused,
+        verr: v.error ? String(v.error.code) + ' ' + String(v.error.message || '') : '',
+        netState: v.networkState,
         src: String(v.currentSrc || v.src || '').slice(0, 40),
         msg: msg ? msg.textContent.trim() : '',
         panels
@@ -552,15 +554,30 @@ export async function runSmoke(win) {
   // 往下拉 → 出现「顶部」按钮 → 点它回到顶部
   // 注意：.scroll 是 scroll-behavior:smooth，滚动本身是动画；固定等 700ms 在机器忙时会漏
   // → 改成「赋值 + 轮询」直到按钮出现（最多 10 次 × 300ms）
+  // 诊断：统计 capture 阶段实际收到多少个 scroll 事件（区分「事件没送到」还是「状态没跟着更新」）
+  await js(`(() => {
+    if (!window.__scrollSeen) {
+      window.__scrollSeen = 0
+      document.addEventListener('scroll', () => { window.__scrollSeen += 1 }, true)
+    }
+    return true
+  })()`)
   let topBtnShown = false
   let scrollState = null
   for (let i = 0; i < 10 && !topBtnShown; i += 1) {
     scrollState = await js(`(() => {
       const el = document.querySelector('.scroll')
-      el.scrollTop = el.scrollHeight
+      // 必须用 behavior:'instant' —— .scroll 是 scroll-behavior:smooth，直接赋值是「动画」，
+      // 在同一 tick 里读 scrollTop 还是 0，重复赋值还会把动画重启，永远滚不过 200px
+      el.scrollTo({ top: el.scrollHeight, behavior: 'instant' })
       const bs = Array.from(document.querySelectorAll('.page-float .float-btn'))
       return {
         top: Math.round(el.scrollTop),
+        scrolls: document.querySelectorAll('.scroll').length,
+        btns: bs.length,
+        disp: bs.map((b) => getComputedStyle(b).display).join('|'),
+        op: bs.map((b) => (b.offsetParent ? 'ok' : 'null')).join('|'),
+        seen: window.__scrollSeen || 0,
         shown: bs.some((b) => b.textContent.includes('顶部') && b.offsetParent !== null)
       }
     })()`)
@@ -571,15 +588,21 @@ export async function runSmoke(win) {
   if (topBtnShown) {
     pass('下拉后出现「顶部」按钮', true)
     await shot('2-下拉后出现顶部按钮.png')
-    await js(`(() => {
+    const clickedTop = await js(`(() => {
       const b = Array.from(document.querySelectorAll('.page-float .float-btn')).find((x) => x.textContent.includes('顶部'))
+      if (!b) return false
       b.click()
       return true
     })()`)
-    await sleep(1200)
-    const backTop = await js(`document.querySelector('.scroll').scrollTop`)
-    if (backTop < 40) pass('点「顶部」回到页面顶部', backTop)
-    else fail('点「顶部」回到页面顶部', backTop)
+    // 回顶是 smooth 动画，轮询等它落到 0（最多 3s）
+    let backTop = null
+    for (let i = 0; i < 10; i += 1) {
+      await sleep(300)
+      backTop = await js(`Math.round(document.querySelector('.scroll').scrollTop)`)
+      if (backTop < 40) break
+    }
+    if (clickedTop && backTop < 40) pass('点「顶部」回到页面顶部', backTop)
+    else fail('点「顶部」回到页面顶部', { clicked: clickedTop, top: backTop })
   } else {
     fail('下拉后出现「顶部」按钮', scrollState)
   }

@@ -135,7 +135,19 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 
 > 冒烟断言的时序坑：`.scroll` 是 `scroll-behavior: smooth`，滚动是**动画**，`el.scrollTop = el.scrollHeight` 之后
 > 固定等 700ms 在机器忙时不够（曾出现「页面可上下滚动」PASS 但「下拉后出现顶部按钮」FAIL 的假失败）。
-> 现在改成「赋值 + 最多 10×300ms 轮询」，并打印 `{top, shown}` 诊断。
+> 现在统一用 `el.scrollTo({ top: el.scrollHeight, behavior: 'instant' })` 绕开 CSS 动画，
+> 再「最多 10×300ms 轮询」等按钮出现，并打印 `{top, scrolls, btns, disp, op, seen, shown}` 诊断。
+>
+> 另一个坑（已修）：右侧悬浮「顶部」按钮最初**只**依赖 `scroll` 事件更新状态，而且用的是**挂载时缓存**的
+> `.scroll` 节点。实测出现过「页面已滚到 1637px，按钮 `display` 仍是 `none`」（缓存节点被换页替换，或
+> 整批滚动事件没送到）。现在 `PageFloat.vue` 每次事件都重新定位容器（`isConnected` 校验）、在容器上直接
+> 绑定 `scroll`，并加 400ms 轮询兜底 —— 状态一定跟得上滚动位置。
+>
+> 时长坑（已修）：MSE 必须显式给 `MediaSource.duration`，否则 Chromium 进不了 `HAVE_METADATA`（缓冲涨到
+> 30s、画面永远「缓冲中…」，`video.duration` 是 `NaN`）。而有的视频 playurl 返回的 `dash.duration` 是
+> **垃圾小值**（实测 1000ms），照它设反而会让 Chromium 丢掉超出该时长的所有帧（`buffered` 一直是 empty）。
+> 现在 `dash.js` 只在「> 3s 且 < 24h」时才采用 payload 时长，否则用页面给的 `setDurationHint()`（投稿信息里的
+> 时长），再不行先给 `Infinity`，等整条轨拉完由 `settleDuration()` 用 `buffered.end()` 修回真实时长。
 >
 > 另一个坑：环境变量 `ELECTRON_RUN_AS_NODE=1` 会让 `StudyBili.exe` 退化成 Node，报
 > `StudyBili.exe: bad option: --no-sandbox`（退出码 9，也不写报告）。跑打包版冒烟前先
@@ -151,6 +163,7 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 - **UP 管理**：本机维护专注名单（UID / 空间链接 / 昵称添加，支持分组，登录后一键导入 B 站关注）；首页只显示这批 UP 的最新投稿。
 - **播放**：DASH 按 `sidx` 直接定位到目标字节偏移起流；缓冲超前超过 30s 暂停拉流、低于 12s 恢复；
   配额不足时淘汰播放点前 5s 之外的缓冲。可选择清晰度（默认 1080P）、分 P、自动连播。
+  `MediaSource.duration` 按「playurl 时长（合理才用）→ 投稿信息时长 → 先 `Infinity` 再按 `buffered` 收尾」取值（见下方时长坑）。
 - **播放器（对齐 B 站官方客户端）**：控制栏改为**浮在画面底部**的浮层，鼠标不动 2.8s 自动淡出、移到画面上再出现
   （双击画面 / 快捷键 `F` 全屏，`D` 开关弹幕）。控制栏里依次是：弹幕开关、弹幕设置（不透明度 + 显示区域 1/1/2、1/4）、
   「点击发送弹幕」输入框（回车发送，未登录会弹扫码登录）、弹幕条数、播放/上一 P/下一 P/时间/进度条、

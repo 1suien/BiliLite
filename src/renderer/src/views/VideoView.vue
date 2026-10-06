@@ -408,7 +408,11 @@ async function startPlay() {
     const data = await api.video.playurl(bvid.value, cid.value, qn)
     playurl.value = data
     quality.value = data.quality || qn
-    duration.value = data.dash && data.dash.duration ? data.dash.duration / 1000 : parseDuration(info.value.duration)
+    // 有的视频 playurl 里的 dash.duration 是垃圾值（例如 1000ms）：直接用它既会让进度条总时长显示成
+    // 0:01，又会让 MSE 把超出 1 秒的帧全部丢掉（画面永远「缓冲中…」）。所以只在看起来合理时采用。
+    const dashSec = data.dash && data.dash.duration ? data.dash.duration / 1000 : 0
+    const infoSec = parseDuration(info.value.duration)
+    duration.value = dashSec > 3 && dashSec < 86400 ? dashSec : infoSec || dashSec || 0
   } catch (err) {
     errorMsg.value = err.message || '播放地址获取失败'
     statusText.value = ''
@@ -442,6 +446,8 @@ async function startPlay() {
       }
     })
   }
+  // 把「我们确信的总时长」告诉播放器：MSE 需要 MediaSource.duration 才能进 HAVE_METADATA
+  if (player && player.setDurationHint) player.setDurationHint(duration.value)
   const start = startSeconds()
   if (start > 0) statusText.value = `从 ${fmtDuration(start)} 继续播放`
   try {

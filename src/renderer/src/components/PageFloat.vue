@@ -13,21 +13,41 @@ const ui = useUiStore()
 const canTop = ref(false)
 const spinning = ref(false)
 let scroller = null
+let pollId = 0
 
 function findScroller() {
   return document.querySelector('.scroll')
 }
 
-function onScroll(e) {
-  const el = scroller || (scroller = findScroller())
-  const target = el || e.target
-  if (!target || typeof target.scrollTop !== 'number') return
-  const top = el ? el.scrollTop : (e.target && e.target.scrollTop) || 0
+/**
+ * 实时定位滚动容器。
+ *
+ * 关键：滚动位置不能靠「挂载时缓存下来的节点」——换页/重挂载后 `.scroll` 可能已被替换，
+ * 旧节点的 scrollTop 永远是 0，于是「顶部」按钮再也不出现（真实踩到的 bug：
+ * 页面已经滚到 1637px，按钮的 display 仍是 none）。
+ */
+function currentScroller() {
+  const el = findScroller()
+  if (el && el !== scroller) {
+    if (scroller) scroller.removeEventListener('scroll', onScroll)
+    scroller = el
+    scroller.addEventListener('scroll', onScroll, { passive: true })
+  }
+  return scroller
+}
+
+function syncTop() {
+  if (!scroller || !scroller.isConnected) currentScroller()
+  const top = scroller ? scroller.scrollTop : 0
   canTop.value = top > 200
 }
 
+function onScroll() {
+  syncTop()
+}
+
 function toTop() {
-  const el = scroller || (scroller = findScroller())
+  const el = scroller && scroller.isConnected ? scroller : currentScroller()
   if (!el) return
   el.scrollTo({ top: 0, behavior: 'smooth' })
 }
@@ -41,14 +61,19 @@ function refresh() {
 }
 
 onMounted(() => {
-  scroller = findScroller()
-  onScroll({})
-  // capture 阶段监听，任何可滚动容器的滚动都能收到
+  currentScroller()
+  syncTop()
+  // 容器自带监听之外，再在 capture 阶段监听一次，覆盖别的可滚动容器（如列表内滚动）
   document.addEventListener('scroll', onScroll, true)
+  // 兜底轮询：某些情况（窗口不可见/合成器不动画）滚动事件可能整批不到，读一次 scrollTop 开销极低，
+  // 这里保证按钮状态一定跟得上滚动位置。
+  pollId = setInterval(syncTop, 400)
 })
 
 onBeforeUnmount(() => {
+  clearInterval(pollId)
   document.removeEventListener('scroll', onScroll, true)
+  if (scroller) scroller.removeEventListener('scroll', onScroll)
 })
 </script>
 
