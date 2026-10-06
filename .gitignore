@@ -76,3 +76,6 @@ notes-local/
 
 # ---- 第三方参考应用（二进制分发，不入库） ----
 BiliLite/
+
+# 版本备份（安装包/bundle 体积大，不入库）
+backup/
