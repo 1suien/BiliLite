@@ -939,6 +939,14 @@ export class DashPlayer {
   async onSeeking() {
     if (!this.ready || this.restarting || this.destroyed) return
     const t = this.el.currentTime
+    // 目标点超出已知总时长（例如从长分P的进度续播到一个更短的 P）：
+    // 夹到末尾收工，否则会去做一次注定失败的 ranged 定位，播放器就永远停在「缓冲中…」
+    const total = this.getDuration()
+    if (this.saneSeconds(total) && t > total - 0.4) {
+      dbg('seek 超出总时长，夹到末尾', t, '->', Math.max(0, total - 0.4))
+      this.el.currentTime = Math.max(0, total - 0.4)
+      return
+    }
     if (this.isBuffered(t)) return
     // 记下跳转前的播放状态：openDash 会重建 MediaSource（元素被重置为暂停），
     // 不记住的话跳转后就停在暂停态不动了（拖一次进度条视频就「死」住）

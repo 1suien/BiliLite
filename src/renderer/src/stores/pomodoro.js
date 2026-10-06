@@ -88,7 +88,8 @@ export const usePomodoroStore = defineStore('pomodoro', {
       remain: p.focusMin * 60,
       endAt: 0,
       rounds: 0,
-      timer: null
+      timer: null,
+      visibilityHooked: false
     }
   },
   getters: {
@@ -118,6 +119,14 @@ export const usePomodoroStore = defineStore('pomodoro', {
       }
       if (!this.running) this.remain = this.totalSeconds
       this.persist()
+      // 定时器可能被系统/Chromium 限流（窗口被挡住、最小化、休眠回来）：回到前台立刻补算一次，
+      // 免得「该结束的一轮」一直卡在倒计时里不动。
+      if (!this.visibilityHooked && typeof document !== 'undefined') {
+        this.visibilityHooked = true
+        document.addEventListener('visibilitychange', () => {
+          if (!document.hidden) this.tick()
+        })
+      }
     },
     persist() {
       try {

@@ -86,7 +86,8 @@ const qualities = computed(() => {
 const pct = computed(() => (duration.value ? Math.min(100, (currentTime.value / duration.value) * 100) : 0))
 const currentPageTitle = computed(() => {
   const p = pageList.value[pageIndex.value]
-  return p && pageList.value.length > 1 ? `P${p.page} ${p.title}` : ''
+  const t = p ? p.title || p.part : ''
+  return p && pageList.value.length > 1 ? `P${p.page} ${t || ''}`.trim() : ''
 })
 const inShelf = computed(() => (bvid.value ? learn.inShelf(bvid.value) : false))
 const collectCount = computed(() => collect.items.filter((x) => x.bvid === bvid.value).length)
@@ -229,9 +230,13 @@ async function loadAll() {
   applySettings()
 
   try {
-    const [v, pages] = await Promise.all([api.video.view(id), api.video.pages(id)])
+    // 分P列表拉不到（接口超时/风控）不该把整个播放页拖死：退回「只有一个 P」的列表继续播，
+    // 取流只需要 cid，而 cid 在 view 里就有。
+    const [v, pages] = await Promise.all([api.video.view(id), api.video.pages(id).catch(() => [])])
     view.value = v
-    pageList.value = pages.length ? pages : [{ cid: v.cid, page: 1, title: v.title, duration: v.duration }]
+    pageList.value = pages.length
+      ? pages
+      : [{ cid: v.cid, page: 1, title: v.title, part: v.title, duration: v.duration }]
   } catch (err) {
     errorMsg.value = err.message || '视频信息加载失败'
     loading.value = false
@@ -294,7 +299,8 @@ function startSeconds() {
   if (explicit > 0) return explicit
   const rec = learn.get(bvid.value, cid.value)
   if (!rec || !rec.seconds) return 0
-  const total = rec.duration || info.value.duration || 0
+  const partSec = Number((pageList.value[pageIndex.value] || {}).duration) || 0
+  const total = rec.duration || partSec || info.value.duration || 0
   if (total && rec.seconds > total - 12) return 0
   if (rec.seconds < 4) return 0
   return rec.seconds
@@ -314,8 +320,16 @@ async function startPlay() {
     // 有的视频 playurl 里的 dash.duration 是垃圾值（例如 1000ms）：直接用它既会让进度条总时长显示成
     // 0:01，又会让 MSE 把超出 1 秒的帧全部丢掉（画面永远「缓冲中…」）。所以只在看起来合理时采用。
     const dashSec = data.dash && data.dash.duration ? data.dash.duration / 1000 : 0
+    const partSec = Number((pageList.value[pageIndex.value] || {}).duration) || 0
     const infoSec = parseDuration(info.value.duration)
-    duration.value = dashSec > 3 && dashSec < 86400 ? dashSec : infoSec || dashSec || 0
+    // 分P视频注意：web-interface/view 的 duration 是「整部合集」的总时长（实测新概念英语第二册 146592s），
+    // 拿它当单P时长会让进度条总时长、续播判断全错，所以优先用 pagelist 给的单P时长。
+    duration.value =
+      partSec > 3 && partSec < 86400
+        ? partSec
+        : dashSec > 3 && dashSec < 86400
+          ? dashSec
+          : infoSec || dashSec || 0
   } catch (err) {
     errorMsg.value = err.message || '播放地址获取失败'
     statusText.value = ''
@@ -843,10 +857,10 @@ onBeforeUnmount(() => {
             :key="p.cid"
             class="page-pill"
             :class="{ on: i === pageIndex }"
-            :title="p.title"
+            :title="p.title || p.part"
             @click="selectPage(i)"
           >
-            P{{ p.page }} · {{ p.title }}
+            P{{ p.page }} · {{ p.title || p.part }}
           </div>
         </div>
       </div>
@@ -930,10 +944,10 @@ onBeforeUnmount(() => {
             :key="p.cid"
             class="page-pill"
             :class="{ on: i === pageIndex }"
-            :title="p.title"
+            :title="p.title || p.part"
             @click="selectPage(i)"
           >
-            P{{ p.page }} · {{ p.title }}
+            P{{ p.page }} · {{ p.title || p.part }}
           </div>
         </div>
       </div>

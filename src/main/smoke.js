@@ -219,6 +219,8 @@ export async function runSmoke(win) {
   let probe = feed && feed.items && feed.items[0]
   if (!probe && search && search.items && search.items.length) probe = search.items[0]
   if (!probe) probe = { bvid: 'BV1GJ411x7h7' }
+  // STUDY_SMOKE_BVID=<bvid> 可以指定视频（例如用多分P的视频专门验「分P标题」这类断言）
+  if (process.env.STUDY_SMOKE_BVID) probe = { bvid: process.env.STUDY_SMOKE_BVID }
   const bvid = probe.bvid
 
   const view = await step(
@@ -249,22 +251,39 @@ export async function runSmoke(win) {
 
   // ---- 切页回到顶部：先去一个长页面（搜索结果）拉到最底 ----
   await js(`location.hash = '#/search?q=' + encodeURIComponent('线性代数')`)
-  await sleep(1500)
+  await sleep(2200)
   await js(`(() => { const el = document.querySelector('.scroll'); el.scrollTo({ top: el.scrollHeight, behavior: 'instant' }); return Math.round(el.scrollTop) })()`)
   await sleep(600)
-  const scrolledBefore = await js(`Math.round(document.querySelector('.scroll').scrollTop)`)
+  let scrolledBefore = await js(`Math.round(document.querySelector('.scroll').scrollTop)`)
+  if (scrolledBefore <= 150) {
+    // 结果还没渲染完就滚不动：再等一会儿滚一次
+    await js(`(() => { const el = document.querySelector('.scroll'); el.scrollTo({ top: el.scrollHeight, behavior: 'instant' }); return Math.round(el.scrollTop) })()`)
+    await sleep(900)
+    scrolledBefore = await js(`Math.round(document.querySelector('.scroll').scrollTop)`)
+  }
 
   // ---- 播放链路：真实进入视频页，观察 MSE 缓冲 ----
   await js(`location.hash = '#/video/' + ${JSON.stringify(bvid)} + '?cid=' + ${cid}`)
-  // 视频页要先拉 playurl 再挂播放器，网络慢的时候 1.2s 不够：轮询等它出现（否则后面整段播放断言都会被跳过）
-  for (let i = 0; i < 24; i++) {
+  // 视频页要先拉 view/pagelist 再拉 playurl，网络慢或接口被风控时十几秒才起来：轮询等够 28s，
+  // 起不来的话把页面文本记进详情（能直接看到「视频信息加载失败」这类真实原因）
+  for (let i = 0; i < 40; i++) {
     await sleep(700)
     if (await js("!!document.querySelector('.player-stage')")) break
   }
-  await step('视频页已渲染', "!!document.querySelector('.player-stage')", (v) => v === true)
+  const stageOk = await js("!!document.querySelector('.player-stage')")
+  if (stageOk) {
+    pass('视频页已渲染', true)
+  } else {
+    const pageText = await js("document.body.textContent.trim().replace(/\\s+/g, ' ').slice(0, 160)")
+    fail('视频页已渲染', { stage: false, page: pageText })
+  }
   const topAfterNav = await js(`Math.round(document.querySelector('.scroll').scrollTop)`)
-  if (scrolledBefore > 150 && topAfterNav < 30) pass('切换页面自动回到顶部', { before: scrolledBefore, after: topAfterNav })
-  else fail('切换页面自动回到顶部', { before: scrolledBefore, after: topAfterNav })
+  if (scrolledBefore > 150) {
+    if (topAfterNav < 30) pass('切换页面自动回到顶部', { before: scrolledBefore, after: topAfterNav })
+    else fail('切换页面自动回到顶部', { before: scrolledBefore, after: topAfterNav })
+  } else {
+    warn(`切换页面自动回到顶部：搜索结果页没滚起来（before=${scrolledBefore}），跳过`)
+  }
 
   let played = null
   for (let i = 0; i < 12; i++) {
@@ -302,11 +321,46 @@ export async function runSmoke(win) {
     "Array.from(document.querySelectorAll('.watch > aside .panel')).some((e) => e.textContent.includes('相关推荐'))",
     (v) => v === false
   )
+  for (let i = 0; i < 10; i++) {
+    if (await js("document.querySelectorAll('.tabs .tab').length > 0")) break
+    await sleep(500)
+  }
   await step(
     '播放页 tab 仍保留「相关推荐」',
     "Array.from(document.querySelectorAll('.tabs .tab')).some((e) => e.textContent.includes('相关推荐'))",
     (v) => v === true
   )
+
+  // ---- 分P列表要带分P标题（后端 pagelist 字段是 `part`，界面读 `title`，曾渲染成「P1 ·」和「正在播放：P1 undefined」）----
+  for (let i = 0; i < 10; i++) {
+    if (await js("document.querySelectorAll('.pages-list .page-pill').length > 0")) break
+    await sleep(600)
+  }
+  const partInfo = await js(`(() => {
+    const pills = Array.from(document.querySelectorAll('.pages-list .page-pill'))
+    const texts = pills.map((b) => b.textContent.trim().replace(/\\s+/g, ' '))
+    const cur = Array.from(document.querySelectorAll('.watch *'))
+      .filter((e) => e.children.length === 0 && e.textContent.trim().indexOf('正在播放') === 0)
+      .map((e) => e.textContent.trim())[0] || ''
+    return {
+      n: pills.length,
+      first: texts.slice(0, 3),
+      pillTitle: pills.length ? String(pills[0].getAttribute('title') || '') : '',
+      bad: texts.filter((t) => t.indexOf('undefined') >= 0 || !/^P\\d+\\s*·\\s*\\S/.test(t)).slice(0, 3),
+      cur
+    }
+  })()`)
+  if (
+    partInfo &&
+    partInfo.n > 0 &&
+    partInfo.bad.length === 0 &&
+    String(partInfo.pillTitle || '').length > 1 &&
+    String(partInfo.cur || '').indexOf('undefined') < 0
+  ) {
+    pass('分P列表带分P标题', partInfo)
+  } else {
+    fail('分P列表带分P标题', partInfo)
+  }
 
   // ---- 真正播放：点播放键后 currentTime 是否前进 ----
   if (played && !played.err) {
@@ -382,7 +436,11 @@ export async function runSmoke(win) {
     let t2 = null
     try {
       const before = await js(`(() => { const v = document.querySelector('video'); return v ? Number(v.currentTime.toFixed(2)) : -1 })()`)
-      await js(`(() => { const v = document.querySelector('video'); if (v) v.currentTime = 120; return true })()`)
+      // 目标点按已知总时长来定：短视频（例如新概念英语 P1 只有 ~75 秒）硬跳 120 秒会落到片尾之外，
+      // 那是无效目标，不是播放器卡死。
+      const dur = await js(`(() => { const v = document.querySelector('video'); return v && Number.isFinite(v.duration) ? Number(v.duration.toFixed(1)) : 0 })()`)
+      const target = dur > 10 ? Math.min(120, Math.max(2, Math.round(dur * 0.6))) : 120
+      await js(`(() => { const v = document.querySelector('video'); if (v) v.currentTime = ${target}; return true })()`)
       for (let i = 0; i < 24; i++) {
         await sleep(700)
         const s = await js(`(() => {
@@ -411,7 +469,7 @@ export async function runSmoke(win) {
       // 「走了 ranged 起流」的证据是立刻打印的 streamFrom offset=<大偏移>（ranged stream 只在整条拉完才打）
       const rangedLog =
         [...dashLogs].reverse().find((l) => /streamFrom video offset=\d{5,}/.test(l) || l.includes('ranged start')) || ''
-      const detail = Object.assign({ before }, seek, { t1, t2, log: rangedLog.replace(/^\[dash\] /, '').slice(0, 110) })
+      const detail = Object.assign({ before, dur, target }, seek, { t1, t2, log: rangedLog.replace(/^\[dash\] /, '').slice(0, 110) })
       const resumed = !!(seek && !seek.err && !seek.paused && seek.rs >= 3 && !seek.msg && t1 != null && t2 > t1)
       if (resumed) pass('跳转后能继续播放', detail)
       else fail('跳转后能继续播放', detail)

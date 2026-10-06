@@ -6,6 +6,8 @@ import { BASE_HEADERS } from './bili/http.js'
 
 // 主进程以 CJS 打包（package.json 未声明 type=module），__dirname 可直接使用。
 let mainWindow = null
+// 冒烟测试进行中：期间不允许关窗（手快点到 X 会让测试半路消失、报告残缺）
+let smokeRunning = false
 
 // 绿色/便携模式：把用户数据目录指到指定位置（也方便在受限环境里跑自检）。
 // 必须在任何 app.getPath('userData') 调用之前设置，因此放在模块顶层。
@@ -85,7 +87,10 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
-      spellcheck: false
+      spellcheck: false,
+      // 番茄钟要在窗口被挡住/最小化时照样走完（Chromium 默认会把后台窗口的定时器限流到 1 次/分钟，
+      // 那样倒计时会「停住」，播放器也会被限流）；学习类应用需要它一直在跑。
+      backgroundThrottling: false
     }
   })
 
@@ -93,11 +98,18 @@ function createWindow() {
 
   // 端到端冒烟测试入口：只在显式设置环境变量时载入，正常运行不会走到这里
   if (process.env.STUDY_SMOKE) {
+    mainWindow.on('close', (e) => {
+      if (smokeRunning) e.preventDefault()
+    })
     mainWindow.webContents.once('did-finish-load', async () => {
+      smokeRunning = true
       try {
         const { runSmoke, scheduleExit } = await import('./smoke.js')
-        scheduleExit(await runSmoke(mainWindow))
+        const code = await runSmoke(mainWindow)
+        smokeRunning = false
+        scheduleExit(code)
       } catch (err) {
+        smokeRunning = false
         console.error('[smoke] 运行崩溃：', err)
         app.exit(1)
       }

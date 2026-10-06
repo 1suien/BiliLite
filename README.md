@@ -137,8 +137,11 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 推算出的轨道一致）、「当前清晰度」显示实播画质（清晰度面板的 `.muted` 文本与 `.chip.on` 都是实播档位）、
 倍速切换生效（点 2x → `video.playbackRate === 2` → 还原）、字幕菜单能打开、
 播放中不显示「缓冲中」遮罩（视频推进后 `.player-msg` 必须已消失）、
-跳转后能继续播放（`currentTime = 120` → `readyState ≥ 3`、`currentTime` 落在 120s 附近并继续推进、遮罩已消失；
-再单独一条 `跳转走 ranged 起流（sidx 定位）`：`[dash] streamFrom video offset=<≥5 位数>`，CDN 不配合时降级为 WARN）。
+跳转后能继续播放（目标点按已知总时长给：`dur > 10` 时取 `min(120, dur * 0.6)` —— 短视频硬跳 120 秒会落到片尾之外，
+那是无效目标而不是播放器卡死；断言 `readyState ≥ 3`、`currentTime` 落在目标附近并继续推进、遮罩已消失；
+再单独一条 `跳转走 ranged 起流（sidx 定位）`：`[dash] streamFrom video offset=<≥5 位数>`，CDN 不配合时降级为 WARN）、
+分P列表带分P标题（`.pages-list .page-pill` 文案必须形如 `P2 · 课前准备｜教材·笔记·测试`、`title` 属性非空、
+「正在播放」行不含 `undefined`；要指定视频验收就设 `STUDY_SMOKE_BVID=<bvid>`，实测用 `BV1cu411r7pw` 分P 177 通过）。
 
 > 主题验收：设置 `STUDY_SMOKE_THEME=light`（或 `dark`）会让冒烟把主题强制成对应主题再跑一遍，
 > 每次截图前也会重新强制一次 —— `settings.init()` 是异步的，完成时会按落盘设置把主题刷回来，
@@ -215,6 +218,29 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 > 选轨坑（已修）：没有匹配画质时原来只按 bandwidth 降序挑，实测有视频 **360P 的 bandwidth（872kbps）反而高于
 > 480P（851kbps）**，于是挑到更糊的那条。现在排序是「编码兼容性 → 分辨率（宽×高）降序 → 带宽降序」，
 > 冒烟里的 `expectVideoTrack()` 用同一套规则对照。
+>
+> 分P字段坑（已修）：主进程 `src/main/bili/video.js` 归一化分P时只输出 `part`（B 站 pagelist 的字段名），
+> 而界面 `src/renderer/src/views/VideoView.vue` 读的是 `p.title` —— 于是右栏分P按钮渲染成「P1 ·」、
+> 标题行显示「正在播放：P1 undefined」（用户反馈的「分p列表没有分P标题」）。现在主进程统一补 `title`
+> （`part` 保留），界面一律 `p.title || p.part` 兜底。
+>
+> 多分P合集时长坑（已修）：分P视频的 `web-interface/view.duration` 是**整部合集**总时长（实测新概念英语第二册
+> `146592`s），拿它当单P时长会让进度条显示 `0:00`、续播判断全错。现在 `startPlay()` 优先用 pagelist 里当前 P 的
+> `duration`（实测 P1 = 868s），`startSeconds()` 的「已经看到片尾就别续播」也按单P时长判断。
+>
+> seek 越界坑（已修）：从长视频的进度续播到一个更短的分P（或冒烟硬跳 120s 而该 P 只有 75s）时，播放器会去请求
+> 片尾之外的字节、拿到 416 后卡在「缓冲中…」。现在 `dash.js` 的 `onSeeking()` 先看已知总时长：
+> `t > total - 0.4` 就夹到末尾收工，不做注定失败的 ranged 定位。
+>
+> 后台定时器限流坑（已修）：窗口被挡住/最小化时 Chromium 会限流定时器，番茄钟 250ms tick 在冒烟里几乎不走
+> （实测 60s 只走了 10s，断言「专注结束」假失败），播放器同理会让「暂停拉流」判断失准。现在主进程窗口设
+> `webPreferences.backgroundThrottling: false`，番茄钟另外监听 `visibilitychange`，页面重新可见时补一次 `tick()`。
+>
+> 冒烟期防关窗（已修）：测试跑一半窗口被点掉会走 `window-all-closed` → `app.quit()`，报告残缺、退出码还是 0
+> （看起来像「静默通过」）。现在 `STUDY_SMOKE` 模式下 `mainWindow.on('close')` 在冒烟进行中一律 `preventDefault()`。
+>
+> 分P列表接口失败降级：`api.video.pages()` 超时/被风控时不再让整页停在「视频信息加载失败」，而是退回
+> 「只有一个 P」的列表继续取流（取流只要有 cid，而 cid 在 `view` 里就有）。
 
 > 布局坑（已修）：`.app` 是 `display:grid`，若不给 `grid-template-rows: minmax(0, 1fr)`，内容会把这一行撑高，
 > `.main` 跟着变成内容高度（实测 2354px / 窗口 717px），再被 `body{overflow:hidden}` 裁掉 —— 表现就是
@@ -228,14 +254,14 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
   （音视频**各自**按自己的 SourceBuffer 计算，避免音轨甩开视频轨把配额撑爆）；配额不足时先淘汰
   「播放点前 5s 之外」与「播放点后 45s+ 之外」两侧的缓冲；网络 chunk 按批 append（视频 ≥512KB、
   音频 ≥128KB 或距上次 ≥300ms 才 flush 一次，首块立即 append 保证起播快），减少 appendBuffer 调用次数。
-  可选择清晰度、分 P、自动连播；**选轨按本次下发的画质**（`playurl.quality`）挑，找不到才退回最高带宽那条，
+  可选择清晰度、分 P（右栏分P按钮显示分P标题，当前 P 的时长按 pagelist 单P时长算）、自动连播；**选轨按本次下发的画质**（`playurl.quality`）挑，找不到才退回最高带宽那条，
   实测出现过「报 720P 只回 480P 轨」的降级情况，此时清晰度面板会显示真正在播的档位。
   `sidx` 定位起流是**逐条线路试**的：探测失败 / 服务端忽略 Range / 64KB 内找不到 `sidx`（会放大到 512KB 再探一次）
   都只是换下一条备用线路，并把剩余备用地址一起带进续流；续流函数会回报「到底有没有真的 append 成功」，
   失败就回退到「从 0 顺序拉」，不会因为某条 CDN 403/404 就误判成功、让播放器一直空转。
   **音视频必须一起定位成功**才按偏移续流（`startStreams()` 先并行探测两条轨），否则两条一起从 0 顺序拉 ——
   只有一条轨跳到中途会让当前播放位置缺一半数据、直接卡死。
-  `MediaSource.duration` 按「playurl 时长（合理才用）→ 投稿信息时长 → 先 `Infinity` 再按 `buffered` 收尾」取值（见下方时长坑）。
+  `MediaSource.duration` 按「当前 P 的单P时长（pagelist）→ playurl 时长（合理才用）→ 投稿信息时长 → 先 `Infinity` 再按 `buffered` 收尾」取值（见下方时长坑）。
 - **播放器**：控制栏是**浮在画面底部**的浮层，鼠标不动 2.8s 自动淡出、移到画面上再出现
   （双击画面 / 快捷键 `F` 全屏）。控制栏里依次是：播放/上一 P/下一 P/时间/进度条、倍速（0.5/0.75/1/1.25/1.5/2）、
   字幕（CC，可关闭；未登录时 B 站返回 `subtitle_count=0`，会提示「这个视频没有可用字幕」）、静音、音量、全屏。

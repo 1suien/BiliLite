@@ -10,10 +10,13 @@ const RELATED = 'https://api.bilibili.com/x/web-interface/archive/related'
 const FNVAL = 16 + 64 + 128 + 256 + 512 + 1024 + 2048
 
 export function normalizeView(d) {
+  // 注意：B 站 pagelist/web-interface/view 里分P标题字段是 `part`，界面统一读 `title`，
+  // 这里两个都给（只给 part 时界面会渲染出「P1 ·」这种没有标题的按钮）。
   const pages = (d.pages || []).map((p) => ({
     cid: p.cid,
     page: p.page,
     part: p.part,
+    title: p.part || p.title || `P${p.page}`,
     duration: p.duration
   }))
   return {
@@ -39,7 +42,9 @@ export function normalizeView(d) {
       favorite: (d.stat && d.stat.favorite) || 0,
       reply: (d.stat && d.stat.reply) || 0
     },
-    pages: pages.length ? pages : [{ cid: d.cid, page: 1, part: d.title, duration: d.duration }]
+    pages: pages.length
+      ? pages
+      : [{ cid: d.cid, page: 1, part: d.title, title: d.title, duration: d.duration }]
   }
 }
 
@@ -50,7 +55,13 @@ export async function fetchView(bvid) {
 
 export async function fetchPages(bvid) {
   const d = await api(PAGELIST, { params: { bvid } })
-  return (d || []).map((p) => ({ cid: p.cid, page: p.page, part: p.part, duration: p.duration }))
+  return (d || []).map((p) => ({
+    cid: p.cid,
+    page: p.page,
+    part: p.part,
+    title: p.part || p.title || `P${p.page}`,
+    duration: p.duration
+  }))
 }
 
 export async function fetchRelated(bvid) {
