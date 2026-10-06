@@ -49,7 +49,17 @@ function onScroll() {
 function toTop() {
   const el = scroller && scroller.isConnected ? scroller : currentScroller()
   if (!el) return
+  const from = el.scrollTop
   el.scrollTo({ top: 0, behavior: 'smooth' })
+  // 兜底：窗口被遮挡 / 合成器不产帧时，`behavior:'smooth'` 可能一点都不推进
+  // （实测打包版出现过点了「顶部」3 秒后 scrollTop 还停在 1637px）。400ms 后如果位置没动就直接跳回顶部 ——
+  // 注意必须用 `behavior:'instant'` 覆盖 `.scroll` 上的 `scroll-behavior: smooth`，
+  // 否则直接赋 `scrollTop = 0` 又会变成一次「动画」，在这个环境下照样不动。
+  setTimeout(() => {
+    if (el.isConnected && el.scrollTop >= from && el.scrollTop > 0) {
+      el.scrollTo({ top: 0, behavior: 'instant' })
+    }
+  }, 400)
 }
 
 function refresh() {

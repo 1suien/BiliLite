@@ -7,7 +7,6 @@ import BiliImage from '../components/BiliImage.vue'
 import Icon from '../components/Icon.vue'
 import EmptyBlock from '../components/EmptyBlock.vue'
 import CollectModal from '../components/CollectModal.vue'
-import DanmakuLayer from '../components/DanmakuLayer.vue'
 import { useLearnStore } from '../stores/learn'
 import { useCollectStore } from '../stores/collect'
 import { useUpsStore, DEFAULT_GROUP } from '../stores/ups'
@@ -50,6 +49,7 @@ const pageIndex = ref(0) // 0-based
 const related = ref([])
 const playurl = ref(null)
 const quality = ref(0)
+const actualQuality = ref(0) // 播放器实际选中的视频轨画质（服务端可能降级）
 const isPlaying = ref(false)
 const duration = ref(0)
 const currentTime = ref(0)
@@ -61,25 +61,15 @@ const noteText = ref('')
 const notes = ref([])
 const collectOpen = ref(false)
 
-/* ── 播放器：弹幕 / 倍速 / 字幕 / 画中画 / 控制栏 ───────── */
+/* ── 播放器：倍速 / 字幕 / 控制栏 ───────── */
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2]
-const dmLayer = ref(null)
-const danmaku = ref([])
-const danmakuOn = ref(true)
-const danmakuOpacity = ref(0.9)
-const danmakuArea = ref(1)
-const dmText = ref('')
-const dmSending = ref(false)
 const speed = ref(1)
 const speedMenu = ref(false)
 const ccMenu = ref(false)
-const dmMenu = ref(false)
 const ccList = ref([])
 const ccLan = ref('')
 const ccLoading = ref(false)
-const onlineTotal = ref(0)
 const ctlVisible = ref(true)
-const pipOn = ref(false)
 let hideTimer = null
 
 const info = computed(() => (view.value ? view.value : {}))
@@ -105,9 +95,8 @@ const inUpsList = computed(() =>
   Boolean(info.value.upMid) && ups.items.some((x) => String(x.mid) === String(info.value.upMid))
 )
 
-/* 弹幕 / 字幕 / 菜单 */
-const dmCount = computed(() => danmaku.value.length)
-const menuOpen = computed(() => speedMenu.value || ccMenu.value || dmMenu.value)
+/* 字幕 / 菜单 */
+const menuOpen = computed(() => speedMenu.value || ccMenu.value)
 const activeCc = computed(() => {
   const cc = ccList.value.find((s) => s.lan === ccLan.value)
   if (!cc || !cc.items.length) return ''
@@ -143,51 +132,6 @@ async function setSpeed(v) {
   }
 }
 
-function toggleDanmaku(on) {
-  danmakuOn.value = on === undefined ? !danmakuOn.value : Boolean(on)
-  settings.patch({ danmakuOn: danmakuOn.value }).catch(() => {})
-}
-
-function setDmArea(a) {
-  danmakuArea.value = a
-  dmMenu.value = false
-  settings.patch({ danmakuArea: a }).catch(() => {})
-}
-
-function setDmOpacity(v) {
-  danmakuOpacity.value = Math.max(0.1, Math.min(1, Number(v) || 0.9))
-  settings.patch({ danmakuOpacity: danmakuOpacity.value }).catch(() => {})
-}
-
-/** 弹幕按 6 分钟一段拉，最多 8 段（48 分钟） */
-async function loadDanmaku() {
-  danmaku.value = []
-  const id = cid.value
-  if (!id) return
-  const total = duration.value || parseDuration(info.value.duration) || 0
-  const segs = Math.min(8, Math.max(1, Math.ceil(total / 360)))
-  const all = []
-  for (let s = 1; s <= segs; s++) {
-    try {
-      const r = await api.video.danmaku(id, s)
-      if (r && r.items && r.items.length) all.push(...r.items)
-    } catch (err) {
-      if (s === 1) console.warn('[danmaku] 加载失败：', err && err.message)
-    }
-  }
-  all.sort((a, b) => a.time - b.time)
-  danmaku.value = all
-}
-
-async function loadOnline() {
-  try {
-    const r = await api.video.online(bvid.value, cid.value)
-    onlineTotal.value = r && r.total ? r.total : 0
-  } catch {
-    onlineTotal.value = 0
-  }
-}
-
 async function loadSubtitles() {
   if (ccLoading.value || ccList.value.length) return
   ccLoading.value = true
@@ -212,44 +156,6 @@ async function openCcMenu() {
 function pickCc(lan) {
   ccLan.value = lan
   ccMenu.value = false
-}
-
-async function sendDm() {
-  const text = dmText.value.trim()
-  if (!text || dmSending.value) return
-  dmSending.value = true
-  const at = videoEl.value ? videoEl.value.currentTime || 0 : 0
-  try {
-    await api.video.sendDanmaku({ bvid: bvid.value, cid: cid.value, msg: text, progress: Math.round(at * 1000) })
-    danmaku.value = [...danmaku.value, { time: at, mode: 1, size: 25, color: 16777215, text }].sort((a, b) => a.time - b.time)
-    dmText.value = ''
-    ui.ok('弹幕已发送')
-  } catch (err) {
-    if (err.needLogin) {
-      ui.err('发送弹幕需要先登录')
-      ui.loginOpen = true
-    } else {
-      ui.err(err.message || '弹幕发送失败')
-    }
-  } finally {
-    dmSending.value = false
-  }
-}
-
-async function togglePip() {
-  try {
-    if (document.pictureInPictureElement) {
-      await document.exitPictureInPicture()
-      pipOn.value = false
-    } else if (videoEl.value && videoEl.value.requestPictureInPicture) {
-      await videoEl.value.requestPictureInPicture()
-      pipOn.value = true
-    } else {
-      ui.err('这个环境不支持画中画')
-    }
-  } catch {
-    ui.err('画中画打开失败')
-  }
 }
 
 function scheduleHide() {
@@ -278,7 +184,6 @@ function onWinDown(e) {
   if (el && el.closest && el.closest('.ctl-menu-wrap')) return
   speedMenu.value = false
   ccMenu.value = false
-  dmMenu.value = false
 }
 
 async function addCurrentUp() {
@@ -304,9 +209,6 @@ function applySettings() {
   muted.value = false
   lastVolumeSent = volume.value
   speed.value = Number(settings.settings.playbackRate) || 1
-  danmakuOn.value = settings.settings.danmakuOn !== false
-  danmakuOpacity.value = Number(settings.settings.danmakuOpacity) || 0.9
-  danmakuArea.value = Number(settings.settings.danmakuArea) || 1
   ctlVisible.value = true
 }
 
@@ -408,6 +310,7 @@ async function startPlay() {
     const data = await api.video.playurl(bvid.value, cid.value, qn)
     playurl.value = data
     quality.value = data.quality || qn
+    actualQuality.value = 0
     // 有的视频 playurl 里的 dash.duration 是垃圾值（例如 1000ms）：直接用它既会让进度条总时长显示成
     // 0:01，又会让 MSE 把超出 1 秒的帧全部丢掉（画面永远「缓冲中…」）。所以只在看起来合理时采用。
     const dashSec = data.dash && data.dash.duration ? data.dash.duration / 1000 : 0
@@ -440,6 +343,11 @@ async function startPlay() {
         else if (s === 'playing') statusText.value = ''
       },
       onEnded: onEnded,
+      // 播放器实际选中的视频轨 id：服务端可能降级（报 720P 却只回 480P 轨），
+      // 所以「当前清晰度」以实际播的那条轨为准，避免显示与画质不符。
+      onTracks: (t) => {
+        actualQuality.value = Number(t && t.video && t.video.id) || 0
+      },
       onError: (e) => {
         errorMsg.value = e.message
         statusText.value = ''
@@ -459,8 +367,6 @@ async function startPlay() {
     })
     startTimers() // 幂等：切分P/换清晰度后保证计时器仍在跑
     applyRate()
-    loadDanmaku()
-    loadOnline()
   } catch (err) {
     errorMsg.value = err.message || '播放失败'
     statusText.value = ''
@@ -478,11 +384,8 @@ function teardown() {
   duration.value = 0
   bufferedPct.value = 0
   statusText.value = ''
-  danmaku.value = []
-  onlineTotal.value = 0
   ccLan.value = ''
   ccList.value = []
-  if (dmLayer.value) dmLayer.value.clear()
 }
 
 /* ── 学习记录 ─────────────────────────────────────────── */
@@ -726,8 +629,6 @@ function onKey(e) {
   } else if (e.code === 'ArrowDown') {
     volume.value = Math.max(0, volume.value - 0.05)
     onVolumeInput()
-  } else if (e.code === 'KeyD') {
-    toggleDanmaku()
   } else if (e.code === 'KeyF') {
     toggleFullscreen()
   }
@@ -791,17 +692,6 @@ onBeforeUnmount(() => {
         <div class="player-stage" @dblclick="toggleFullscreen">
           <video ref="videoEl" playsinline preload="auto" @click="togglePlay" />
 
-          <DanmakuLayer
-            v-if="danmakuOn"
-            ref="dmLayer"
-            :items="danmaku"
-            :enabled="danmakuOn"
-            :opacity="danmakuOpacity"
-            :video="videoEl"
-            :area="danmakuArea"
-          />
-
-          <div v-if="onlineTotal > 0" class="stage-online">{{ fmtCount(onlineTotal) }} 人正在看</div>
           <div v-if="ccLan && activeCc" class="cc-line">{{ activeCc }}</div>
 
           <div v-if="statusText && !isPlaying" class="player-msg">
@@ -810,62 +700,6 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="stage-ui" :class="{ hide: !ctlVisible }">
-            <div class="dm-bar">
-              <button
-                class="btn ghost sm"
-                :title="danmakuOn ? '关闭弹幕' : '打开弹幕'"
-                @click="toggleDanmaku()"
-              >
-                <Icon name="danmaku" :size="15" />
-              </button>
-              <div class="ctl-menu-wrap">
-                <button class="btn ghost sm" title="弹幕设置" @click.stop="dmMenu = !dmMenu">
-                  <Icon name="settings" :size="15" />
-                </button>
-                <div v-if="dmMenu" class="ctl-menu" style="left: 0; right: auto">
-                  <div class="mrow">不透明度 {{ Math.round(danmakuOpacity * 100) }}%</div>
-                  <div class="mrow" style="padding-top: 0">
-                    <input
-                      type="range"
-                      min="0.2"
-                      max="1"
-                      step="0.1"
-                      :value="danmakuOpacity"
-                      style="width: 100%"
-                      @input="setDmOpacity($event.target.value)"
-                    />
-                  </div>
-                  <div class="sep" />
-                  <div class="mrow">显示区域</div>
-                  <div class="mi" :class="{ on: danmakuArea === 1 }" @click="setDmArea(1)">全屏</div>
-                  <div class="mi" :class="{ on: danmakuArea === 0.5 }" @click="setDmArea(0.5)">上半屏</div>
-                  <div class="mi" :class="{ on: danmakuArea === 0.25 }" @click="setDmArea(0.25)">顶部 1/4</div>
-                  <div class="sep" />
-                  <div class="mi" @click="toggleDanmaku(false)">关闭弹幕</div>
-                </div>
-              </div>
-              <input
-                v-model="dmText"
-                class="input grow"
-                style="height: 30px"
-                maxlength="100"
-                :placeholder="danmakuOn ? '点击发送弹幕' : '弹幕已关闭'"
-                :disabled="!danmakuOn || dmSending"
-                @keydown.enter="sendDm"
-              />
-              <button
-                class="btn ghost sm"
-                title="发送弹幕"
-                :disabled="!dmText.trim() || dmSending"
-                @click="sendDm"
-              >
-                <Icon name="send" :size="15" />
-              </button>
-              <span style="font-size: 11.5px; color: rgba(255, 255, 255, 0.55); white-space: nowrap">
-                {{ fmtCount(dmCount) }} 条
-              </span>
-            </div>
-
             <div class="player-ctl">
               <button class="btn ghost sm" :title="isPlaying ? '暂停' : '播放'" @click="togglePlay">
                 <Icon :name="isPlaying ? 'pause' : 'play'" :size="16" />
@@ -928,9 +762,6 @@ onBeforeUnmount(() => {
                   <div v-else class="mrow">这个视频没有可用字幕</div>
                 </div>
               </div>
-              <button class="btn ghost sm" :title="pipOn ? '退出画中画' : '画中画'" @click="togglePip">
-                <Icon name="pip" :size="15" />
-              </button>
               <button class="btn ghost sm" title="静音" @click="toggleMute">
                 <Icon :name="muted ? 'mute' : 'volume'" :size="15" />
               </button>
@@ -1068,14 +899,14 @@ onBeforeUnmount(() => {
           <Icon name="monitor" :size="15" />
           <b style="font-size: 13px">清晰度</b>
           <span class="grow" />
-          <span class="muted" style="font-size: 11.5px">当前 {{ qnLabel(quality) }}</span>
+          <span class="muted" style="font-size: 11.5px">当前 {{ qnLabel(actualQuality || quality) }}</span>
         </div>
         <div class="row" style="flex-wrap: wrap">
           <span
             v-for="q in qualities"
             :key="q"
             class="chip"
-            :class="{ on: q === quality }"
+            :class="{ on: q === (actualQuality || quality) }"
             @click="selectQuality(q)"
           >
             {{ qnLabel(q) }}

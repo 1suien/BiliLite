@@ -13,8 +13,15 @@
  */
 
 const HEAD_PROBE_BYTES = 65536
-const AHEAD_MAX = 30
-const AHEAD_MIN = 12
+// 缓冲目标：留足余量减少 underrun（网络抖动时不会马上卡住），同时不至于把整集吞进内存
+const AHEAD_MAX = 45
+const AHEAD_MIN = 18
+
+// 网络 chunk 只有几十 KB，逐个 appendBuffer 会让解复用/解码频繁中断（表现为卡顿）；
+// 攒到阈值或等待超过 BATCH_MS 再合并成一次 append。首块立即 append，保证起播快。
+const BATCH_VIDEO_BYTES = 512 * 1024
+const BATCH_AUDIO_BYTES = 128 * 1024
+const BATCH_MS = 300
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -42,6 +49,17 @@ function waitUpdate(sb, timeout = 5000) {
     sb.addEventListener('updateend', finish)
     sb.addEventListener('error', finish)
   })
+}
+
+function concatBytes(list, total) {
+  if (list.length === 1) return list[0]
+  const out = new Uint8Array(total)
+  let at = 0
+  for (const b of list) {
+    out.set(b, at)
+    at += b.byteLength
+  }
+  return out
 }
 
 function waitEvent(target, name, timeout = 8000) {
@@ -93,10 +111,21 @@ function videoRank(t) {
   return 3
 }
 
-export function pickVideoTrack(tracks = []) {
-  return [...tracks]
-    .filter((t) => trackUrl(t))
-    .sort((a, b) => videoRank(a) - videoRank(b) || (b.bandwidth || 0) - (a.bandwidth || 0))[0]
+/**
+ * 选视频轨：先按「本次实际下发的画质」（payload.quality）过滤，再按编码兼容性（avc1 优先）、
+ * 最后按带宽降序。
+ *
+ * 为什么必须先按 id 过滤：playurl 里同一编码可能带 1080P+/1080P/720P/480P/360P 多条轨，
+ * 只看带宽会永远挑到最高那条 —— 用户选了 720P 却在拉 1080P+（实测日志 avc1.640033 ≈ 1080P+，
+ * 而 UI 显示「当前 720P」），解码压力大、更容易卡顿。
+ */
+export function pickVideoTrack(tracks = [], preferQuality = 0) {
+  const usable = [...tracks].filter((t) => trackUrl(t))
+  if (!usable.length) return undefined
+  const wanted = Number(preferQuality) || 0
+  const matched = wanted ? usable.filter((t) => Number(t.id) === wanted) : []
+  const pool = matched.length ? matched : usable
+  return pool.sort((a, b) => videoRank(a) - videoRank(b) || (b.bandwidth || 0) - (a.bandwidth || 0))[0]
 }
 
 export function pickAudioTrack(tracks = []) {
@@ -331,7 +360,7 @@ export class DashPlayer {
     const gen = ++this.gen
     this.teardownMedia()
 
-    const video = pickVideoTrack(payload.dash.video)
+    const video = pickVideoTrack(payload.dash.video, payload.quality)
     const audio = pickAudioTrack(payload.dash.audio || [])
     if (!video) throw new Error('没有可用的视频轨')
     if (!audio) throw new Error('没有浏览器可解码的音轨（该视频可能只有杜比/无损音频）')
@@ -341,7 +370,16 @@ export class DashPlayer {
     if (!window.MediaSource.isTypeSupported(vMime)) throw new Error(`当前环境不支持该视频编码（${video.codecs}）`)
 
     this.tracks = { video, audio }
+    if (this.hooks.onTracks) this.hooks.onTracks(this.tracks)
     dbg('tracks', 'v=' + video.codecs, 'a=' + audio.codecs, 'vSupported=' + window.MediaSource.isTypeSupported(vMime), 'aSupported=' + window.MediaSource.isTypeSupported(`audio/mp4; codecs="${audio.codecs}"`))
+    dbg(
+      'picked quality',
+      'want=' + (Number(payload.quality) || 0),
+      'got=' + (video.id || '?'),
+      (video.width || '?') + 'x' + (video.height || '?'),
+      Math.round((video.bandwidth || 0) / 1000) + 'kbps',
+      'candidates=' + (payload.dash.video || []).map((t) => t.id + ':' + (t.width || '?') + 'x' + (t.height || '?')).join(',')
+    )
     this.ms = new MediaSource()
     this.objectUrl = URL.createObjectURL(this.ms)
     this.el.src = this.objectUrl
@@ -512,7 +550,21 @@ export class DashPlayer {
         if (!res.ok && res.status !== 206) throw new Error(`HTTP ${res.status}`)
         if (!res.body) throw new Error('响应没有可读流')
         const reader = res.body.getReader()
-        let appended = 0
+        let readBytes = 0
+        // 攒批：网络 chunk 只有几十 KB，逐个 appendBuffer 会让解复用/解码频繁中断 → 卡顿
+        const batchBytes = kind === 'video' ? BATCH_VIDEO_BYTES : BATCH_AUDIO_BYTES
+        let pending = []
+        let pendingBytes = 0
+        let pendingSince = 0
+        let chunks = 0
+        const flush = async () => {
+          if (!pending.length) return true
+          const bytes = concatBytes(pending, pendingBytes)
+          pending = []
+          pendingBytes = 0
+          pendingSince = 0
+          return this.append(kind, bytes, gen)
+        }
         for (;;) {
           if (gen !== this.gen || this.destroyed) {
             try {
@@ -522,16 +574,26 @@ export class DashPlayer {
             }
             return
           }
-          while (this.ahead() > AHEAD_MAX && gen === this.gen && !this.destroyed) await sleep(220)
+          while (this.ahead(kind) > AHEAD_MAX && gen === this.gen && !this.destroyed) {
+            if (!(await flush())) return // 背压时先把攒下的数据交出去，避免手里囤着没 append 的块
+            await sleep(220)
+          }
           const { done, value } = await reader.read()
           if (done) break
           if (!value || !value.byteLength) continue
-          if (!(await this.append(kind, value, gen))) return
-          appended += value.byteLength
+          if (!pendingSince) pendingSince = Date.now()
+          pending.push(value)
+          pendingBytes += value.byteLength
+          readBytes += value.byteLength
+          chunks += 1
+          if (chunks === 1 || pendingBytes >= batchBytes || Date.now() - pendingSince >= BATCH_MS) {
+            if (!(await flush())) return
+          }
           if (kind === 'video' && this.usedFallbackFromZero && offset === 0) {
-            this.status('缓冲中… 已加载 ' + Math.round(appended / 1048576) + 'MB')
+            this.status('缓冲中… 已加载 ' + Math.round(readBytes / 1048576) + 'MB')
           }
         }
+        if (!(await flush())) return
         this.aborts.delete(ac)
         return
       } catch (err) {
@@ -552,27 +614,29 @@ export class DashPlayer {
       if (gen !== this.gen || this.destroyed || sb !== (kind === 'video' ? this.vsb : this.asb)) return false
       await waitUpdate(sb, 3000)
     }
-    try {
-      sb.appendBuffer(bytes)
-    } catch (err) {
-      dbg('appendBuffer threw', kind, 'len=' + bytes.byteLength, err && err.name, err && err.message)
-      if (err && err.name === 'QuotaExceededError') {
-        dbg('quota exceeded → evict', kind)
-        await this.evict()
+    let ok = false
+    for (let attempt = 0; ; attempt++) {
+      try {
+        sb.appendBuffer(bytes)
+        ok = true
+        break
+      } catch (err) {
+        const quota = err && err.name === 'QuotaExceededError'
+        dbg('appendBuffer threw', kind, 'len=' + bytes.byteLength, err && err.name, err && err.message, 'attempt=' + attempt)
+        if (!quota || attempt >= 2 || gen !== this.gen || this.destroyed) return false
+        // 腾配额：先清「播放点之后太远」的数据（音轨甩太远时就是它撑爆的），再清播放点之前的
+        dbg('quota exceeded → evict', kind, 'attempt=' + attempt)
+        await this.evict(Math.max(10, AHEAD_MAX + 15 - attempt * 20))
         if (gen !== this.gen || this.destroyed) return false
+        if (sb !== (kind === 'video' ? this.vsb : this.asb)) return false
+        await sleep(120)
         while (sb.updating) {
-          if (sb !== (kind === 'video' ? this.vsb : this.asb)) return false
+          if (gen !== this.gen || this.destroyed || sb !== (kind === 'video' ? this.vsb : this.asb)) return false
           await waitUpdate(sb, 3000)
         }
-        try {
-          sb.appendBuffer(bytes)
-        } catch {
-          return false
-        }
-      } else {
-        return false
       }
     }
+    if (!ok) return false
     await waitUpdate(sb, 5000)
     if (!this.appendLogged) this.appendLogged = {}
     if (!this.appendLogged[kind]) {
@@ -594,32 +658,53 @@ export class DashPlayer {
     }
   }
 
-  /** 释放播放点之前 5 秒以外的已缓冲数据，给 SourceBuffer 腾配额 */
-  async evict() {
-    const cut = Math.max(0, (this.el.currentTime || 0) - 5)
+  /**
+   * 释放不再需要的已缓冲数据，给 SourceBuffer 腾配额。
+   *
+   * 两类数据都要扔：
+   *  1) 播放点之前 5 秒以外（已经播过，回看价值低）；
+   *  2) 播放点之后太远的部分 —— 音轨比视频轨轻得多，并行拉流时会甩开视频几十上百秒，
+   *     只按「超前多少秒」做背压的话音轨能把 SourceBuffer 撑爆（实测 `QuotaExceededError`：
+   *     `The SourceBuffer is full, and cannot free space to append additional buffers`），
+   *     而当时 `currentTime≈0`，只按「播放点之前」清的话一秒都清不掉，append 直接失败、音轨断流。
+   */
+  async evict(keepAhead = AHEAD_MAX + 15) {
+    const now = this.el.currentTime || 0
+    const cut = now - 5
+    const far = now + keepAhead
     for (const sb of [this.vsb, this.asb]) {
-      if (!sb || sb.updating) continue
+      if (!sb || this.destroyed) continue
+      if (sb.updating) await waitUpdate(sb, 3000)
+      let ranges = []
       try {
         const b = sb.buffered
-        for (let i = 0; i < b.length; i++) {
-          const start = b.start(i)
-          if (start >= cut) break
-          try {
-            sb.remove(start, Math.min(cut, b.end(i)))
-          } catch {
-            return
-          }
-          break
-        }
+        for (let i = 0; i < b.length; i++) ranges.push([b.start(i), b.end(i)])
       } catch {
-        /* ignore */
+        continue
       }
+      // 先把要删的区间一次算好，再逐段 remove —— remove() 是异步的，
+      // 连着调第二个会在 `updating` 时抛 InvalidStateError（原来那样写会把后面几段全吞掉）
+      const targets = []
+      for (const [start, end] of ranges) {
+        if (end <= cut || start > far) targets.push([start, end])
+        else if (start < cut) targets.push([start, Math.min(cut, end)])
+      }
+      for (const [from, to] of targets) {
+        if (this.destroyed) break
+        if (sb.updating) await waitUpdate(sb, 3000)
+        try {
+          sb.remove(from, to)
+        } catch {
+          /* 区间已被上一段 remove 合并，忽略 */
+        }
+      }
+      if (sb.updating) await waitUpdate(sb, 3000)
     }
   }
 
-  /** 已缓冲到播放点之后多少秒（用于背压） */
-  ahead() {
-    const sb = this.vsb || this.asb
+  /** 已缓冲到播放点之后多少秒（用于背压）；kind 指定用哪条轨的缓冲，避免音轨甩太远 */
+  ahead(kind) {
+    const sb = kind === 'audio' ? this.asb : kind === 'video' ? this.vsb : this.vsb || this.asb
     if (!sb) return 0
     try {
       const b = sb.buffered

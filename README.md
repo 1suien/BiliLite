@@ -129,9 +129,10 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 近 14 天条形图 / 按 UP 分布饼图、手动打卡写入 `checkins`、UP 主页投稿列表（同一接口，含分页 `count`）、
 右侧悬浮操作组、页面确实可上下滚动（`.scroll` 的 `scrollHeight > clientHeight`）、下拉后出现「顶部」并点回顶部、
 「换一换」后页面重新渲染、切换页面自动回到顶部（先在长列表拉到 480/1224px，再进视频页 `scrollTop=0`）、
-弹幕接口返回弹幕（`window.bili.video.danmaku(cid,1)` 条数 > 0）、控制栏含弹幕/倍速/字幕/画中画控件、
-弹幕层渲染出弹幕（`.dm-item` 数量 > 0）、倍速切换生效（点 2x → `video.playbackRate === 2` → 还原）、
-字幕菜单能打开、弹幕开关切换弹幕层。
+控制栏含倍速/字幕/静音/全屏控件、播放页已移除弹幕/画中画/在线人数 UI（`.dm-bar`、`.dm-layer`、画中画按钮、
+「N 人正在看」四者都不存在）、视频轨按画质挑选（`[dash] picked quality` 的 `got` 与按 `playurl.quality`
+推算出的轨道一致）、「当前清晰度」显示实播画质（清晰度面板的 `.muted` 文本与 `.chip.on` 都是实播档位）、
+倍速切换生效（点 2x → `video.playbackRate === 2` → 还原）、字幕菜单能打开。
 
 > 冒烟断言的时序坑：`.scroll` 是 `scroll-behavior: smooth`，滚动是**动画**，`el.scrollTop = el.scrollHeight` 之后
 > 固定等 700ms 在机器忙时不够（曾出现「页面可上下滚动」PASS 但「下拉后出现顶部按钮」FAIL 的假失败）。
@@ -161,18 +162,23 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 
 - **登录**：B 站二维码扫码（`qrcode` 渲染），凭证经 Electron `safeStorage`（DPAPI）加密后存于 `userData/study-bili.json`。
 - **UP 管理**：本机维护专注名单（UID / 空间链接 / 昵称添加，支持分组，登录后一键导入 B 站关注）；首页只显示这批 UP 的最新投稿。
-- **播放**：DASH 按 `sidx` 直接定位到目标字节偏移起流；缓冲超前超过 30s 暂停拉流、低于 12s 恢复；
-  配额不足时淘汰播放点前 5s 之外的缓冲。可选择清晰度（默认 1080P）、分 P、自动连播。
+- **播放**：DASH 按 `sidx` 直接定位到目标字节偏移起流；缓冲超前超过 45s 暂停拉流、低于 18s 恢复
+  （音视频**各自**按自己的 SourceBuffer 计算，避免音轨甩开视频轨把配额撑爆）；配额不足时先淘汰
+  「播放点前 5s 之外」与「播放点后 45s+ 之外」两侧的缓冲；网络 chunk 按批 append（视频 ≥512KB、
+  音频 ≥128KB 或距上次 ≥300ms 才 flush 一次，首块立即 append 保证起播快），减少 appendBuffer 调用次数。
+  可选择清晰度、分 P、自动连播；**选轨按本次下发的画质**（`playurl.quality`）挑，找不到才退回最高带宽那条，
+  实测出现过「报 720P 只回 480P 轨」的降级情况，此时清晰度面板会显示真正在播的档位。
   `MediaSource.duration` 按「playurl 时长（合理才用）→ 投稿信息时长 → 先 `Infinity` 再按 `buffered` 收尾」取值（见下方时长坑）。
-- **播放器（对齐 B 站官方客户端）**：控制栏改为**浮在画面底部**的浮层，鼠标不动 2.8s 自动淡出、移到画面上再出现
-  （双击画面 / 快捷键 `F` 全屏，`D` 开关弹幕）。控制栏里依次是：弹幕开关、弹幕设置（不透明度 + 显示区域 1/1/2、1/4）、
-  「点击发送弹幕」输入框（回车发送，未登录会弹扫码登录）、弹幕条数、播放/上一 P/下一 P/时间/进度条、
-  倍速（0.5/0.75/1/1.25/1.5/2）、字幕（CC，可关闭）、画中画、静音、音量、全屏；画面左上角显示「N 人正在看」。
-- **弹幕**：走旧版 XML 接口 `api.bilibili.com/x/v1/dm/list.so`（匿名可用，实测单段数百到数千条），
-  长视频按 360s 分段拉取最多 8 段；解析后按时间轴用 Web Animations 抛出（滚动 / 顶部 / 底部三种模式，
-  轨道复用、seek 后按 `currentTime` 二分重定位）。发送弹幕走 `x/v2/dm/post`，需要登录态与 `bili_jct`。
-  实现见 `src/main/bili/danmaku.js` + `src/renderer/src/components/DanmakuLayer.vue`。
-  字幕取 `x/player/v2`（未登录时 B 站返回 `subtitle_count=0`，此时提示「这个视频没有可用字幕」）。
+- **播放器**：控制栏是**浮在画面底部**的浮层，鼠标不动 2.8s 自动淡出、移到画面上再出现
+  （双击画面 / 快捷键 `F` 全屏）。控制栏里依次是：播放/上一 P/下一 P/时间/进度条、倍速（0.5/0.75/1/1.25/1.5/2）、
+  字幕（CC，可关闭；未登录时 B 站返回 `subtitle_count=0`，会提示「这个视频没有可用字幕」）、静音、音量、全屏。
+- **弹幕/画中画/在线人数（已按要求从播放页移除，底层代码保留）**：弹幕走旧版 XML 接口
+  `api.bilibili.com/x/v1/dm/list.so`（匿名可用，实测单段数百到数千条），长视频按 360s 分段拉取最多 8 段；
+  解析后按时间轴用 Web Animations 抛出（滚动 / 顶部 / 底部三种模式，轨道复用、seek 后二分重定位）；
+  发送弹幕走 `x/v2/dm/post`（需登录态与 `bili_jct`）；在线人数走 `x/player/online/total`。
+  实现见 `src/main/bili/danmaku.js` + `src/renderer/src/components/DanmakuLayer.vue` + IPC 通道
+  `video:danmaku/online/sendDanmaku` + `.dm-*` 样式 —— 播放页不再挂载，要恢复只需在 `VideoView.vue` 里挂回组件与控制条。
+  播放页仍保留视频信息行的「N 弹幕」统计 chip（那是投稿统计，不是控件）。
 - **收藏**：本机收藏（文件夹管理、可离线）与 B 站账户收藏（需登录）双 tab。
 - **页面滚动与右侧悬浮操作**：内容区右侧是可拖动的滚动条（12px，`scrollbar-gutter: stable`），
   右下角常驻悬浮按钮组 —— 「换一换」把当前页面整个重新挂载、重新拉数据，「顶部」在往下拉过 200px 后出现、

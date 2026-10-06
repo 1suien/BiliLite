@@ -16,6 +16,29 @@ const show = (v) => {
   return s.length > 400 ? s.slice(0, 400) + ` …(+${s.length - 400})` : s
 }
 
+// 「当前清晰度」文案（与 src/renderer/src/utils/quality.js 的 QN_LABEL 一致）
+const QN_TEXT = { 6: '240P', 16: '360P', 32: '480P', 64: '720P', 74: '720P60', 80: '1080P', 100: '智能修复', 112: '1080P+', 116: '1080P60', 120: '4K', 125: 'HDR', 126: '杜比视界', 127: '8K' }
+const qnText = (qn) => QN_TEXT[qn] || `qn${qn}`
+
+/**
+ * 与渲染层 `pickVideoTrack` 同一套规则，用来算「应该挑中哪条轨」：
+ * 先按本次下发的画质 id 过滤（没有匹配就退回全部），再 avc1 优先、带宽降序。
+ */
+function expectVideoTrack(tracks = [], want = 0) {
+  const usable = tracks.filter((t) => t && (t.url || t.baseUrl || t.base_url))
+  if (!usable.length) return null
+  const rank = (t) => {
+    const c = String(t.codecs || '')
+    if (c.startsWith('avc1')) return 0
+    if (c.startsWith('hev1') || c.startsWith('hvc1')) return 1
+    if (c.startsWith('av01')) return 2
+    return 3
+  }
+  const matched = Number(want) ? usable.filter((t) => Number(t.id) === Number(want)) : []
+  const pool = matched.length ? matched : usable
+  return pool.slice().sort((a, b) => rank(a) - rank(b) || (b.bandwidth || 0) - (a.bandwidth || 0))[0]
+}
+
 export async function runSmoke(win) {
   const wc = win.webContents
   const fails = []
@@ -46,6 +69,8 @@ export async function runSmoke(win) {
     fails.push(label)
     log(`FAIL  ${label} :: ${show(detail)}`)
   }
+  // 环境性失败（接口风控等）不计入失败项，但要在报告里显式留痕
+  const warn = (text) => log(`WARN  ${text}`)
 
   // 需要看真实界面时设置 STUDY_SMOKE_SHOT=<目录>，会顺手截几张图
   const shotDir = process.env.STUDY_SMOKE_SHOT
@@ -61,6 +86,7 @@ export async function runSmoke(win) {
   }
 
   // 渲染层 console 与加载失败都记下来，便于定位白屏
+  const dashLogs = []
   wc.on('console-message', (...a) => {
     let level = a[1]
     let message = a[2]
@@ -72,13 +98,22 @@ export async function runSmoke(win) {
       line = a[0].lineNumber
       source = a[0].sourceId
     }
+    if (typeof message === 'string' && message.startsWith('[dash]')) dashLogs.push(message)
     const isErr = level === 'error' || level === 3 || (typeof level === 'number' && level >= 2)
     log(`${isErr ? 'RCONSOLE-ERR' : 'RCONSOLE'}      ${message}${source ? `  @${String(source).slice(-60)}:${line}` : ''}`)
   })
   wc.on('did-fail-load', (_e, code, desc, url) => fail('did-fail-load', `${code} ${desc} ${url}`))
   wc.on('render-process-gone', (_e, d) => fail('render-process-gone', d && d.reason))
 
-  const js = (code) => wc.executeJavaScript(code, true)
+  // 单步卡死（接口挂住 / 渲染层被占住）时不要让整个冒烟永远停在那一行：
+  // executeJavaScript 加超时，超时按失败处理，报告里能看到是哪一步挂的。
+  const js = (code, timeoutMs = 30000) =>
+    Promise.race([
+      wc.executeJavaScript(code, true),
+      sleep(timeoutMs).then(() => {
+        throw new Error(`executeJavaScript 超时（${timeoutMs}ms）`)
+      })
+    ])
   const step = async (label, code, check) => {
     const t0 = Date.now()
     let value
@@ -131,11 +166,23 @@ export async function runSmoke(win) {
     pass('推荐流来源', `${feed.source} · 首条 ${feed.items[0].title} / cid=${feed.items[0].cid}`)
   }
 
-  const search = await step(
-    'search.videos 搜索',
-    "window.bili.search.videos('线性代数', 1)",
-    (v) => v && Array.isArray(v.items) && v.items.length > 0
-  )
+  // 搜索接口会被 B 站按 IP 风控（同一个关键词有的轮次 total=1000、有的轮次 total=0），
+  // 所以「返回了合法结构」才算这一步通过，0 条会重试 3 次后降级为 WARN（不是功能回归）。
+  let search = null
+  for (let i = 0; i < 3; i++) {
+    search = await step(
+      i ? `search.videos 搜索（第 ${i + 1} 次）` : 'search.videos 搜索',
+      "window.bili.search.videos('线性代数', 1)",
+      (v) => v && Array.isArray(v.items)
+    )
+    if (search && search.items && search.items.length) break
+    if (i < 2) await sleep(1500)
+  }
+  if (search && search.items && search.items.length) {
+    pass('搜索结果可用', `total=${search.total} 首条 ${search.items[0].title}`)
+  } else {
+    warn(`search.videos 搜索返回 0 条（本机 IP 被搜索接口风控时就是这样，非功能回归）：${show(search)}`)
+  }
 
   let probe = feed && feed.items && feed.items[0]
   if (!probe && search && search.items && search.items.length) probe = search.items[0]
@@ -253,51 +300,56 @@ export async function runSmoke(win) {
     }
   }
 
-  // ---- 播放器增强：弹幕 / 倍速 / 字幕 / 画中画 / 控制栏 ----
+  // ---- 播放器：倍速 / 字幕 / 控制栏（弹幕、画中画、在线人数已按要求移除）----
   if (played && !played.err) {
-    let dmProbe = null
-    try {
-      dmProbe = await js(`window.bili.video.danmaku(${cid}, 1)`)
-    } catch (err) {
-      dmProbe = { err: String((err && err.message) || err) }
-    }
-    const dmItems = dmProbe && Array.isArray(dmProbe.items) ? dmProbe.items.length : 0
-    if (dmProbe && dmProbe.err) fail('弹幕接口返回弹幕', dmProbe)
-    else if (dmItems > 0)
-      pass('弹幕接口返回弹幕', { count: dmProbe.count, source: dmProbe.source, first: dmProbe.items[0] })
-    else log('WARN  弹幕接口返回 0 条（这个视频可能真的没弹幕）')
-
     const ctl = await js(`(() => {
       const titles = [...document.querySelectorAll('.stage-ui button')].map((b) => b.title || b.textContent.trim())
       return {
-        dmBar: !!document.querySelector('.dm-bar'),
-        dmInput: !!document.querySelector('.dm-bar input'),
         speed: titles.includes('倍速'),
         cc: titles.includes('字幕'),
+        mute: titles.includes('静音'),
+        full: titles.some((t) => String(t).includes('全屏')),
+        dmBar: !!document.querySelector('.dm-bar'),
+        dmInput: !!document.querySelector('.dm-bar input'),
+        dmLayer: !!document.querySelector('.dm-layer'),
         pip: titles.some((t) => String(t).includes('画中画')),
+        online: !!document.querySelector('.stage-online'),
         titles
       }
     })()`)
-    if (ctl && ctl.dmBar && ctl.dmInput && ctl.speed && ctl.cc && ctl.pip)
-      pass('控制栏含弹幕/倍速/字幕/画中画控件', ctl.titles.filter(Boolean).join(' · '))
-    else fail('控制栏含弹幕/倍速/字幕/画中画控件', ctl)
+    if (ctl && ctl.speed && ctl.cc && ctl.mute && ctl.full)
+      pass('控制栏含倍速/字幕/静音/全屏控件', ctl.titles.filter(Boolean).join(' · '))
+    else fail('控制栏含倍速/字幕/静音/全屏控件', ctl)
 
-    // 弹幕层真的把弹幕飘出来（需要视频在播 + 列表已加载）
-    if (dmItems > 0) {
-      await js(`(() => {
-        const v = document.querySelector('video')
-        if (v && v.paused) { const b = document.querySelector('.player-ctl button'); if (b) b.click() }
-        return true
-      })()`)
-      let shown = 0
-      for (let i = 0; i < 12; i++) {
-        await sleep(450)
-        shown = await js(`document.querySelectorAll('.dm-item').length`)
-        if (shown > 0) break
+    if (ctl && !ctl.dmBar && !ctl.dmInput && !ctl.dmLayer && !ctl.pip && !ctl.online)
+      pass('播放页已移除弹幕/画中画/在线人数 UI', { dmBar: ctl.dmBar, dmLayer: ctl.dmLayer, pip: ctl.pip, online: ctl.online })
+    else fail('播放页已移除弹幕/画中画/在线人数 UI', ctl)
+
+    // 选轨按「本次下发的画质」挑，而不是永远挑最高带宽那条
+    const pickedLog = dashLogs.find((l) => l.includes('picked quality'))
+    const picked = pickedLog && pickedLog.match(/want=(\d+)\s+got=(\d+)/)
+    const vTracks = (playurl && playurl.dash && playurl.dash.video) || []
+    const want = playurl ? Number(playurl.quality) || 0 : 0
+    const expect = expectVideoTrack(vTracks, want)
+    const expectId = expect ? Number(expect.id) : 0
+    if (picked && expectId && Number(picked[2]) === expectId)
+      pass('视频轨按画质挑选（' + (pickedLog || '').replace('[dash] ', '') + '）', { want, expect: expectId, got: Number(picked[2]) })
+    else fail('视频轨按画质挑选', { log: pickedLog || '没有 [dash] picked quality 日志', want, expect: expectId, tracks: vTracks.map((t) => t.id + ':' + t.width + 'x' + t.height) })
+
+    // 「当前清晰度」显示的是真正在播的那条轨（服务端可能降级：报 720P 只回 480P 轨）
+    const uiQ = await js(`(() => {
+      const panel = [...document.querySelectorAll('.panel')].find((el) => el.textContent.includes('清晰度'))
+      if (!panel) return { err: 'no-quality-panel' }
+      const cur = panel.querySelector('.muted')
+      return {
+        cur: cur ? cur.textContent.replace(/\\s+/g, '') : '',
+        on: [...panel.querySelectorAll('.chip.on')].map((c) => c.textContent.trim())
       }
-      if (shown > 0) pass('弹幕层渲染出弹幕', shown)
-      else fail('弹幕层渲染出弹幕', { note: '等待 5.4 秒 .dm-item 一直是 0', loaded: dmItems })
-    }
+    })()`)
+    const expectText = qnText(expectId)
+    if (uiQ && !uiQ.err && expectId && uiQ.cur.includes(expectText) && uiQ.on.includes(expectText))
+      pass('「当前清晰度」与实播画质一致', uiQ)
+    else fail('「当前清晰度」与实播画质一致', { ui: uiQ, expect: expectText, expectId })
 
     // 倍速：点 2x 后 playbackRate 变化，再还原成 1x
     const speedProbe = await js(`(async () => {
@@ -337,24 +389,6 @@ export async function runSmoke(win) {
     if (ccProbe && ccProbe.opened) pass('字幕菜单能打开', ccProbe.text)
     else fail('字幕菜单能打开', ccProbe)
 
-    // 弹幕开关能切换弹幕层
-    const dmToggle = await js(`(async () => {
-      document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
-      const btn = [...document.querySelectorAll('.dm-bar button')].find(
-        (b) => b.title === '关闭弹幕' || b.title === '打开弹幕'
-      )
-      if (!btn) return { err: 'no-toggle-button' }
-      const before = !!document.querySelector('.dm-layer')
-      btn.click()
-      await new Promise((r) => setTimeout(r, 200))
-      const off = !!document.querySelector('.dm-layer')
-      const back = [...document.querySelectorAll('.dm-bar button')].find((b) => b.title === '打开弹幕')
-      if (back) back.click()
-      await new Promise((r) => setTimeout(r, 200))
-      return { before, off, back: !!document.querySelector('.dm-layer') }
-    })()`)
-    if (dmToggle && dmToggle.before && !dmToggle.off && dmToggle.back) pass('弹幕开关切换弹幕层', dmToggle)
-    else fail('弹幕开关切换弹幕层', dmToggle)
     await shot('3-视频页播放器.png')
   }
 
@@ -594,9 +628,9 @@ export async function runSmoke(win) {
       b.click()
       return true
     })()`)
-    // 回顶是 smooth 动画，轮询等它落到 0（最多 3s）
+    // 回顶是 smooth 动画（组件里还有 400ms 的「不动就跳」兜底），轮询等它落到 0（最多 6s）
     let backTop = null
-    for (let i = 0; i < 10; i += 1) {
+    for (let i = 0; i < 20; i += 1) {
       await sleep(300)
       backTop = await js(`Math.round(document.querySelector('.scroll').scrollTop)`)
       if (backTop < 40) break
