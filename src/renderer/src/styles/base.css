@@ -683,6 +683,7 @@ textarea {
   position: relative;
   aspect-ratio: 16 / 9;
   background: #000;
+  overflow: hidden;
 }
 .player-stage video {
   width: 100%;
@@ -690,19 +691,194 @@ textarea {
   display: block;
   background: #000;
 }
+
+/* 弹幕层 */
+.dm-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+.dm-item {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: nowrap;
+  font-weight: 600;
+  line-height: 1.35;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.85),
+    0 0 1px rgba(0, 0, 0, 0.85);
+  will-change: transform;
+}
+
+/* 字幕 / 在线人数 */
+.cc-line {
+  position: absolute;
+  left: 50%;
+  bottom: 74px;
+  transform: translateX(-50%);
+  max-width: 88%;
+  padding: 3px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 15px;
+  line-height: 1.5;
+  text-align: center;
+  white-space: pre-wrap;
+  pointer-events: none;
+  z-index: 2;
+}
+.stage-online {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #e8e8ee;
+  font-size: 12px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* 控制栏：浮在画面上，鼠标不动自动隐藏 */
+.stage-ui {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  padding: 22px 10px 8px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.5) 32%, rgba(0, 0, 0, 0.84));
+  transition:
+    opacity 0.22s ease,
+    transform 0.22s ease;
+}
+.stage-ui.hide {
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+}
+.dm-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
 .player-ctl {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  background: var(--card);
-  border-top: 1px solid var(--line);
+  gap: 8px;
 }
 .player-ctl .time {
   font-family: var(--mono);
   font-size: 12px;
-  color: var(--t2);
+  color: #e8e8ee;
   white-space: nowrap;
+}
+.player-stage .btn.ghost {
+  color: #f2f2f5;
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.06);
+}
+.player-stage .btn.ghost:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+.player-stage .btn.ghost:disabled {
+  opacity: 0.45;
+}
+.player-stage .input {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+.player-stage .input::placeholder {
+  color: rgba(255, 255, 255, 0.58);
+}
+.player-stage .chip.plain {
+  color: #ededf2;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.player-stage input[type='range'] {
+  accent-color: #fff;
+  height: 4px;
+}
+.player-stage .progress .track {
+  background: rgba(255, 255, 255, 0.26);
+}
+.player-stage .progress .track .buf {
+  background: rgba(255, 255, 255, 0.34);
+}
+html[data-theme='light'] .player-stage .progress .track i {
+  background: #fff;
+}
+
+/* 控制栏弹出菜单 */
+.ctl-menu-wrap {
+  position: relative;
+}
+.ctl-menu {
+  position: absolute;
+  bottom: 36px;
+  right: 0;
+  min-width: 138px;
+  max-height: 300px;
+  overflow: auto;
+  padding: 6px;
+  border-radius: 12px;
+  background: rgba(22, 22, 26, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  color: #e8e8ee;
+  font-size: 12.5px;
+  z-index: 8;
+}
+.ctl-menu .mi {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ctl-menu .mi:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+.ctl-menu .mi.on {
+  color: var(--accent);
+}
+.ctl-menu .mi .k {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11.5px;
+}
+.ctl-menu .mrow {
+  padding: 6px 9px 4px;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 11.5px;
+}
+.ctl-menu .sep {
+  height: 1px;
+  margin: 5px 4px;
+  background: rgba(255, 255, 255, 0.12);
+}
+.player-msg {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: #d8d8dc;
+  background: rgba(0, 0, 0, 0.62);
+  font-size: 13px;
+  gap: 8px;
+  padding: 20px;
+  z-index: 4;
 }
 .progress {
   flex: 1;
@@ -732,18 +908,6 @@ textarea {
   inset: 0 auto 0 0;
   background: rgba(255, 255, 255, 0.18);
   width: 0;
-}
-.player-msg {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  text-align: center;
-  color: #d8d8dc;
-  background: rgba(0, 0, 0, 0.62);
-  font-size: 13px;
-  gap: 8px;
-  padding: 20px;
 }
 
 .pages-list {

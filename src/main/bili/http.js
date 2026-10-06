@@ -57,7 +57,7 @@ export function buildUrl(url, params) {
 }
 
 /** Raw request that keeps the shared cookie jar in sync. */
-export async function request(url, { method = 'GET', params, headers = {}, timeout = 15000 } = {}) {
+export async function request(url, { method = 'GET', params, headers = {}, body, timeout = 15000 } = {}) {
   const full = buildUrl(url, params)
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeout)
@@ -66,6 +66,7 @@ export async function request(url, { method = 'GET', params, headers = {}, timeo
     const res = await fetch(full, {
       method,
       headers: { ...BASE_HEADERS, ...(jar ? { Cookie: jar } : {}), ...headers },
+      body,
       redirect: 'follow',
       signal: controller.signal
     })

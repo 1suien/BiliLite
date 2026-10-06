@@ -43,7 +43,11 @@ export const api = {
     view: proxy((bvid) => bridge.video.view(bvid)),
     pages: proxy((bvid) => bridge.video.pages(bvid)),
     playurl: proxy((bvid, cid, qn) => bridge.video.playurl(bvid, cid, qn)),
-    related: proxy((bvid) => bridge.video.related(bvid))
+    related: proxy((bvid) => bridge.video.related(bvid)),
+    danmaku: proxy((cid, segment) => bridge.video.danmaku(cid, segment)),
+    online: proxy((bvid, cid) => bridge.video.online(bvid, cid)),
+    subtitle: proxy((bvid, cid) => bridge.video.subtitle(bvid, cid)),
+    sendDanmaku: proxy((payload) => bridge.video.sendDanmaku(payload))
   },
 
   up: {

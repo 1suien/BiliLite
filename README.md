@@ -36,7 +36,7 @@ src/
       stores/                ui / settings / auth / learn / ups / collect
       player/dash.js         DASH 播放核心
       views/                 Home / UpManage / Search / Video / Fav / FavFolder / Up / Learn / Settings
-      components/            Icon / BiliImage / VideoCard / Pager / LoginModal / ConfirmModal / CollectModal …
+      components/            Icon / BiliImage / VideoCard / Pager / DanmakuLayer / PageFloat / LoginModal / ConfirmModal / CollectModal …
 ```
 
 ## 本地开发与运行
@@ -128,7 +128,18 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 `up.latest`（匿名可拉取，失败才软跳过）、本机收藏写入、学习页 5 卡 / 371 格签到日历 /
 近 14 天条形图 / 按 UP 分布饼图、手动打卡写入 `checkins`、UP 主页投稿列表（同一接口，含分页 `count`）、
 右侧悬浮操作组、页面确实可上下滚动（`.scroll` 的 `scrollHeight > clientHeight`）、下拉后出现「顶部」并点回顶部、
-「换一换」后页面重新渲染。
+「换一换」后页面重新渲染、切换页面自动回到顶部（先在长列表拉到 480/1224px，再进视频页 `scrollTop=0`）、
+弹幕接口返回弹幕（`window.bili.video.danmaku(cid,1)` 条数 > 0）、控制栏含弹幕/倍速/字幕/画中画控件、
+弹幕层渲染出弹幕（`.dm-item` 数量 > 0）、倍速切换生效（点 2x → `video.playbackRate === 2` → 还原）、
+字幕菜单能打开、弹幕开关切换弹幕层。
+
+> 冒烟断言的时序坑：`.scroll` 是 `scroll-behavior: smooth`，滚动是**动画**，`el.scrollTop = el.scrollHeight` 之后
+> 固定等 700ms 在机器忙时不够（曾出现「页面可上下滚动」PASS 但「下拉后出现顶部按钮」FAIL 的假失败）。
+> 现在改成「赋值 + 最多 10×300ms 轮询」，并打印 `{top, shown}` 诊断。
+>
+> 另一个坑：环境变量 `ELECTRON_RUN_AS_NODE=1` 会让 `StudyBili.exe` 退化成 Node，报
+> `StudyBili.exe: bad option: --no-sandbox`（退出码 9，也不写报告）。跑打包版冒烟前先
+> `Remove-Item Env:ELECTRON_RUN_AS_NODE`。
 
 > 布局坑（已修）：`.app` 是 `display:grid`，若不给 `grid-template-rows: minmax(0, 1fr)`，内容会把这一行撑高，
 > `.main` 跟着变成内容高度（实测 2354px / 窗口 717px），再被 `body{overflow:hidden}` 裁掉 —— 表现就是
@@ -140,10 +151,21 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 - **UP 管理**：本机维护专注名单（UID / 空间链接 / 昵称添加，支持分组，登录后一键导入 B 站关注）；首页只显示这批 UP 的最新投稿。
 - **播放**：DASH 按 `sidx` 直接定位到目标字节偏移起流；缓冲超前超过 30s 暂停拉流、低于 12s 恢复；
   配额不足时淘汰播放点前 5s 之外的缓冲。可选择清晰度（默认 1080P）、分 P、自动连播。
+- **播放器（对齐 B 站官方客户端）**：控制栏改为**浮在画面底部**的浮层，鼠标不动 2.8s 自动淡出、移到画面上再出现
+  （双击画面 / 快捷键 `F` 全屏，`D` 开关弹幕）。控制栏里依次是：弹幕开关、弹幕设置（不透明度 + 显示区域 1/1/2、1/4）、
+  「点击发送弹幕」输入框（回车发送，未登录会弹扫码登录）、弹幕条数、播放/上一 P/下一 P/时间/进度条、
+  倍速（0.5/0.75/1/1.25/1.5/2）、字幕（CC，可关闭）、画中画、静音、音量、全屏；画面左上角显示「N 人正在看」。
+- **弹幕**：走旧版 XML 接口 `api.bilibili.com/x/v1/dm/list.so`（匿名可用，实测单段数百到数千条），
+  长视频按 360s 分段拉取最多 8 段；解析后按时间轴用 Web Animations 抛出（滚动 / 顶部 / 底部三种模式，
+  轨道复用、seek 后按 `currentTime` 二分重定位）。发送弹幕走 `x/v2/dm/post`，需要登录态与 `bili_jct`。
+  实现见 `src/main/bili/danmaku.js` + `src/renderer/src/components/DanmakuLayer.vue`。
+  字幕取 `x/player/v2`（未登录时 B 站返回 `subtitle_count=0`，此时提示「这个视频没有可用字幕」）。
 - **收藏**：本机收藏（文件夹管理、可离线）与 B 站账户收藏（需登录）双 tab。
 - **页面滚动与右侧悬浮操作**：内容区右侧是可拖动的滚动条（12px，`scrollbar-gutter: stable`），
   右下角常驻悬浮按钮组 —— 「换一换」把当前页面整个重新挂载、重新拉数据，「顶部」在往下拉过 200px 后出现、
   一点平滑回顶。`src/renderer/src/components/PageFloat.vue` + `stores/ui.js` 的 `refreshSeq`。
+  另外**切换页面会自动回到顶部**（`App.vue` 里 watch `route.fullPath` + `scrollTo({behavior:'instant'})`）——
+  否则从拉到一半的列表点进视频页，播放器会被顶到屏幕外，看起来像「没有播放器」。
 - **学习记录**：播放中每秒计时、每 5s 落一次进度，>95% 自动标记完成；按 UP 累计学习时长；
   学习页有签到日历、近 14 天条形图、按 UP 分布饼图、连续签到天数，支持手动打卡与（设置里）播放满 5 分钟自动打卡。
   数据可导出 JSON。

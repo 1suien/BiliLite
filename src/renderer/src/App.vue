@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import { useSettingsStore } from './stores/settings'
@@ -24,6 +24,23 @@ const ui = useUiStore()
 
 const keyword = ref('')
 const searchEl = ref(null)
+const scrollEl = ref(null)
+
+// 切换页面（路由变了）时回到顶部：否则从拉到一半的列表点进视频页，
+// 播放器会被顶到屏幕外，看起来像「没有播放器」。
+watch(
+  () => route.fullPath,
+  () => {
+    const el = scrollEl.value || document.querySelector('.scroll')
+    if (!el) return
+    // .scroll 是 scroll-behavior:smooth，这里要「立刻」跳，不能带动画
+    try {
+      el.scrollTo({ top: 0, behavior: 'instant' })
+    } catch (err) {
+      el.scrollTop = 0
+    }
+  }
+)
 
 const NAV = [
   { to: '/', icon: 'home', label: '首页' },
@@ -139,7 +156,7 @@ onMounted(async () => {
         <button class="btn ghost sm" title="返回" @click="router.back()"><Icon name="left" :size="15" /></button>
       </header>
 
-      <div class="scroll">
+      <div ref="scrollEl" class="scroll">
         <RouterView v-slot="{ Component }">
           <component :is="Component" :key="`${route.fullPath}#${ui.refreshSeq}`" />
         </RouterView>

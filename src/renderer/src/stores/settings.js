@@ -37,7 +37,15 @@ export const useSettingsStore = defineStore('settings', {
       hideDanmakuArea: true,
       autoMark: true,
       /** 播放超过 5 分钟后自动打卡 */
-      autoCheckin: true
+      autoCheckin: true,
+      /** 播放器：倍速 */
+      playbackRate: 1,
+      /** 播放器：弹幕开关 / 不透明度 / 显示区域（1 全屏、0.5 半屏、0.25 顶部四分之一） */
+      danmakuOn: true,
+      danmakuOpacity: 0.9,
+      danmakuArea: 1,
+      /** 播放器：鼠标不动时自动隐藏控制栏 */
+      autoHideCtl: true
     }
   }),
   actions: {

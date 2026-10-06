@@ -8,6 +8,7 @@ import { searchVideo, searchUp } from './bili/search.js'
 import { fetchRecommend, fetchPopular } from './bili/home.js'
 import { fetchFavFolders, fetchCollectedFolders, fetchFavResources } from './bili/fav.js'
 import { fetchUpInfo, fetchUpVideos, fetchLatestByMids, fetchFollowings, resolveUp } from './bili/space.js'
+import { fetchDanmaku, fetchOnlineTotal, fetchSubtitle, sendDanmaku } from './bili/danmaku.js'
 
 function wrap(handler) {
   return async (_event, payload) => {
@@ -47,6 +48,10 @@ const handlers = {
   'video:pages': wrap(async ({ bvid }) => fetchPages(bvid)),
   'video:playurl': wrap(async ({ bvid, cid, qn }) => fetchPlayurl(bvid, cid, qn || 80)),
   'video:related': wrap(async ({ bvid }) => fetchRelated(bvid)),
+  'video:danmaku': wrap(async ({ cid, segment }) => fetchDanmaku(cid, segment || 1)),
+  'video:online': wrap(async ({ bvid, cid }) => fetchOnlineTotal(bvid, cid)),
+  'video:subtitle': wrap(async ({ bvid, cid }) => fetchSubtitle(bvid, cid)),
+  'video:sendDanmaku': wrap(async (payload) => sendDanmaku(payload)),
 
   // ---- UP 主 ----
   'up:info': wrap(async ({ mid }) => fetchUpInfo(mid)),

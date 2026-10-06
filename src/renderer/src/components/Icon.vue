@@ -52,7 +52,12 @@ const ICONS = {
     '<rect x="3.2" y="5" width="17.6" height="16" rx="2"/><path d="M3.2 9.6h17.6M8 3.2v3.6M16 3.2v3.6"/>',
   pie: '<path d="M12 3.2v8.8h8.8A9 9 0 0 0 12 3.2z"/><path d="M20.4 14.4A9 9 0 1 1 9.6 3.6v9.9h9.9z"/>',
   grid: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.6"/>',
-  download: '<path d="M12 3.5v11.8M7.4 11l4.6 4.6L16.6 11"/><path d="M4 20.5h16"/>'
+  download: '<path d="M12 3.5v11.8M7.4 11l4.6 4.6L16.6 11"/><path d="M4 20.5h16"/>',
+  danmaku: '<rect x="2.6" y="5" width="18.8" height="13" rx="2.2"/><path d="M7 9.6h6.4M7 13.4h10"/>',
+  speed: '<path d="M4.2 17.8a8.6 8.6 0 1 1 15.6 0"/><path d="M12 17.6l4.4-6.2"/>',
+  cc: '<rect x="2.6" y="5" width="18.8" height="14" rx="2.4"/><path d="M10.2 10.4a2.7 2.7 0 1 0 0 3.4M17.4 10.4a2.7 2.7 0 1 0 0 3.4"/>',
+  pip: '<rect x="2.6" y="4.6" width="18.8" height="14.8" rx="2"/><rect x="11.6" y="11" width="7.6" height="6" rx="1.2"/>',
+  send: '<path d="M21 3 10.4 13.6"/><path d="M21 3l-6.9 18-3.7-7.4L3 9.9z"/>'
 }
 </script>
 

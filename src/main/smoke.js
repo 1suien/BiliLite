@@ -168,10 +168,20 @@ export async function runSmoke(win) {
     pass('playurl 详情', `mode=${playurl.mode} 画质=${playurl.quality} 可选=${(playurl.acceptQuality || []).join('/')} dash视频轨=${vcodes} 音频轨=${acodes}`)
   }
 
+  // ---- 切页回到顶部：先去一个长页面（搜索结果）拉到最底 ----
+  await js(`location.hash = '#/search?q=' + encodeURIComponent('线性代数')`)
+  await sleep(1500)
+  await js(`(() => { const el = document.querySelector('.scroll'); el.scrollTop = el.scrollHeight; return Math.round(el.scrollTop) })()`)
+  await sleep(600)
+  const scrolledBefore = await js(`Math.round(document.querySelector('.scroll').scrollTop)`)
+
   // ---- 播放链路：真实进入视频页，观察 MSE 缓冲 ----
   await js(`location.hash = '#/video/' + ${JSON.stringify(bvid)} + '?cid=' + ${cid}`)
   await sleep(1200)
   await step('视频页已渲染', "!!document.querySelector('.player-stage')", (v) => v === true)
+  const topAfterNav = await js(`Math.round(document.querySelector('.scroll').scrollTop)`)
+  if (scrolledBefore > 150 && topAfterNav < 30) pass('切换页面自动回到顶部', { before: scrolledBefore, after: topAfterNav })
+  else fail('切换页面自动回到顶部', { before: scrolledBefore, after: topAfterNav })
 
   let played = null
   for (let i = 0; i < 12; i++) {
@@ -239,6 +249,111 @@ export async function runSmoke(win) {
     } catch (err) {
       fail('DASH 播放推进（currentTime 前进）', `探针异常：${err.message}`)
     }
+  }
+
+  // ---- 播放器增强：弹幕 / 倍速 / 字幕 / 画中画 / 控制栏 ----
+  if (played && !played.err) {
+    let dmProbe = null
+    try {
+      dmProbe = await js(`window.bili.video.danmaku(${cid}, 1)`)
+    } catch (err) {
+      dmProbe = { err: String((err && err.message) || err) }
+    }
+    const dmItems = dmProbe && Array.isArray(dmProbe.items) ? dmProbe.items.length : 0
+    if (dmProbe && dmProbe.err) fail('弹幕接口返回弹幕', dmProbe)
+    else if (dmItems > 0)
+      pass('弹幕接口返回弹幕', { count: dmProbe.count, source: dmProbe.source, first: dmProbe.items[0] })
+    else log('WARN  弹幕接口返回 0 条（这个视频可能真的没弹幕）')
+
+    const ctl = await js(`(() => {
+      const titles = [...document.querySelectorAll('.stage-ui button')].map((b) => b.title || b.textContent.trim())
+      return {
+        dmBar: !!document.querySelector('.dm-bar'),
+        dmInput: !!document.querySelector('.dm-bar input'),
+        speed: titles.includes('倍速'),
+        cc: titles.includes('字幕'),
+        pip: titles.some((t) => String(t).includes('画中画')),
+        titles
+      }
+    })()`)
+    if (ctl && ctl.dmBar && ctl.dmInput && ctl.speed && ctl.cc && ctl.pip)
+      pass('控制栏含弹幕/倍速/字幕/画中画控件', ctl.titles.filter(Boolean).join(' · '))
+    else fail('控制栏含弹幕/倍速/字幕/画中画控件', ctl)
+
+    // 弹幕层真的把弹幕飘出来（需要视频在播 + 列表已加载）
+    if (dmItems > 0) {
+      await js(`(() => {
+        const v = document.querySelector('video')
+        if (v && v.paused) { const b = document.querySelector('.player-ctl button'); if (b) b.click() }
+        return true
+      })()`)
+      let shown = 0
+      for (let i = 0; i < 12; i++) {
+        await sleep(450)
+        shown = await js(`document.querySelectorAll('.dm-item').length`)
+        if (shown > 0) break
+      }
+      if (shown > 0) pass('弹幕层渲染出弹幕', shown)
+      else fail('弹幕层渲染出弹幕', { note: '等待 5.4 秒 .dm-item 一直是 0', loaded: dmItems })
+    }
+
+    // 倍速：点 2x 后 playbackRate 变化，再还原成 1x
+    const speedProbe = await js(`(async () => {
+      document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+      const btn = [...document.querySelectorAll('.stage-ui button')].find((b) => b.title === '倍速')
+      if (!btn) return { err: 'no-speed-button' }
+      btn.click()
+      await new Promise((r) => setTimeout(r, 150))
+      const two = [...document.querySelectorAll('.ctl-menu .mi')].find((el) => el.textContent.trim().startsWith('2x'))
+      if (!two) return { err: 'no-2x-option', items: [...document.querySelectorAll('.ctl-menu .mi')].map((el) => el.textContent.trim()) }
+      two.click()
+      await new Promise((r) => setTimeout(r, 200))
+      const rate = document.querySelector('video').playbackRate
+      btn.click()
+      await new Promise((r) => setTimeout(r, 150))
+      const one = [...document.querySelectorAll('.ctl-menu .mi')].find((el) => el.textContent.trim().startsWith('1.0x'))
+      if (one) one.click()
+      await new Promise((r) => setTimeout(r, 200))
+      return { rate, restored: document.querySelector('video').playbackRate }
+    })()`)
+    if (speedProbe && speedProbe.rate === 2 && speedProbe.restored === 1) pass('倍速切换生效（2x → 还原 1x）', speedProbe)
+    else fail('倍速切换生效（2x → 还原 1x）', speedProbe)
+
+    // 字幕菜单能打开
+    const ccProbe = await js(`(async () => {
+      document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+      const btn = [...document.querySelectorAll('.stage-ui button')].find((b) => b.title === '字幕')
+      if (!btn) return { err: 'no-cc-button' }
+      btn.click()
+      await new Promise((r) => setTimeout(r, 300))
+      const menu = document.querySelector('.ctl-menu')
+      const text = menu ? menu.textContent.replace(/\\s+/g, ' ').trim().slice(0, 40) : ''
+      document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+      await new Promise((r) => setTimeout(r, 100))
+      return { opened: !!menu, text }
+    })()`)
+    if (ccProbe && ccProbe.opened) pass('字幕菜单能打开', ccProbe.text)
+    else fail('字幕菜单能打开', ccProbe)
+
+    // 弹幕开关能切换弹幕层
+    const dmToggle = await js(`(async () => {
+      document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+      const btn = [...document.querySelectorAll('.dm-bar button')].find(
+        (b) => b.title === '关闭弹幕' || b.title === '打开弹幕'
+      )
+      if (!btn) return { err: 'no-toggle-button' }
+      const before = !!document.querySelector('.dm-layer')
+      btn.click()
+      await new Promise((r) => setTimeout(r, 200))
+      const off = !!document.querySelector('.dm-layer')
+      const back = [...document.querySelectorAll('.dm-bar button')].find((b) => b.title === '打开弹幕')
+      if (back) back.click()
+      await new Promise((r) => setTimeout(r, 200))
+      return { before, off, back: !!document.querySelector('.dm-layer') }
+    })()`)
+    if (dmToggle && dmToggle.before && !dmToggle.off && dmToggle.back) pass('弹幕开关切换弹幕层', dmToggle)
+    else fail('弹幕开关切换弹幕层', dmToggle)
+    await shot('3-视频页播放器.png')
   }
 
   // ---- 进度落库：播放器每 5s 落一次盘，所以这里轮询等待 ----
@@ -435,12 +550,24 @@ export async function runSmoke(win) {
   else fail('页面可上下滚动（右侧下拉）', scrollInfo)
 
   // 往下拉 → 出现「顶部」按钮 → 点它回到顶部
-  await js(`(() => { const el = document.querySelector('.scroll'); el.scrollTop = el.scrollHeight; return el.scrollTop })()`)
-  await sleep(700)
-  const topBtnShown = await js(`(() => {
-    const bs = Array.from(document.querySelectorAll('.page-float .float-btn'))
-    return bs.some((b) => b.textContent.includes('顶部') && b.offsetParent !== null)
-  })()`)
+  // 注意：.scroll 是 scroll-behavior:smooth，滚动本身是动画；固定等 700ms 在机器忙时会漏
+  // → 改成「赋值 + 轮询」直到按钮出现（最多 10 次 × 300ms）
+  let topBtnShown = false
+  let scrollState = null
+  for (let i = 0; i < 10 && !topBtnShown; i += 1) {
+    scrollState = await js(`(() => {
+      const el = document.querySelector('.scroll')
+      el.scrollTop = el.scrollHeight
+      const bs = Array.from(document.querySelectorAll('.page-float .float-btn'))
+      return {
+        top: Math.round(el.scrollTop),
+        shown: bs.some((b) => b.textContent.includes('顶部') && b.offsetParent !== null)
+      }
+    })()`)
+    topBtnShown = !!(scrollState && scrollState.shown)
+    if (!topBtnShown) await sleep(300)
+  }
+  if (!topBtnShown) log(`      · 下拉诊断：${JSON.stringify(scrollState)}`)
   if (topBtnShown) {
     pass('下拉后出现「顶部」按钮', true)
     await shot('2-下拉后出现顶部按钮.png')
@@ -454,7 +581,7 @@ export async function runSmoke(win) {
     if (backTop < 40) pass('点「顶部」回到页面顶部', backTop)
     else fail('点「顶部」回到页面顶部', backTop)
   } else {
-    fail('下拉后出现「顶部」按钮', '顶部按钮未出现')
+    fail('下拉后出现「顶部」按钮', scrollState)
   }
 
   // 「换一换」= 重挂载当前页面并重新拉数据

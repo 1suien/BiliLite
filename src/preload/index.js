@@ -14,6 +14,10 @@ const CHANNELS = [
   'video:pages',
   'video:playurl',
   'video:related',
+  'video:danmaku',
+  'video:online',
+  'video:subtitle',
+  'video:sendDanmaku',
   'up:info',
   'up:videos',
   'up:resolve',
@@ -74,7 +78,11 @@ const api = {
     view: (bvid) => call('video:view', { bvid }),
     pages: (bvid) => call('video:pages', { bvid }),
     playurl: (bvid, cid, qn) => call('video:playurl', { bvid, cid, qn }),
-    related: (bvid) => call('video:related', { bvid })
+    related: (bvid) => call('video:related', { bvid }),
+    danmaku: (cid, segment = 1) => call('video:danmaku', { cid, segment }),
+    online: (bvid, cid) => call('video:online', { bvid, cid }),
+    subtitle: (bvid, cid) => call('video:subtitle', { bvid, cid }),
+    sendDanmaku: (payload) => call('video:sendDanmaku', payload)
   },
 
   up: {

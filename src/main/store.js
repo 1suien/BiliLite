@@ -9,7 +9,12 @@ const DEFAULT_SETTINGS = {
   seekStep: 5,
   backupPath: '',
   playerVolume: 0.8,
-  autoCheckin: true
+  autoCheckin: true,
+  playbackRate: 1,
+  danmakuOn: true,
+  danmakuOpacity: 0.9,
+  danmakuArea: 1,
+  autoHideCtl: true
 }
 
 function filePath() {

@@ -7,6 +7,7 @@ import BiliImage from '../components/BiliImage.vue'
 import Icon from '../components/Icon.vue'
 import EmptyBlock from '../components/EmptyBlock.vue'
 import CollectModal from '../components/CollectModal.vue'
+import DanmakuLayer from '../components/DanmakuLayer.vue'
 import { useLearnStore } from '../stores/learn'
 import { useCollectStore } from '../stores/collect'
 import { useUpsStore, DEFAULT_GROUP } from '../stores/ups'
@@ -60,6 +61,27 @@ const noteText = ref('')
 const notes = ref([])
 const collectOpen = ref(false)
 
+/* ── 播放器：弹幕 / 倍速 / 字幕 / 画中画 / 控制栏 ───────── */
+const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2]
+const dmLayer = ref(null)
+const danmaku = ref([])
+const danmakuOn = ref(true)
+const danmakuOpacity = ref(0.9)
+const danmakuArea = ref(1)
+const dmText = ref('')
+const dmSending = ref(false)
+const speed = ref(1)
+const speedMenu = ref(false)
+const ccMenu = ref(false)
+const dmMenu = ref(false)
+const ccList = ref([])
+const ccLan = ref('')
+const ccLoading = ref(false)
+const onlineTotal = ref(0)
+const ctlVisible = ref(true)
+const pipOn = ref(false)
+let hideTimer = null
+
 const info = computed(() => (view.value ? view.value : {}))
 const cid = computed(() => {
   const p = pageList.value[pageIndex.value]
@@ -83,6 +105,182 @@ const inUpsList = computed(() =>
   Boolean(info.value.upMid) && ups.items.some((x) => String(x.mid) === String(info.value.upMid))
 )
 
+/* 弹幕 / 字幕 / 菜单 */
+const dmCount = computed(() => danmaku.value.length)
+const menuOpen = computed(() => speedMenu.value || ccMenu.value || dmMenu.value)
+const activeCc = computed(() => {
+  const cc = ccList.value.find((s) => s.lan === ccLan.value)
+  if (!cc || !cc.items.length) return ''
+  const t = currentTime.value
+  const items = cc.items
+  let lo = 0
+  let hi = items.length - 1
+  let hit = null
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1
+    if (items[mid].from <= t) {
+      hit = items[mid]
+      lo = mid + 1
+    } else hi = mid - 1
+  }
+  if (!hit) return ''
+  const end = hit.to || hit.from + 8
+  return t <= end ? hit.content : ''
+})
+
+function applyRate() {
+  if (videoEl.value) videoEl.value.playbackRate = speed.value
+}
+
+async function setSpeed(v) {
+  speed.value = v
+  speedMenu.value = false
+  applyRate()
+  try {
+    await settings.patch({ playbackRate: v })
+  } catch {
+    /* 设置落盘失败不影响播放 */
+  }
+}
+
+function toggleDanmaku(on) {
+  danmakuOn.value = on === undefined ? !danmakuOn.value : Boolean(on)
+  settings.patch({ danmakuOn: danmakuOn.value }).catch(() => {})
+}
+
+function setDmArea(a) {
+  danmakuArea.value = a
+  dmMenu.value = false
+  settings.patch({ danmakuArea: a }).catch(() => {})
+}
+
+function setDmOpacity(v) {
+  danmakuOpacity.value = Math.max(0.1, Math.min(1, Number(v) || 0.9))
+  settings.patch({ danmakuOpacity: danmakuOpacity.value }).catch(() => {})
+}
+
+/** 弹幕按 6 分钟一段拉，最多 8 段（48 分钟） */
+async function loadDanmaku() {
+  danmaku.value = []
+  const id = cid.value
+  if (!id) return
+  const total = duration.value || parseDuration(info.value.duration) || 0
+  const segs = Math.min(8, Math.max(1, Math.ceil(total / 360)))
+  const all = []
+  for (let s = 1; s <= segs; s++) {
+    try {
+      const r = await api.video.danmaku(id, s)
+      if (r && r.items && r.items.length) all.push(...r.items)
+    } catch (err) {
+      if (s === 1) console.warn('[danmaku] 加载失败：', err && err.message)
+    }
+  }
+  all.sort((a, b) => a.time - b.time)
+  danmaku.value = all
+}
+
+async function loadOnline() {
+  try {
+    const r = await api.video.online(bvid.value, cid.value)
+    onlineTotal.value = r && r.total ? r.total : 0
+  } catch {
+    onlineTotal.value = 0
+  }
+}
+
+async function loadSubtitles() {
+  if (ccLoading.value || ccList.value.length) return
+  ccLoading.value = true
+  try {
+    const r = await api.video.subtitle(bvid.value, cid.value)
+    ccList.value = (r && r.list) || []
+    if (ccList.value.length && !ccLan.value) ccLan.value = ccList.value[0].lan
+  } catch {
+    ccList.value = []
+  } finally {
+    ccLoading.value = false
+  }
+}
+
+async function openCcMenu() {
+  ccMenu.value = !ccMenu.value
+  if (!ccMenu.value) return
+  await loadSubtitles()
+  if (!ccList.value.length) ui.toast('这个视频没有可用字幕（未登录时多数视频拿不到）')
+}
+
+function pickCc(lan) {
+  ccLan.value = lan
+  ccMenu.value = false
+}
+
+async function sendDm() {
+  const text = dmText.value.trim()
+  if (!text || dmSending.value) return
+  dmSending.value = true
+  const at = videoEl.value ? videoEl.value.currentTime || 0 : 0
+  try {
+    await api.video.sendDanmaku({ bvid: bvid.value, cid: cid.value, msg: text, progress: Math.round(at * 1000) })
+    danmaku.value = [...danmaku.value, { time: at, mode: 1, size: 25, color: 16777215, text }].sort((a, b) => a.time - b.time)
+    dmText.value = ''
+    ui.ok('弹幕已发送')
+  } catch (err) {
+    if (err.needLogin) {
+      ui.err('发送弹幕需要先登录')
+      ui.loginOpen = true
+    } else {
+      ui.err(err.message || '弹幕发送失败')
+    }
+  } finally {
+    dmSending.value = false
+  }
+}
+
+async function togglePip() {
+  try {
+    if (document.pictureInPictureElement) {
+      await document.exitPictureInPicture()
+      pipOn.value = false
+    } else if (videoEl.value && videoEl.value.requestPictureInPicture) {
+      await videoEl.value.requestPictureInPicture()
+      pipOn.value = true
+    } else {
+      ui.err('这个环境不支持画中画')
+    }
+  } catch {
+    ui.err('画中画打开失败')
+  }
+}
+
+function scheduleHide() {
+  if (hideTimer) clearTimeout(hideTimer)
+  if (!settings.settings.autoHideCtl) {
+    ctlVisible.value = true
+    return
+  }
+  hideTimer = setTimeout(() => {
+    if (isPlaying.value && !menuOpen.value) ctlVisible.value = false
+  }, 2800)
+}
+
+function onStageMove() {
+  ctlVisible.value = true
+  scheduleHide()
+}
+
+function onStageLeave() {
+  if (isPlaying.value && !menuOpen.value) ctlVisible.value = false
+}
+
+function onWinDown(e) {
+  if (!menuOpen.value) return
+  const el = e.target
+  if (el && el.closest && el.closest('.ctl-menu-wrap')) return
+  speedMenu.value = false
+  ccMenu.value = false
+  dmMenu.value = false
+}
+
 async function addCurrentUp() {
   if (!info.value.upMid) return
   try {
@@ -105,6 +303,11 @@ function applySettings() {
   volume.value = settings.settings.playerVolume
   muted.value = false
   lastVolumeSent = volume.value
+  speed.value = Number(settings.settings.playbackRate) || 1
+  danmakuOn.value = settings.settings.danmakuOn !== false
+  danmakuOpacity.value = Number(settings.settings.danmakuOpacity) || 0.9
+  danmakuArea.value = Number(settings.settings.danmakuArea) || 1
+  ctlVisible.value = true
 }
 
 /* ── 数据加载 ─────────────────────────────────────────── */
@@ -249,6 +452,9 @@ async function startPlay() {
       autoplay: true
     })
     startTimers() // 幂等：切分P/换清晰度后保证计时器仍在跑
+    applyRate()
+    loadDanmaku()
+    loadOnline()
   } catch (err) {
     errorMsg.value = err.message || '播放失败'
     statusText.value = ''
@@ -266,6 +472,11 @@ function teardown() {
   duration.value = 0
   bufferedPct.value = 0
   statusText.value = ''
+  danmaku.value = []
+  onlineTotal.value = 0
+  ccLan.value = ''
+  ccList.value = []
+  if (dmLayer.value) dmLayer.value.clear()
 }
 
 /* ── 学习记录 ─────────────────────────────────────────── */
@@ -509,6 +720,10 @@ function onKey(e) {
   } else if (e.code === 'ArrowDown') {
     volume.value = Math.max(0, volume.value - 0.05)
     onVolumeInput()
+  } else if (e.code === 'KeyD') {
+    toggleDanmaku()
+  } else if (e.code === 'KeyF') {
+    toggleFullscreen()
   }
 }
 
@@ -516,6 +731,19 @@ watch(
   () => route.params.bvid,
   () => loadAll()
 )
+
+watch(isPlaying, (playing) => {
+  if (!playing) {
+    ctlVisible.value = true
+    if (hideTimer) clearTimeout(hideTimer)
+  } else {
+    scheduleHide()
+  }
+})
+
+watch(menuOpen, (open) => {
+  if (open) ctlVisible.value = true
+})
 
 onMounted(async () => {
   await settings.init()
@@ -529,10 +757,13 @@ onMounted(async () => {
   await loadAll()
   startTimers()
   window.addEventListener('keydown', onKey)
+  window.addEventListener('pointerdown', onWinDown, true)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey)
+  window.removeEventListener('pointerdown', onWinDown, true)
+  if (hideTimer) clearTimeout(hideTimer)
   flushProgress()
   teardown()
 })
@@ -550,50 +781,168 @@ onBeforeUnmount(() => {
 
   <div v-else class="watch">
     <div style="min-width: 0">
-      <div ref="wrapEl" class="player-wrap">
-        <div class="player-stage">
+      <div ref="wrapEl" class="player-wrap" @mousemove="onStageMove" @mouseleave="onStageLeave">
+        <div class="player-stage" @dblclick="toggleFullscreen">
           <video ref="videoEl" playsinline preload="auto" @click="togglePlay" />
+
+          <DanmakuLayer
+            v-if="danmakuOn"
+            ref="dmLayer"
+            :items="danmaku"
+            :enabled="danmakuOn"
+            :opacity="danmakuOpacity"
+            :video="videoEl"
+            :area="danmakuArea"
+          />
+
+          <div v-if="onlineTotal > 0" class="stage-online">{{ fmtCount(onlineTotal) }} 人正在看</div>
+          <div v-if="ccLan && activeCc" class="cc-line">{{ activeCc }}</div>
+
           <div v-if="statusText && !isPlaying" class="player-msg">
             <span class="spinner" style="margin: 0 auto" />
             <div>{{ statusText }}</div>
           </div>
-        </div>
 
-        <div class="player-ctl">
-          <button class="btn ghost sm" :title="isPlaying ? '暂停' : '播放'" @click="togglePlay">
-            <Icon :name="isPlaying ? 'pause' : 'play'" :size="16" />
-          </button>
-          <button class="btn ghost sm" title="上一个分P" :disabled="pageIndex <= 0" @click="selectPage(pageIndex - 1)">
-            <Icon name="prev" :size="15" />
-          </button>
-          <button
-            class="btn ghost sm"
-            title="下一个分P"
-            :disabled="pageIndex + 1 >= pageList.length"
-            @click="selectPage(pageIndex + 1)"
-          >
-            <Icon name="next" :size="15" />
-          </button>
-          <span class="time">{{ fmtDuration(currentTime) }} / {{ fmtDuration(duration) }}</span>
-          <div class="progress" @pointerdown.prevent="onProgressPointer">
-            <div class="track">
-              <div class="buf" :style="{ width: bufferedPct + '%' }" />
-              <i :style="{ width: pct + '%' }" />
+          <div class="stage-ui" :class="{ hide: !ctlVisible }">
+            <div class="dm-bar">
+              <button
+                class="btn ghost sm"
+                :title="danmakuOn ? '关闭弹幕' : '打开弹幕'"
+                @click="toggleDanmaku()"
+              >
+                <Icon name="danmaku" :size="15" />
+              </button>
+              <div class="ctl-menu-wrap">
+                <button class="btn ghost sm" title="弹幕设置" @click.stop="dmMenu = !dmMenu">
+                  <Icon name="settings" :size="15" />
+                </button>
+                <div v-if="dmMenu" class="ctl-menu" style="left: 0; right: auto">
+                  <div class="mrow">不透明度 {{ Math.round(danmakuOpacity * 100) }}%</div>
+                  <div class="mrow" style="padding-top: 0">
+                    <input
+                      type="range"
+                      min="0.2"
+                      max="1"
+                      step="0.1"
+                      :value="danmakuOpacity"
+                      style="width: 100%"
+                      @input="setDmOpacity($event.target.value)"
+                    />
+                  </div>
+                  <div class="sep" />
+                  <div class="mrow">显示区域</div>
+                  <div class="mi" :class="{ on: danmakuArea === 1 }" @click="setDmArea(1)">全屏</div>
+                  <div class="mi" :class="{ on: danmakuArea === 0.5 }" @click="setDmArea(0.5)">上半屏</div>
+                  <div class="mi" :class="{ on: danmakuArea === 0.25 }" @click="setDmArea(0.25)">顶部 1/4</div>
+                  <div class="sep" />
+                  <div class="mi" @click="toggleDanmaku(false)">关闭弹幕</div>
+                </div>
+              </div>
+              <input
+                v-model="dmText"
+                class="input grow"
+                style="height: 30px"
+                maxlength="100"
+                :placeholder="danmakuOn ? '点击发送弹幕' : '弹幕已关闭'"
+                :disabled="!danmakuOn || dmSending"
+                @keydown.enter="sendDm"
+              />
+              <button
+                class="btn ghost sm"
+                title="发送弹幕"
+                :disabled="!dmText.trim() || dmSending"
+                @click="sendDm"
+              >
+                <Icon name="send" :size="15" />
+              </button>
+              <span style="font-size: 11.5px; color: rgba(255, 255, 255, 0.55); white-space: nowrap">
+                {{ fmtCount(dmCount) }} 条
+              </span>
+            </div>
+
+            <div class="player-ctl">
+              <button class="btn ghost sm" :title="isPlaying ? '暂停' : '播放'" @click="togglePlay">
+                <Icon :name="isPlaying ? 'pause' : 'play'" :size="16" />
+              </button>
+              <button
+                class="btn ghost sm"
+                title="上一个分P"
+                :disabled="pageIndex <= 0"
+                @click="selectPage(pageIndex - 1)"
+              >
+                <Icon name="prev" :size="15" />
+              </button>
+              <button
+                class="btn ghost sm"
+                title="下一个分P"
+                :disabled="pageIndex + 1 >= pageList.length"
+                @click="selectPage(pageIndex + 1)"
+              >
+                <Icon name="next" :size="15" />
+              </button>
+              <span class="time">{{ fmtDuration(currentTime) }} / {{ fmtDuration(duration) }}</span>
+              <div class="progress" @pointerdown.prevent="onProgressPointer">
+                <div class="track">
+                  <div class="buf" :style="{ width: bufferedPct + '%' }" />
+                  <i :style="{ width: pct + '%' }" />
+                </div>
+              </div>
+              <div class="ctl-menu-wrap">
+                <button class="btn ghost sm" title="倍速" @click.stop="speedMenu = !speedMenu">{{ speed }}x</button>
+                <div v-if="speedMenu" class="ctl-menu">
+                  <div
+                    v-for="s in SPEEDS"
+                    :key="s"
+                    class="mi"
+                    :class="{ on: s === speed }"
+                    @click="setSpeed(s)"
+                  >
+                    <span>{{ s === 1 ? '1.0x 正常' : s + 'x' }}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="ctl-menu-wrap">
+                <button class="btn ghost sm" title="字幕" @click.stop="openCcMenu()">
+                  <Icon name="cc" :size="15" />
+                </button>
+                <div v-if="ccMenu" class="ctl-menu">
+                  <div class="mi" :class="{ on: !ccLan }" @click="pickCc('')">关闭字幕</div>
+                  <div v-if="ccLoading" class="mrow">字幕加载中…</div>
+                  <template v-else-if="ccList.length">
+                    <div
+                      v-for="c in ccList"
+                      :key="c.lan"
+                      class="mi"
+                      :class="{ on: c.lan === ccLan }"
+                      @click="pickCc(c.lan)"
+                    >
+                      <span>{{ c.lanDoc }}</span><span class="k">{{ c.items.length }} 句</span>
+                    </div>
+                  </template>
+                  <div v-else class="mrow">这个视频没有可用字幕</div>
+                </div>
+              </div>
+              <button class="btn ghost sm" :title="pipOn ? '退出画中画' : '画中画'" @click="togglePip">
+                <Icon name="pip" :size="15" />
+              </button>
+              <button class="btn ghost sm" title="静音" @click="toggleMute">
+                <Icon :name="muted ? 'mute' : 'volume'" :size="15" />
+              </button>
+              <input
+                v-model.number="volume"
+                type="range"
+                min="0"
+                max="1"
+                step="0.02"
+                style="width: 74px"
+                title="音量"
+                @input="onVolumeInput"
+              />
+              <button class="btn ghost sm" title="全屏" @click="toggleFullscreen">
+                <Icon name="expand" :size="15" />
+              </button>
             </div>
           </div>
-          <button class="btn ghost sm" title="静音" @click="toggleMute">
-            <Icon :name="muted ? 'mute' : 'volume'" :size="15" />
-          </button>
-          <input
-            v-model.number="volume"
-            type="range"
-            min="0"
-            max="1"
-            step="0.02"
-            style="width: 84px"
-            @input="onVolumeInput"
-          />
-          <button class="btn ghost sm" title="全屏" @click="toggleFullscreen"><Icon name="expand" :size="15" /></button>
         </div>
       </div>
 
