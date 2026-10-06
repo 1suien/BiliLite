@@ -47,6 +47,19 @@ export async function runSmoke(win) {
     log(`FAIL  ${label} :: ${show(detail)}`)
   }
 
+  // 需要看真实界面时设置 STUDY_SMOKE_SHOT=<目录>，会顺手截几张图
+  const shotDir = process.env.STUDY_SMOKE_SHOT
+  const shot = async (name) => {
+    if (!shotDir) return
+    try {
+      const img = await win.webContents.capturePage()
+      writeFileSync(join(shotDir, name), img.toPNG())
+      log(`      · 截图已保存：${name}`)
+    } catch (err) {
+      log('      · 截图失败：' + (err && err.message))
+    }
+  }
+
   // 渲染层 console 与加载失败都记下来，便于定位白屏
   wc.on('console-message', (...a) => {
     let level = a[1]
@@ -395,6 +408,73 @@ export async function runSmoke(win) {
   if (upCards > 0) pass('UP 主页投稿列表', upCards)
   else log('WARN  UP 主页 8 秒内没有投稿卡片（接口失败）')
 
+  // 右侧悬浮操作组 + 页面可下拉（右侧滚动条）——在长列表页（UP 主页）上验证
+  const floatOk = await js(`!!document.querySelector('.page-float .float-btn')`)
+  if (floatOk) pass('右侧悬浮操作组存在', floatOk)
+  else fail('右侧悬浮操作组存在', '没有 .page-float')
+
+  const scrollInfo = await js(`(() => {
+    const el = document.querySelector('.scroll')
+    if (!el) return null
+    const main = document.querySelector('.main')
+    const app = document.querySelector('.app')
+    return {
+      sh: el.scrollHeight,
+      ch: el.clientHeight,
+      win: window.innerHeight,
+      body: document.body.clientHeight,
+      app: app ? app.clientHeight : -1,
+      main: main ? main.clientHeight : -1,
+      mainH: main ? getComputedStyle(main).height : '',
+      appH: app ? getComputedStyle(app).height : ''
+    }
+  })()`)
+  log('      · 滚动诊断：' + JSON.stringify(scrollInfo))
+  const canScroll = !!scrollInfo && scrollInfo.sh > scrollInfo.ch + 4
+  if (canScroll) pass('页面可上下滚动（右侧下拉）', scrollInfo)
+  else fail('页面可上下滚动（右侧下拉）', scrollInfo)
+
+  // 往下拉 → 出现「顶部」按钮 → 点它回到顶部
+  await js(`(() => { const el = document.querySelector('.scroll'); el.scrollTop = el.scrollHeight; return el.scrollTop })()`)
+  await sleep(700)
+  const topBtnShown = await js(`(() => {
+    const bs = Array.from(document.querySelectorAll('.page-float .float-btn'))
+    return bs.some((b) => b.textContent.includes('顶部') && b.offsetParent !== null)
+  })()`)
+  if (topBtnShown) {
+    pass('下拉后出现「顶部」按钮', true)
+    await shot('2-下拉后出现顶部按钮.png')
+    await js(`(() => {
+      const b = Array.from(document.querySelectorAll('.page-float .float-btn')).find((x) => x.textContent.includes('顶部'))
+      b.click()
+      return true
+    })()`)
+    await sleep(1200)
+    const backTop = await js(`document.querySelector('.scroll').scrollTop`)
+    if (backTop < 40) pass('点「顶部」回到页面顶部', backTop)
+    else fail('点「顶部」回到页面顶部', backTop)
+  } else {
+    fail('下拉后出现「顶部」按钮', '顶部按钮未出现')
+  }
+
+  // 「换一换」= 重挂载当前页面并重新拉数据
+  await js(`(() => {
+    const b = document.querySelector('.page-float .float-btn')
+    b.click()
+    return true
+  })()`)
+  const wantRows = upCards > 0 ? upCards : 1
+  let afterRefresh = 0
+  await sleep(1500)
+  for (let i = 0; i < 10; i++) {
+    afterRefresh = await js("document.querySelectorAll('.rowitem').length")
+    if (afterRefresh > 0) break
+    await sleep(800)
+  }
+  if (upCards > 0 && afterRefresh > 0) pass('「换一换」后页面重新渲染', afterRefresh)
+  else if (upCards === 0) log('      · 换一换跳过：UP 主页本来就没数据')
+  else fail('「换一换」后页面重新渲染', { before: wantRows, after: afterRefresh })
+
   // 首页只显示本机名单里的 UP
   await clickNav('首页')
   const homeText = await js(`document.querySelector('#app').innerText`)
@@ -413,6 +493,7 @@ export async function runSmoke(win) {
   if (homeCards > 0) pass('首页出现关注 UP 的视频卡', homeCards)
   else if (latestOkNow) fail('首页出现关注 UP 的视频卡', { note: 'up.latest 有数据但首页 8 秒内没有卡片' })
   else log('      · 首页卡片跳过：up.latest 未取到数据（网络/风控）')
+  await shot('1-首页顶部.png')
 
   // 本机收藏：进视频页 → 点收藏 → 选文件夹（视频页渲染偶有延迟，重试导航）
   let hasPlayer = false

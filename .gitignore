@@ -21,6 +21,8 @@ smoke-report.txt
 smoke-*.txt
 smoke-stdout.txt
 smoke-stderr.txt
+shots/
+shots-*/
 dist.log
 probe*.js
 probe*.out

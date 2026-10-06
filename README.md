@@ -117,6 +117,7 @@ node 'C:\Users\zouyx\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\pnpm\bin
 $env:STUDY_SMOKE = '1'
 $env:STUDY_SMOKE_OUT = "$PWD\smoke-pkg-report.txt"
 $env:STUDY_USER_DATA = "$PWD\tmp-userdata-pkg"
+$env:STUDY_SMOKE_SHOT = "$PWD\shots"   # 可选：顺手把真实界面截图存下来
 & cmd /c "`"$PWD\release\win-unpacked\StudyBili.exe`" --no-sandbox --disable-gpu --autoplay-policy=no-user-gesture-required > smoke-pkg.out 2>&1"
 Get-Content smoke-pkg-report.txt -Encoding UTF8
 ```
@@ -125,7 +126,13 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 `video.playurl`（DASH 轨道）、视频页渲染、`<video>` 起流（`readyState=4`）、点播放后 `currentTime` 前进、
 学习进度写入 IndexedDB、顶栏搜索跳转、侧栏 6 个路由真实点击可达，以及本机 UP 名单（写入/渲染/首页只显示名单）、
 `up.latest`（匿名可拉取，失败才软跳过）、本机收藏写入、学习页 5 卡 / 371 格签到日历 /
-近 14 天条形图 / 按 UP 分布饼图、手动打卡写入 `checkins`、UP 主页投稿列表（同一接口，含分页 `count`）。
+近 14 天条形图 / 按 UP 分布饼图、手动打卡写入 `checkins`、UP 主页投稿列表（同一接口，含分页 `count`）、
+右侧悬浮操作组、页面确实可上下滚动（`.scroll` 的 `scrollHeight > clientHeight`）、下拉后出现「顶部」并点回顶部、
+「换一换」后页面重新渲染。
+
+> 布局坑（已修）：`.app` 是 `display:grid`，若不给 `grid-template-rows: minmax(0, 1fr)`，内容会把这一行撑高，
+> `.main` 跟着变成内容高度（实测 2354px / 窗口 717px），再被 `body{overflow:hidden}` 裁掉 —— 表现就是
+> 「页面下拉不动、右侧没有滚动条」。现在行高锁死为容器高度，`.scroll` 内部滚动正常。
 
 ## 功能与数据
 
@@ -134,6 +141,9 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 - **播放**：DASH 按 `sidx` 直接定位到目标字节偏移起流；缓冲超前超过 30s 暂停拉流、低于 12s 恢复；
   配额不足时淘汰播放点前 5s 之外的缓冲。可选择清晰度（默认 1080P）、分 P、自动连播。
 - **收藏**：本机收藏（文件夹管理、可离线）与 B 站账户收藏（需登录）双 tab。
+- **页面滚动与右侧悬浮操作**：内容区右侧是可拖动的滚动条（12px，`scrollbar-gutter: stable`），
+  右下角常驻悬浮按钮组 —— 「换一换」把当前页面整个重新挂载、重新拉数据，「顶部」在往下拉过 200px 后出现、
+  一点平滑回顶。`src/renderer/src/components/PageFloat.vue` + `stores/ui.js` 的 `refreshSeq`。
 - **学习记录**：播放中每秒计时、每 5s 落一次进度，>95% 自动标记完成；按 UP 累计学习时长；
   学习页有签到日历、近 14 天条形图、按 UP 分布饼图、连续签到天数，支持手动打卡与（设置里）播放满 5 分钟自动打卡。
   数据可导出 JSON。

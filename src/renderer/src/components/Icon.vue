@@ -32,6 +32,7 @@ const ICONS = {
   left: '<path d="M15 18.5 8.5 12 15 5.5"/>',
   right: '<path d="M9 5.5 15.5 12 9 18.5"/>',
   down: '<path d="M5.5 9 12 15.5 18.5 9"/>',
+  up: '<path d="M5.5 15 12 8.5 18.5 15"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   minus: '<path d="M5 12h14"/>',
   trash:

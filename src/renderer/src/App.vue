@@ -7,6 +7,7 @@ import { useLearnStore } from './stores/learn'
 import { useUpsStore } from './stores/ups'
 import { useUiStore } from './stores/ui'
 import Icon from './components/Icon.vue'
+import PageFloat from './components/PageFloat.vue'
 import Toasts from './components/Toasts.vue'
 import LoginModal from './components/LoginModal.vue'
 import ConfirmModal from './components/ConfirmModal.vue'
@@ -140,10 +141,12 @@ onMounted(async () => {
 
       <div class="scroll">
         <RouterView v-slot="{ Component }">
-          <component :is="Component" />
+          <component :is="Component" :key="`${route.fullPath}#${ui.refreshSeq}`" />
         </RouterView>
       </div>
     </main>
+
+    <PageFloat />
 
     <Toasts />
     <LoginModal />

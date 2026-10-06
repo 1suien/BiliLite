@@ -7,10 +7,16 @@ export const useUiStore = defineStore('ui', {
     toasts: [],
     /** 登录弹层开关，放在全局，任何页面都能唤起 */
     loginOpen: false,
+    /** 「换一换」计数：自增后 App 会重挂载当前页面 → 重新拉一遍数据 */
+    refreshSeq: 0,
     confirmState: { open: false, title: '', sub: '', okText: '确定' },
     _confirmResolve: null
   }),
   actions: {
+    /** 右侧悬浮「换一换」：让当前页面整个重新加载 */
+    refresh() {
+      this.refreshSeq += 1
+    },
     toast(message, type = 'info', ms = 2600) {
       const id = ++seq
       this.toasts.push({ id, message: String(message), type })

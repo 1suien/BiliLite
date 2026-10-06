@@ -33,17 +33,17 @@ textarea {
 }
 
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--line-strong);
+  background: var(--t3);
   border-radius: 999px;
-  border: 3px solid transparent;
+  border: 4px solid transparent;
   background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--t3);
+  background: var(--t2);
   background-clip: content-box;
 }
 ::-webkit-scrollbar-track {
@@ -54,7 +54,11 @@ textarea {
 .app {
   display: grid;
   grid-template-columns: var(--side-w) 1fr;
+  /* 行高必须锁死为容器高度：否则内容会把 grid 行撑高，
+     .main 跟着变成内容高度、整页被 body{overflow:hidden} 裁掉，右侧就没有可拖的滚动条了 */
+  grid-template-rows: minmax(0, 1fr);
   height: 100%;
+  overflow: hidden;
 }
 
 .side {
@@ -205,6 +209,8 @@ textarea {
   overflow: auto;
   padding: 18px 20px 40px;
   min-height: 0;
+  scrollbar-gutter: stable;
+  scroll-behavior: smooth;
 }
 
 .page-head {
