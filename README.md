@@ -252,6 +252,9 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 > 一两百个 P，原来是 `flex-wrap` 的「按文字宽度撑开的胶囊」，右边缘参差不齐、也定位不到第几个 P。现在排成
 > 对齐的单列清单：等宽序号徽章（`P12`）+ 单行省略的标题 + 当前行整行高亮并带一个圆点，列表固定高度内部滚动
 > 并自动滚到当前 P，分P > 12 时给一个筛选框（编号或标题关键字，实测 177 P 筛「单词」剩 48 行）。
+> 定位当前行用的是**显式算 `scrollTop`**（把当前行居中）而不是 `scrollIntoView`：后者会连带滚动祖先，而且
+> 筛掉当前 P 再清空筛选时列表会停在中间不回来（实测停在 P134 附近）——`watch` 也要 `{ flush: 'post' }`
+> 才拿得到更新后的 DOM；冒烟里对应两条断言（筛短、清空后当前 P 回到可视区 `inView` + `scrollTop`）。
 
 > 布局坑（已修）：`.app` 是 `display:grid`，若不给 `grid-template-rows: minmax(0, 1fr)`，内容会把这一行撑高，
 > `.main` 跟着变成内容高度（实测 2354px / 窗口 717px），再被 `body{overflow:hidden}` 裁掉 —— 表现就是
