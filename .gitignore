@@ -83,6 +83,8 @@ backup/
 # 冒烟/调试产物
 app-launch*.out
 app-launch*.err
+app-run*.out
+app-run*.err
 smoke-report-*.txt
 tmp-ud-*/
 # 冒烟用的「真实 profile 副本」（含本机 IndexedDB 学习数据，绝不入库）
