@@ -21,8 +21,9 @@ const ui = useUiStore()
 const only = ref('all')
 const imported = ref(false)
 
+/** 继续学习：按视频展示（同一视频的多个分P只留最近一条），学习记录里存的是「每个分P一行」 */
 const continueList = computed(() =>
-  learn.list
+  learn.listByVideo
     .filter((r) => r.seconds > 5 && !r.completed)
     .slice(0, 6)
     .map((r) => ({
@@ -31,22 +32,34 @@ const continueList = computed(() =>
     }))
 )
 
+/** UP 投稿去重：多个 UP 转载同一稿件时首页只出现一张卡 */
+const latestUnique = computed(() => {
+  const seen = new Set()
+  const out = []
+  for (const it of ups.latest) {
+    if (!it.bvid || seen.has(it.bvid)) continue
+    seen.add(it.bvid)
+    out.push(it)
+  }
+  return out
+})
+
 /** 首页推荐 = 本机 UP 名单里最新的投稿 */
 const items = computed(() => {
-  const list = ups.latest.map((it) => ({ ...it, reason: it.pubdate ? fmtAgo(it.pubdate) : '' }))
+  const list = latestUnique.value.map((it) => ({ ...it, reason: it.pubdate ? fmtAgo(it.pubdate) : '' }))
   if (only.value === 'all') return list
   return list.filter((it) => String(it.upMid) === only.value)
 })
 
 const upChips = computed(() => {
   const names = new Map()
-  for (const it of ups.latest) {
+  for (const it of latestUnique.value) {
     const k = String(it.upMid)
     if (!names.has(k)) names.set(k, it.upName)
   }
-  const chips = [{ mid: 'all', name: '全部', n: ups.latest.length }]
+  const chips = [{ mid: 'all', name: '全部', n: latestUnique.value.length }]
   for (const [mid, name] of names) {
-    chips.push({ mid, name, n: ups.latest.filter((x) => String(x.upMid) === mid).length })
+    chips.push({ mid, name, n: latestUnique.value.filter((x) => String(x.upMid) === mid).length })
   }
   return chips
 })

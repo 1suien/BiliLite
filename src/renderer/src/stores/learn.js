@@ -21,6 +21,8 @@ function keyOf(d) {
 export const useLearnStore = defineStore('learn', {
   state: () => ({
     loaded: false,
+    /** 脏行只清理一次 */
+    cleanedJunk: false,
     /** key `${bvid}:${cid}` → 进度记录 */
     progressMap: {},
     daily: [],
@@ -34,11 +36,30 @@ export const useLearnStore = defineStore('learn', {
   getters: {
     list: (s) =>
       Object.values(s.progressMap).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)),
+    /**
+     * 同一个视频只保留最近看的那条（多分P也只算一个视频）。
+     * 首页「继续学习」和学习记录都按视频展示，避免同一视频出现多张卡片。
+     */
+    listByVideo: (s) => {
+      const seen = new Set()
+      const out = []
+      for (const r of Object.values(s.progressMap).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))) {
+        if (!r.bvid || seen.has(r.bvid)) continue
+        seen.add(r.bvid)
+        out.push(r)
+      }
+      return out
+    },
     totalSeconds: (s) => s.daily.reduce((acc, d) => acc + (d.seconds || 0), 0),
-    totalVideos: (s) => Object.keys(s.progressMap).length,
-    completedCount: (s) => Object.values(s.progressMap).filter((r) => r.completed).length,
-    inProgressCount: (s) =>
-      Object.values(s.progressMap).filter((r) => !r.completed && (r.seconds || 0) > 5).length,
+    totalVideos() {
+      return this.listByVideo.length
+    },
+    completedCount() {
+      return this.listByVideo.filter((r) => r.completed).length
+    },
+    inProgressCount() {
+      return this.listByVideo.filter((r) => !r.completed && (r.seconds || 0) > 5).length
+    },
     todaySeconds: (s) => {
       const key = todayKey()
       const row = s.daily.find((d) => d.date === key)
@@ -81,6 +102,10 @@ export const useLearnStore = defineStore('learn', {
   actions: {
     async init(force = false) {
       if (this.loaded && !force) return
+      if (!this.cleanedJunk) {
+        await this.cleanupJunk().catch(() => {})
+        this.cleanedJunk = true
+      }
       const all = await getAllProgress()
       const map = {}
       for (const r of all) map[r.key || `${r.bvid}:${r.cid}`] = r
@@ -104,7 +129,47 @@ export const useLearnStore = defineStore('learn', {
       this.checkins = [...this.checkins, date].sort()
       return true
     },
+    /**
+     * 清理历史脏行：早期版本在 bvid 还没拿到时就落库，写出 key 形如 `:cid` 的行
+     * （首页「继续学习」里同一视频因此出现两张卡片，点进去还是空视频）。
+     * 能按 cid 配回真实行就把进度并过去，配不上就删掉（这种行已经没法打开）。
+     */
+    async cleanupJunk() {
+      const all = await getAllProgress()
+      const bad = all.filter((r) => !r.bvid)
+      if (!bad.length) return 0
+      let merged = 0
+      let dropped = 0
+      for (const b of bad) {
+        const good = all.find((r) => r.bvid && String(r.cid) === String(b.cid))
+        if (good) {
+          const row = {
+            ...good,
+            seconds: Math.max(good.seconds || 0, b.seconds || 0),
+            duration: Math.max(good.duration || 0, b.duration || 0),
+            completed: Boolean(good.completed || b.completed),
+            title: good.title || b.title || '',
+            cover: good.cover || b.cover || '',
+            upName: good.upName || b.upName || '',
+            updatedAt: Math.max(good.updatedAt || 0, b.updatedAt || 0)
+          }
+          row.key = `${row.bvid}:${row.cid}`
+          await db.progress.put(row)
+          good.seconds = row.seconds
+          good.duration = row.duration
+          good.completed = row.completed
+          merged++
+        } else {
+          dropped++
+        }
+        await db.progress.delete(b.key)
+      }
+      console.warn('[learn] 清理历史脏进度行', { merged, dropped })
+      return merged + dropped
+    },
     async save(rec) {
+      // 防御：bvid/cid 缺一不可，否则会写出 `:cid` 这种脏行（首页重复卡片的根源）
+      if (!rec || !rec.bvid || rec.cid == null || rec.cid === '') return null
       const key = `${rec.bvid}:${rec.cid}`
       const prev = this.progressMap[key]
       const next = {

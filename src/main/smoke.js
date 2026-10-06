@@ -6,7 +6,7 @@
  * 返回进程退出码：0 全部通过，1 有失败。
  */
 import { app } from 'electron'
-import { appendFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -115,6 +115,7 @@ export async function runSmoke(win) {
   const shot = async (name) => {
     if (!shotDir) return
     try {
+      mkdirSync(shotDir, { recursive: true })
       await forceTheme()
       // 主题令牌切换会带动带 transition 的控件（.input/.btn/.page-pill 等）过渡，
       // 等过渡走完再截，否则截图里会拍到「半路」的灰底（曾把输入框拍成深灰）。
@@ -222,6 +223,43 @@ export async function runSmoke(win) {
   )
   await step('品牌文案', "document.querySelector('.brand b') && document.querySelector('.brand b').textContent", (v) => typeof v === 'string' && v.length > 0)
   await step('主题令牌已应用', "getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()", (v) => typeof v === 'string' && v.length > 0)
+
+  // ---- 进度库诊断：key 形如 `:cid` 的行 = 早期 bvid 为空写出的脏行（首页重复卡片的根源）----
+  const progDump = await js(`(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+    const readAll = async () => {
+      const openReq = indexedDB.open('study-bili')
+      const db = await new Promise((res, rej) => { openReq.onsuccess = () => res(openReq.result); openReq.onerror = () => rej(openReq.error) })
+      if (!db.objectStoreNames.contains('progress')) return []
+      return await new Promise((res) => { const tx = db.transaction('progress', 'readonly').objectStore('progress').getAll(); tx.onsuccess = () => res(tx.result) })
+    }
+    // 应用的 learn store 启动时会清理脏行，等它做完（最多 4 秒）
+    let rows = []
+    for (let i = 0; i < 10; i++) {
+      rows = await readAll()
+      if (!rows.some((r) => !r.bvid)) break
+      await sleep(400)
+    }
+    const byBvid = {}
+    for (const r of rows) byBvid[r.bvid] = (byBvid[r.bvid] || 0) + 1
+    const dup = Object.keys(byBvid).filter((k) => k && byBvid[k] > 1)
+    return {
+      n: rows.length,
+      noBvid: rows.filter((r) => !r.bvid).length,
+      dupBvid: dup.length,
+      rows: rows
+        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+        .slice(0, 14)
+        .map((r) => ({ key: String(r.key), cid: r.cid, page: r.page, sec: Math.round(r.seconds || 0), dur: Math.round(r.duration || 0), t: String(r.title || '').slice(0, 12) }))
+    }
+  })()`)
+  log('进度行诊断 :: ' + JSON.stringify(progDump))
+  if (progDump && progDump.n >= 0) {
+    if (progDump.noBvid === 0) pass('进度库没有缺失 bvid 的脏行', { rows: progDump.n, noBvid: 0, dupBvid: progDump.dupBvid })
+    else fail('进度库没有缺失 bvid 的脏行', { rows: progDump.n, noBvid: progDump.noBvid, sample: (progDump.rows || []).filter((r) => String(r.key).startsWith(':')).slice(0, 3) })
+  } else {
+    log('      · 进度库读不到，跳过脏行断言')
+  }
   // STUDY_SMOKE_THEME=light 时用浅色主题跑一遍（浅色下更容易看出浅色描边/留白类问题）
   if (wantTheme) {
     await forceTheme()
@@ -967,6 +1005,17 @@ export async function runSmoke(win) {
   if (homeCards > 0) pass('首页出现关注 UP 的视频卡', homeCards)
   else if (latestOkNow) fail('首页出现关注 UP 的视频卡', { note: 'up.latest 有数据但首页 8 秒内没有卡片' })
   else log('      · 首页卡片跳过：up.latest 未取到数据（网络/风控）')
+
+  // 「继续学习」按视频去重：同一视频的多个分P/脏行不该渲染成多张同标题卡片
+  const contDump = await js(`(() => {
+    const titles = [...document.querySelectorAll('section .grid .vcard .title')].map((el) => el.textContent.trim())
+    const seen = {}
+    for (const t of titles) seen[t] = (seen[t] || 0) + 1
+    return { n: titles.length, dup: Object.keys(seen).filter((k) => seen[k] > 1), titles }
+  })()`)
+  if (contDump.n === 0) log('      · 「继续学习」为空，跳过去重断言')
+  else if (!contDump.dup.length) pass('首页「继续学习」卡片不重复', { n: contDump.n })
+  else fail('首页「继续学习」卡片不重复', { n: contDump.n, dup: contDump.dup, titles: contDump.titles })
   await shot('1-首页顶部.png')
 
   // 本机收藏：进视频页 → 点收藏 → 选文件夹（视频页渲染偶有延迟，重试导航）

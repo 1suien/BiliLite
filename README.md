@@ -142,7 +142,10 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 再单独一条 `跳转走 ranged 起流（sidx 定位）`：`[dash] streamFrom video offset=<≥5 位数>`，CDN 不配合时降级为 WARN）、
 分P列表带分P标题（`.pages-list .page-pill` 里 `.pn` 必须形如 `P2`、`.pt` 非空、`title` 属性非空、`.on` 恰好一行、
 「正在播放」行不含 `undefined`；要指定视频验收就设 `STUDY_SMOKE_BVID=<bvid>`，实测用 `BV1cu411r7pw` 分P 177 通过）、
-分P列表可按关键字筛选（分P > 12 时出现 `.pages-filter`，输入「单词」后行数变少：177 → 48）。
+分P列表可按关键字筛选（分P > 12 时出现 `.pages-filter`，输入「单词」后行数变少：177 → 48）、
+进度库没有缺失 bvid 的脏行（`progress` 表里 `key` 不该出现 `:<cid>` 这种行；冒烟启动后会等应用的
+`learn.cleanupJunk()` 跑完，最多轮询 4 秒）、
+首页「继续学习」卡片不重复（`section .grid .vcard .title` 文本唯一 —— 同一视频的多个分P只该出现一张卡）。
 
 > 主题验收：设置 `STUDY_SMOKE_THEME=light`（或 `dark`）会让冒烟把主题强制成对应主题再跑一遍，
 > 每次截图前也会重新强制一次 —— `settings.init()` 是异步的，完成时会按落盘设置把主题刷回来，
@@ -255,6 +258,17 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 > 定位当前行用的是**显式算 `scrollTop`**（把当前行居中）而不是 `scrollIntoView`：后者会连带滚动祖先，而且
 > 筛掉当前 P 再清空筛选时列表会停在中间不回来（实测停在 P134 附近）——`watch` 也要 `{ flush: 'post' }`
 > 才拿得到更新后的 DOM；冒烟里对应两条断言（筛短、清空后当前 P 回到可视区 `inView` + `scrollTop`）。
+>
+> 进度行脏数据坑（已修，表现是首页「继续学习」同一视频出现两张卡片、点进去还是空视频）：
+> `progress` 表按「每个分P一行」存（`key = ${bvid}:${cid}`），而 `VideoView.vue` 的 `meta()` 用的是
+> `bvid = computed(() => String(route.params.bvid || ''))` —— 路由参数还没就绪（或 URL 里没有 bvid）时
+> `learn.save()` 会写出 `key = ':cid'`、`bvid` 为空的脏行；它带着标题，于是在首页渲染成第二张同标题卡片。
+> 现在三层兜住：①`learn.save()` 开头 `if (!rec.bvid || !rec.cid) return null`；②`learn.init()` 先跑一次
+> `cleanupJunk()`，按 `cid` 把脏行并回真实行（时长取 max、完成取或），配不上就删掉；③给 store 加
+> `listByVideo` getter（按 `bvid` 去重只留最近一条），首页「继续学习」、学习记录的「最近学习」、
+> 「看过视频 / 已看完 / 在看」三个统计都基于它 —— 原来直接数 `progressMap` 的行，会把同一个视频的多个
+> 分P算成多个视频、也会把同一视频列多遍。首页 UP 投稿网格同理按 `bvid` 去重（`latestUnique`），
+> 多个 UP 转载同一稿件只出现一张卡。
 
 > 布局坑（已修）：`.app` 是 `display:grid`，若不给 `grid-template-rows: minmax(0, 1fr)`，内容会把这一行撑高，
 > `.main` 跟着变成内容高度（实测 2354px / 窗口 717px），再被 `body{overflow:hidden}` 裁掉 —— 表现就是

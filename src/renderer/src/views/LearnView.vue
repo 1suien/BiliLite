@@ -31,7 +31,7 @@ function applyDurations() {
 const tab = ref('recent')
 const ready = ref(false)
 
-const recent = computed(() => learn.list.slice(0, 40))
+const recent = computed(() => learn.listByVideo.slice(0, 40))
 const shelf = computed(() => learn.shelf)
 const peak = computed(() => Math.max(1, learn.maxDailySeconds))
 const recent14 = computed(() => learn.recentDays)
