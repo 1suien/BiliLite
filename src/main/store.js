@@ -24,11 +24,7 @@ const DEFAULT_SETTINGS = {
   subBg: true,
   subBottom: 8,
   /** 专注弹层里的快捷任务（可自定义；空数组 = 用代码里的默认四个） */
-  focusTasks: ['阅读', '刷题', '看课', '整理笔记'],
-  /** 离线缓存：占用上限（MB）/ 播放时优先用缓存 / 自定义缓存目录（空 = <userData>/offline-cache） */
-  cacheMaxMB: 4096,
-  cachePrefer: true,
-  cacheDir: ''
+  focusTasks: ['阅读', '刷题', '看课', '整理笔记']
 }
 
 function filePath() {

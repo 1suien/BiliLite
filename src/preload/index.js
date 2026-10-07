@@ -32,24 +32,16 @@ const CHANNELS = [
   'sys:revealPath',
   'sys:pickSubtitle',
   'sys:readSubtitle',
-  'cache:list',
-  'cache:stats',
-  'cache:local',
-  'cache:probe',
-  'cache:start',
-  'cache:cancel',
-  'cache:remove',
-  'cache:clear',
-  'cache:reveal',
-  'cache:export',
-  'cache:path',
-  'cache:pickDir',
-  'cache:openDir',
+  'local:pickFiles',
+  'local:pickFolder',
+  'local:register',
+  'local:remove',
+  'local:reveal',
   'backup:write'
 ]
 
-// 主进程 → 渲染层的单向事件（下载进度）。只允许订阅这张表里的通道。
-const EVENTS = ['cache:progress']
+// 主进程 → 渲染层的单向事件。目前没有需要推送的事件，保留机制以备后用。
+const EVENTS = []
 
 const allowed = new Set(CHANNELS)
 
@@ -149,23 +141,16 @@ const api = {
     write: (dir, name, text) => call('backup:write', { dir, name, text })
   },
 
-  cache: {
-    list: () => call('cache:list'),
-    stats: () => call('cache:stats'),
-    local: (bvid, cid) => call('cache:local', { bvid, cid }),
-    probe: (bvid, cid, qn) => call('cache:probe', { bvid, cid, qn }),
-    start: (req) => call('cache:start', req),
-    cancel: (key) => call('cache:cancel', { key }),
-    remove: (key) => call('cache:remove', { key }),
-    clear: () => call('cache:clear'),
-    reveal: (key) => call('cache:reveal', { key }),
-    exportMp4: (key, saveAs = false) => call('cache:export', { key, saveAs }),
-    /** 当前/默认/自定义缓存目录；pickDir 会弹系统文件夹选择框并在确认后落盘设置。 */
-    path: () => call('cache:path'),
-    pickDir: () => call('cache:pickDir'),
-    openDir: () => call('cache:openDir'),
-    /** 订阅下载进度；返回取消订阅函数（组件卸载时务必调用）。 */
-    onProgress: (cb) => onEvent('cache:progress', cb)
+  local: {
+    /** 打开本地视频（多选），返回 { canceled } 或 { entries }。 */
+    pickFiles: () => call('local:pickFiles'),
+    /** 选一个文件夹并递归找视频，返回 { canceled } 或 { dir, entries, truncated }。 */
+    pickFolder: () => call('local:pickFolder'),
+    /** 把绝对路径换成 lmedia://local/<id> 地址（id 是路径哈希，重启后地址不变）。 */
+    register: (paths) => call('local:register', { paths }),
+    remove: (id) => call('local:remove', { id }),
+    /** 在资源管理器里定位文件。 */
+    reveal: (path) => call('local:reveal', { path })
   }
 }
 

@@ -103,6 +103,28 @@ db.version(5).stores({
   subs: 'key, bvid, cid, at'
 })
 
+// v6：本地视频。只存用户选进来的文件（绝对路径 + 名字/大小）和解析出来的时长/缩略图/上次看到哪儿，
+// 视频文件本身一个字节都不动；thumb 是渲染层用 canvas 抽的一帧 dataURL（抽不到就留空）。
+db.version(6).stores({
+  progress: 'key, bvid, updatedAt, completed',
+  daily: 'date',
+  marks: '++id, bvid, cid, sec',
+  notes: '++id, bvid, cid, at',
+  shelf: 'bvid, at',
+  ups: 'mid, group, addedAt',
+  upgroups: 'name, at',
+  collect: '++id, bvid, folder, at',
+  collectfolders: 'name, at',
+  checkins: 'date, at',
+  upTime: 'key, mid, name',
+  books: 'id, addedAt, lastReadAt, format',
+  bookmarks: '++id, bookId, chapterIndex, at',
+  highlights: '++id, bookId, chapterIndex, at',
+  focus: '++id, day, startedAt, task',
+  subs: 'key, bvid, cid, at',
+  locals: 'id, path, addedAt, playedAt'
+})
+
 export async function getProgress(bvid, cid) {
   return db.progress.get(`${bvid}:${cid}`)
 }
@@ -273,6 +295,55 @@ export async function removeLocalSub(key) {
     await db.subs.delete(key)
   } catch (err) {
     console.warn('[sub] 本地字幕删除失败：', err && err.message)
+  }
+}
+
+// ---------------- 本地视频 ----------------
+//
+// 一行 = 一个用户选进来的视频文件：
+//   { id, path, name, size, mtime, duration, pos, thumb, addedAt, playedAt }
+// id 是主进程按绝对路径算的 sha1 前 24 位，因此重启后重新登记拿到的 lmedia:// 地址不变。
+
+/** 本地视频列表：最近播过的排前面，没播过的按加入时间倒序 */
+export async function listLocals() {
+  try {
+    const rows = await db.locals.toArray()
+    return rows.sort((a, b) => (b.playedAt || 0) - (a.playedAt || 0) || (b.addedAt || 0) - (a.addedAt || 0))
+  } catch (err) {
+    console.warn('[local] 本地视频读取失败：', err && err.message)
+    return []
+  }
+}
+
+export async function getLocal(id) {
+  try {
+    return (await db.locals.get(String(id || ''))) || null
+  } catch (err) {
+    console.warn('[local] 本地视频读取失败：', err && err.message)
+    return null
+  }
+}
+
+/** 写入/更新一行（只覆盖传进来的字段） */
+export async function putLocal(rec = {}) {
+  const id = String(rec.id || '')
+  if (!id) return null
+  try {
+    const old = (await db.locals.get(id)) || {}
+    const row = { ...old, ...rec, id, addedAt: old.addedAt || rec.addedAt || Date.now() }
+    await db.locals.put(row)
+    return row
+  } catch (err) {
+    console.warn('[local] 本地视频保存失败：', err && err.message)
+    return null
+  }
+}
+
+export async function removeLocal(id) {
+  try {
+    await db.locals.delete(String(id || ''))
+  } catch (err) {
+    console.warn('[local] 本地视频删除失败：', err && err.message)
   }
 }
 

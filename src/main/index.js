@@ -3,10 +3,10 @@ import { join } from 'node:path'
 import { store } from './store.js'
 import { registerIpc } from './ipc.js'
 import { BASE_HEADERS } from './bili/http.js'
-import { registerCacheScheme, installCacheProtocol } from './cache-protocol.js'
+import { registerLocalScheme, installLocalProtocol } from './local-media.js'
 
-// 离线缓存的 bcache:// 自定义协议必须在 app ready 之前登记特权
-registerCacheScheme()
+// 本地视频的 lmedia:// 自定义协议必须在 app ready 之前登记特权
+registerLocalScheme()
 
 // 主进程以 CJS 打包（package.json 未声明 type=module），__dirname 可直接使用。
 let mainWindow = null
@@ -166,7 +166,7 @@ if (!gotLock) {
   app.whenReady().then(() => {
     store.load()
     installNetworkHooks()
-    installCacheProtocol()
+    installLocalProtocol()
     registerIpc()
     createWindow()
 

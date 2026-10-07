@@ -33,13 +33,11 @@ src/
     ipc.js                  IPC 通道注册（统一 { ok, data | message, code, needLogin } 信封）
     store.js                设置 + 登录态持久化（Cookie 走 safeStorage 加密）
     smoke.js                端到端冒烟测试（见下文）
-    video-cache.js          离线缓存：探测大小 / 多线程分片下载（可续传）/ 列表（按稿件分组）/ 上限 / 自定义目录 / 导出
-    cache-protocol.js       自定义协议 `bcache://`：把缓存目录里的分片当本地媒体喂给播放器（支持 Range）
-    mp4/remux.js            自写 fMP4 → 通用 MP4 重封装（应用里没有 ffmpeg，导出靠它）
+    local-media.js          本地视频：文件对话框 / 文件夹递归扫描 / `lmedia://local/<id>` 自定义协议（支持 Range）
     bili/                   B 站接口：http / wbi 签名 / auth / nav-classify（登录态分类）/ home / video / search / fav / space
   preload/index.js          window.bili 白名单桥接（含全局拖拽拦截 → bili:files-dropped 自定义事件）
   renderer/
-    index.html              含 CSP meta（`media-src` / `connect-src` 里有 `bcache:`，离线播放要用；
+    index.html              含 CSP meta（`media-src` / `connect-src` 里有 `lmedia:`，放本地视频要用；
                             `worker-src 'self' blob:` 是当年 pdf.js 的 Blob worker 要的 —— 读书模块摘除后
                             已无人使用，留着不影响安全，渲染层现在没有任何 `new Worker`）
     src/
@@ -48,16 +46,16 @@ src/
       db/index.js            Dexie：progress / daily / notes / shelf / ups / collect / checkins / upTime
                              + v4 追加 focus（每轮专注一行：day / startedAt / seconds / completed / task）
                              + v5 追加 subs（本地字幕，key = `bvid:cid:文件名`）
+                             + v6 追加 locals（本地视频：只存 路径 / 名字 / 大小 / 时长 / 封面 / 播放进度）
       stores/                ui / settings / auth / learn / ups / collect / pomodoro
-      player/dash.js         DASH 播放核心
+      player/dash.js         DASH 播放核心（在线流用；本地视频走原生 <video>）
       utils/subtitle.js      字幕解析（SRT / VTT / ASS）+ 编码嗅探
-      views/                 Home / UpManage / Search / Video / Fav / FavFolder / Up / Learn / Cache / Settings
-      components/            Icon / BiliImage / VideoCard / Pager / DanmakuLayer / PageFloat / LoginModal / ConfirmModal / CollectModal / CacheModal / PartList
+      views/                 Home / UpManage / Search / Video / Fav / FavFolder / Up / Learn / Local / LocalPlayer / Settings
+      components/            Icon / BiliImage / VideoCard / Pager / DanmakuLayer / PageFloat / LoginModal / ConfirmModal / CollectModal / PartList
                              + FocusRing（专注圆环）/ FocusPanel（专注面板）/ SessionHistory（专注记录）…
 tools/
   run-smoke.ps1             本机冒烟运行脚本（构建 + 启动 Electron + 收报告，绕开 DSH 沙箱坑）
   check-parsers.mjs         不启动 Electron，直接跑字幕解析 + 登录态分类（22 项断言，改 src/renderer/src/utils/subtitle.js 或 src/main/bili/nav-classify.js 后先跑它）
-  check-remux.mjs           不启动 Electron，跑 MP4 重封装的夹具自测（75 项断言，改 src/main/mp4/remux.js 后先跑它）
   check-package.mjs         读 release/win-unpacked/resources/app.asar 的索引，校验打包产物完整、且没夹带 pdf.js 资源
 ```
 
@@ -110,10 +108,12 @@ pnpm run dist
 > ```
 >
 > 因为 `userData` 固定成 `%APPDATA%\study-bili`，覆盖二进制不会丢学习记录/登录态/设置。2026-10-07 用这种方式
-> 更新过三轮：先是把**含读书模块**的版本覆盖过去（旧 asar 备份在 `backup\app-asar-prereader.asar`，23.2 MB），
-> 再是把**修好字幕菜单/专注快捷任务**的版本覆盖过去，最后把**摘掉读书模块**的版本覆盖过去
-> （asar 从 59.3 MB / 1871 个文件降到 **23.3 MB / 982 个文件**）。每次覆盖后都用
-> `tools\check-package.mjs --dir "$env:USERPROFILE\Desktop\BiliLite"` 校验，并对桌面那份跑打包版冒烟。
+> 更新过很多轮，最近几轮是：含读书模块的版本（旧 asar 备份在 `backup\app-asar-prereader.asar`，23.2 MB）→
+> 修好字幕菜单/专注快捷任务 → **摘掉读书模块**（asar 从 59.3 MB / 1871 个文件降到 23.3 MB / 982 个文件）→
+> 离线缓存（v0.2.2）→ 缓存分组 + 自定义缓存目录（v0.2.3 / v0.2.4）→ **摘掉缓存 + 新增本地播放**（asar 24,444,321 B）。
+> 每次覆盖后都用 `tools\check-package.mjs --dir "$env:USERPROFILE\Desktop\BiliLite"` 校验，并对桌面那份跑打包版冒烟。
+> ⚠ `robocopy` 偶尔会报 `exit=11`/「FAILED 1」：那是 `BiliLite.exe` 被残留进程占着没覆盖上（asar 已经同步成功），
+> 确认 `Get-Process BiliLite` 为空后再跑一次，`exit=3` 就是好了；记得用哈希核对两侧 `BiliLite.exe` 一致。
 
 > 数据目录仍是 `%APPDATA%\study-bili`（改名前后不变，学习记录/登录态/设置都在里面）：
 > `src/main/index.js` 在启动时显式 `app.setPath('userData', join(app.getPath('appData'), 'study-bili'))`，
@@ -156,7 +156,7 @@ node 'C:\Users\zouyx\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\pnpm\bin
 
 ## 验证
 
-主进程内置端到端冒烟测试（真实窗口里跑完整闭环：桥接 → 接口 → 播放起流/推进 → 落库 → 6 个路由 → 分P续播/侧栏换序/本地字幕/离线缓存），
+主进程内置端到端冒烟测试（真实窗口里跑完整闭环：桥接 → 接口 → 播放起流/推进 → 落库 → 6 个路由 → 分P续播/侧栏换序/本地字幕/本地视频播放），
 报告写到 `$env:STUDY_SMOKE_OUT`，退出码为失败项数。
 
 本机（DSH 沙箱）直接跑用脚本，它会自己处理 `ELECTRON_RUN_AS_NODE`、node 路径、沙箱参数与 userData：
@@ -216,23 +216,25 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 进度库没有缺失 bvid 的脏行（`progress` 表里 `key` 不该出现 `:<cid>` 这种行；冒烟启动后会等应用的
 `learn.cleanupJunk()` 跑完，最多轮询 4 秒）、
 首页「继续学习」卡片不重复（`section .grid .vcard .title` 文本唯一 —— 同一视频的多个分P只该出现一张卡）、
-**离线缓存**（自己从搜索里挑一个够短的分P（P1 时长 20–300 秒）→ `cache.start` 用 qn 16 下这个分P → 轮询到 `done`
-且主进程 `statSync(<userData>\offline-cache\<bvid>\<cid>\v.m4s)` 真的有字节（`v.m4s`/`a.m4s` 是原样保存的 DASH 分片，没改一个字节）→
-进 `#/cache` 断言卡片里能看到它（`.ccard` ≥ 1，留一张 `6-缓存页.png`）、同一稿件的分P归到一张卡片（卡片里的
-「N 个内容」徽标）、以及缓存文件夹那段显示的是默认位置且和主进程 `cache:path` 的 `current` 一致 → 离开再回到 `#/video/<bvid>`，断言
-`window.__cacheLog.source === 'cache'` 且 `video.currentTime > 0.5`（证明确实走 `bcache://` 本地分片播起来了，
-而不是偷偷回落到在线流）→ `cache.exportMp4(key, false)` 导出通用 MP4，既查文件字节数、也**让 Chromium 自己解一遍**
-（临时 `<video src="bcache://…/export.mp4">` 等 `loadedmetadata`，要求 `duration > 0.5`）→ 最后 `cache.remove` 后
-列表为空且缓存目录真的消失；拿不到 playurl/分P（网络风控）时软跳过）、
+**本地播放**（现场造一个真视频文件：渲染层用 `canvas.captureStream()` + `MediaRecorder` 录 2 秒 webm，
+回传 base64 由主进程写成 `tmp-local-fixture\clip.webm`，再走「用户选了文件」之后的同一条链路 →
+`#/local` 里调 `window.__addLocalFiles([路径])` 断言列表出现 1 行、且隐藏 `<video>` 已经解析出
+`duration > 0` 与 canvas 抽出的封面缩略图（`__localProbe` 读列表状态）→ 进 `#/local/<id>`，断言
+`window.__playLog.source === 'local'`、`url` 是 `lmedia://local/<id>`、`video.currentTime > 0.3`
+（证明确实走自定义协议放起来了）→ 回到列表断言播放进度已写回本地库（`pos > 0`，即「续播」的地基）→
+最后真实点「移除」并在确认框里点确认，断言列表清空、**磁盘上的原文件还在**；跑完删掉夹具目录）、
 读书模块已于 2026-10-07 按用户要求摘除（本机归档在 `backup\reader-module\`，那里有 `MANIFEST.txt`；
 ⚠ 读书模块从未进入过这个仓库（`backup/` 被 `.gitignore` 忽略），所以仓库里没有它的历史版本，要留副本得另存），
 所以断言总数从 139 降到 72：读书段 67 项、侧栏「读书」那 1 项删掉，新增「侧栏已没有读书入口」1 项；
 **下面那些 139 / 137 / 118 项的历史验收记录都是「含读书段」时跑的**，摘除后的数字另见本节末尾那一轮。
 之后做「离线缓存」时又加了 5 项（下载落盘 / 缓存页列表 / 本地分片播放 / 导出 MP4 / 删除清目录），
 并把「侧栏 5 项 / 5 个路由」改成 6 项（侧栏循环又多了 1 项 `侧栏「缓存」`）；
-2026-10-07 这轮（缓存页按稿件分组 + 自定义缓存目录 + 登录态修复）把「缓存页列表」拆成「缓存页卡片」+
-「同一稿件分P归到一张卡片」两条，并新增 1 条「缓存文件夹显示默认位置且与主进程一致」—— **现在最多 80 项**
-（`首页「继续学习」卡片不重复` 在首页没有继续学习卡时软跳过，只 log 不打 PASS/FAIL，所以那轮会显示 79）。
+2026-10-07 那轮（缓存页按稿件分组 + 自定义缓存目录 + 登录态修复）把「缓存页列表」拆成「缓存页卡片」+
+「同一稿件分P归到一张卡片」两条，并新增 1 条「缓存文件夹显示默认位置且与主进程一致」，断言曾到 **80 项**；
+2026-10-07 又一轮按用户要求把整块离线缓存摘掉（源码归档在 `backup\cache-module\`，含 `MANIFEST.txt`），
+换成侧栏「本地」页播放本机视频文件：去掉缓存那 7 项、新增本地播放 4 项，**现在最多 77 项**
+（`首页「继续学习」卡片不重复` 在首页没有继续学习卡时软跳过，只 log 不打 PASS/FAIL，所以那轮会显示 76，
+另有一条「切换页面自动回到顶部」在搜索页没滚起来时也只 `warn`）。
 
 解析层还能单独跑（不启动 Electron，改 `src/renderer/src/utils/subtitle.js` / `src/main/bili/nav-classify.js` 后先跑它，22 项断言）：
 
@@ -289,10 +291,26 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 > 覆盖到桌面那份之后，又对**用户实际启动的那个可执行文件**跑了一轮打包版冒烟（浅色、干净目录）：
 > **72 PASS / 0 FAIL / 0 WARN / 0 渲染层异常**（`smoke-desktop6-report.txt`、`shots-desktop6/`，
 > 5 张截图亮度 200~243 全是浅色，`shots-desktop6/1-首页顶部.png` 里侧栏只剩 5 项、没有「读书」）。
+>
+> 再往后是「离线缓存」几轮（80 项）与最后一轮**摘掉缓存 + 新增本地播放**（2026-10-07）：`pnpm build`、
+> `tools\check-parsers.mjs`、`pnpm package`、`tools\check-package.mjs` 全部 exit 0；深色
+> `-SkipBuild -Tag local1 -Theme dark -Shots` = **76 PASS / 0 FAIL / 1 WARN**（`smoke-local1-report.txt`、`shots-local1/`，
+> WARN 是 `切换页面自动回到顶部` 在搜索页没滚起来的软跳过）、浅色 `-Tag local1light` = **77 PASS / 0 FAIL / 0 WARN**
+> （`smoke-local1light-report.txt`、`shots-local1light/`）。本地播放那 4 条断言的诊断值：冒烟用 canvas + `MediaRecorder`
+> 录出来的夹具 `clip.webm` 58705 B 写进 `tmp-local-fixture\` 后，列表里出现 1 行、
+> `duration 2.152` / `thumb true`；点播放走 `lmedia://local/e9963964bf1e712f151de59b`、`currentTime 0.658`、`paused false`；
+> 进度写回本地库 `pos 0.270776`（下次进来续播）；点「移除」后列表清空而磁盘上 `fileStill true`。
+> 缓存那 7 条断言随之删掉、换成本地播放 4 条，所以断言总数从 80 项变成 **77 项**。
+> 覆盖到桌面那份之后（asar 24,444,321 B，两侧 `app.asar` SHA256 一致），对**用户实际启动的那个可执行文件**又跑了一轮
+> 打包版浅色冒烟：**77 PASS / 0 FAIL / 0 WARN**（`smoke-desk-local2-report.txt`、7 张截图在 `shots-desk-local2/`），
+> 4 条本地播放断言全绿（`duration 2.171`、走 `lmedia://local/…`、`currentTime 0.699`、进度 `pos 0.2576`、移除后 `fileStill true`）。
+> 第一次打包版冒烟撞上 CDN 抖动（`[dash] ranged try failed … signal is aborted` → `ranged unusable, 从 0 顺序拉`，
+> 使 `跳转后能继续播放` 的探针 30s 超时），换一轮重跑即全绿 —— 这条断言对网络很敏感，看到它单独失败先重跑一次再判断。
 
 > **冒烟前先看构建结果**：`tools\run-smoke.ps1 -SkipBuild` 会拿旧的 `out/` 继续跑，跑出一份「看起来全绿但什么都没证明」的报告
 > （踩过：`vite build` 失败、报告却照样满绿）。**改完 `src/` 先看 `BUILD_EXIT`，再谈冒烟。**
-> 断言总数是 **80 项**（`首页「继续学习」卡片不重复` 在首页没有继续学习卡时是软跳过、只 log 不打 PASS/FAIL → 那轮显示 79）。
+> 断言总数是 **77 项**。其中 `切换页面自动回到顶部` 在搜索页没滚起来时只记 WARN（深色那轮就是 76 PASS + 1 WARN），
+> `首页「继续学习」卡片不重复` 在首页没有继续学习卡时软跳过、只 log 不打 PASS/FAIL → 这两种情况下 PASS 计数会显示 76。
 
 > 主题验收：设置 `STUDY_SMOKE_THEME=light`（或 `dark`）会让冒烟把主题强制成对应主题再跑一遍，
 > 每次截图前也会重新强制一次 —— `settings.init()` 是异步的，完成时会按落盘设置把主题刷回来，
@@ -478,36 +496,26 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
   画面一恢复就清掉 —— 不会再有遮罩一直盖在正在播放的画面上。
   `.player-wrap` 的描边固定用纯黑（`border: 1px solid #000`）：浅色主题下 `--line` 是 `#e2e2e6`，
   围着黑画面就是一圈白边（用户反馈的「视频有白边」），播放器卡片必须用黑边。
-- **离线缓存**：视频页信息区有「缓存」按钮 → 弹层里勾分P（可多选、已缓存的打标）+ 选清晰度
-  （chip 来自 `cache:probe` 的 `acceptQuality`，会顺手探测并显示「当前分P 约 XX MB」）→ 开始缓存，
-  进度条同时出现在弹层和缓存页；侧栏第 6 项「缓存」是缓存页：占用条（已占用 / 上限 · N 个分P · M 个视频）、
-  改上限（256–65536 MB，落设置 `cacheMaxMB`）、「播放时优先用缓存」开关（`cachePrefer`）、清空缓存。
-  **缓存页按稿件分组**：同一个 bvid 的多个分P聚成一张卡片（封面 + 总大小 + 「N 个内容」+ 标题 + UP），
-  卡片上可直接「播放全部」（从 P 号最小的分P开始）、「更多操作」里 打开整组位置 / 依次导出整组 MP4 /
-  删除整组，点标题或「展开 N 个分P」展开后每行还能单独 播放 / 导出 MP4 / 打开位置 / 删除。
-  **缓存文件夹可自定义**：缓存页显示当前目录（`cache:path` 返回 `{current,default,custom}`），
-  「更改文件夹」弹系统目录选择框（选完先试写一个临时文件，不可写就当场报错并保持原设置），
-  落设置 `cacheDir`；`video-cache.js` 的 `cacheRootPath()` 每次都用它解析根目录（自定义目录不可用时回退默认），
-  自定义过会有「恢复默认位置」按钮。已缓存的旧文件留在旧文件夹里，不会自动搬（UI 里有提示）。
-  文件在 `<userData>\offline-cache\<bvid>\<cid>\{meta.json,v.m4s,a.m4s[,export.mp4]}`（默认目录），`v.m4s`/`a.m4s` 是
-  **原样保存的 DASH 分片**（一个字节都没改），`meta.json` 记着 codecs / 尺寸 / 带宽 / 时长 / 标题分P
-  —— 离线时没有 playurl 可查，这些都得自己存下来。
-  > ⚠ 目录名不能叫 `cache`：Windows 路径大小写不敏感，`<userData>\cache` 正好是 Chromium 自己的 HTTP
-  > 磁盘缓存（`Cache\Cache_Data\…`），第一版就把两者混在了一起（占用统计和「清空缓存」都会误伤浏览器缓存），
-  > 所以改成 `offline-cache`。
-  下载是 3 个 worker 按 2MB 分片并行拉（`Range: bytes=a-b`），失败最多重试 3 次并轮换备用 CDN；
-  中断过的任务按已落盘字节续传；开始前先查占用上限，超了直接拒绝并提示先去删一些。
-  轨道挑 **avc1（H.264）优先**（同画质在 `dash.video` 里常有 av01 / avc1 / hevc 三条，H.264 在 MSE 播放
-  和自写 MP4 导出这两条路上兼容性最好）。
-  **离线播放**靠自定义协议 `bcache://media/<bvid>/<cid>/<文件名>`：主进程 `protocol.registerSchemesAsPrivileged`
-  声明 `stream / supportFetchAPI / corsEnabled / bypassCSP`，再用 `protocol.handle` 把请求映射到缓存文件并
-  **完整支持 `Range`（206 / `Content-Range` / 416）**。渲染层因此可以零改动复用 DASH 播放器：把本地两条轨
-  拼成一个合成的 playurl（`mode: 'dash'`）丢给 `player.load()` 就行；播放中显示「离线缓存」chip，
-  点「改为在线播放」可以强制走网络（`window.__cacheLog` 会记录这次到底走的哪条路，冒烟靠它断言）。
-  **导出通用 MP4** 是自写的 fMP4 → MP4 重封装（`src/main/mp4/remux.js`，应用里没有 ffmpeg）：
-  读 `moov/moof/trun` 的 sample 表，把 `mdat` 重排成 `ftyp + moov + mdat`，`stco/co64`、`stss`、`tfdt` 偏移、
-  非零起始时间都按实际字节重算；导出的文件能被 Chromium 直接读出时长与画面尺寸（冒烟就是这么验的），
-  也能拖进别的播放器。改重封装后先跑 `node tools/check-remux.mjs`（不启动 Electron）。
+- **本地播放**：侧栏「本地」用来放本机的视频文件：右上角「打开文件」（多选）与「打开文件夹」
+  （递归扫 ≤4 层、最多 500 个文件，按文件名排序）。文件**不会被复制、转码或移动**，只是把绝对路径登记进
+  本地库（Dexie **v6** 的 `locals` 表：`{id, path, name, size, mtime, duration, pos, thumb, addedAt, playedAt}`）。
+  列表每行有时长徽标、封面缩略图与进度条；点「播放 / 继续播放」进 `#/local/<id>` 播放页，
+  进度每 5 秒（以及暂停、离开页面时）写回本地库，所以下次接着看。
+  时长与封面是**渲染层现场解析**的：一个隐藏的 `<video preload="metadata">` 读出时长后 seek 一帧
+  `drawImage` 到 320px 宽的 canvas，出 JPEG dataURL 存进 IndexedDB 当封面；MediaRecorder 之类录出来的 webm
+  头部没写时长（`duration === Infinity`）时，先 `currentTime = 1e101` 逼 Chromium 把时长算出来。
+  播放页用的是原生 `<video :src="lmedia://…">`（本地文件不需要 MSE，也就不接 DASH 播放器）。
+  文件被移动/改名后列表里标「文件不在了」，点播放会提示；磁盘上的文件不会被应用删掉。
+  **自定义协议** `lmedia://local/<id>`（`src/main/local-media.js`）：`registerSchemesAsPrivileged` 声明
+  `standard / secure / supportFetchAPI / stream / corsEnabled / bypassCSP`，`protocol.handle` 把请求映射到
+  登记过的文件，并**完整支持 `Range`（206 / `Content-Range` / 416，无 Range 走 200）**。
+  id 是绝对路径 sha1 的前 24 位，协议只认「登记表里存在的 id」——路径拼不进来，渲染层也拿不到任意文件读取能力；
+  重启后由渲染层拿本地列表重新登记一遍（id 不变，地址稳定）。
+  > 为什么不用 `file://`：播放要按自己的节奏发 `Range` 请求（拖进度就是定位字节），`file://` 既不受控，
+  > 在 CSP / 跨源 / Range 上也不好办。
+  > 这一段的前身是「离线缓存」（视频页选分P下载 → 缓存页 → 导出通用 MP4），2026-10-07 按用户要求整块摘掉：
+  > 源码归档在 `backup\cache-module\`（含恢复指引 `MANIFEST.txt`），仓库里不再有 `video-cache.js` /
+  > `cache-protocol.js` / `mp4/remux.js`，`tools/check-remux.mjs` 也一并删除。
 - **字幕**：**在线字幕**改走**带 wbi 签名**的 `x/player/wbi/v2`（2024 年起不签名会被 -403；签名失败自动退回不签名的旧接口），
   取投稿级字幕列表、只拉前 5 种语言，条目结构和弹幕一样是 `{from,to,content}`，播放时按 `from` 二分查找当前句。
   **本地字幕**支持 `.srt / .vtt / .ass(ssa)`：CC 菜单里「选择字幕文件…」或把字幕文件**拖进窗口**都能加

@@ -4,10 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- 渲染层只通过 preload 暴露的 IPC 访问网络；这里放开的是封面图(https)、MSE blob 与媒体直连 -->
-    <!-- bcache: 是离线缓存的自定义协议（视频轨/音频轨/导出的 mp4），播放器按 Range 从它取流 -->
+    <!-- lmedia: 是本地视频的自定义协议（lmedia://local/<id>），播放器按 Range 从它取流 -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' file:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; media-src 'self' blob: https: bcache:; connect-src 'self' ws: wss: https: bcache:; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'"
+      content="default-src 'self'; script-src 'self' file:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; media-src 'self' blob: https: lmedia:; connect-src 'self' ws: wss: https: lmedia:; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'"
     />
     <title>BiliLite</title>
   </head>

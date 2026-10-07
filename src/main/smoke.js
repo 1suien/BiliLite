@@ -6,7 +6,7 @@
  * 返回进程退出码：0 全部通过，1 有失败。
  */
 import { app } from 'electron'
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -958,275 +958,146 @@ export async function runSmoke(win) {
     else fail('分P续播：不带 ?p 回到上次那个分P', partProbe)
   }
 
-  // ---- 离线缓存：下载 → 缓存页 → 本地播放 → 导出 MP4 → 删除 ----
-  // 一定要挑一个**短视频**（P1 几十秒到 4 分钟）来缓存：qn 16 的 360P 每分钟只有几 MB，
-  // 短视频十几秒就下完；要是拿当前页那个 23 分钟的视频，会白下几百 MB 还可能超时。
+  // ---- 本地播放：现场造一个视频文件 → 加进「本地」列表 → 播放 → 进度续播 → 移除 ----
+  // 不联网、不依赖用户机器上的文件：渲染层用 canvas.captureStream + MediaRecorder 录 2 秒 webm，
+  // base64 回传主进程写成文件，再走「打开文件」之后的那条链路（local:register → lmedia:// → <video>）。
   {
-    const ud = app.getPath('userData')
-    const picked = await js(`(async () => {
-      const shots = []
-      const tryOne = async (bvid) => {
+    const fixtureDir = join(process.cwd(), 'tmp-local-fixture')
+    const fixture = join(fixtureDir, 'clip.webm')
+    try {
+      mkdirSync(fixtureDir, { recursive: true })
+      const rec = await js(`(async () => {
         try {
-          const pages = await window.bili.video.pages(bvid)
-          if (!Array.isArray(pages) || !pages.length) return null
-          const d = Number(pages[0].duration) || 0
-          if (d >= 20 && d <= 300) return { bvid: bvid, cid: String(pages[0].cid), duration: d }
-          return null
-        } catch (err) {
-          return null
-        }
-      }
-      try {
-        const r = await window.bili.search.videos('梗百科', 1)
-        for (const v of (r.items || []).slice(0, 8)) {
-          shots.push(v.bvid)
-          const hit = await tryOne(v.bvid)
-          if (hit) return { hit: hit, from: 'search' }
-        }
-      } catch (err) {
-        shots.push('search-failed:' + String((err && err.message) || err))
-      }
-      const m = location.hash.match(/video\\/([^/?#]+)/)
-      if (m) {
-        const hit = await tryOne(m[1])
-        if (hit) return { hit: hit, from: 'current' }
-      }
-      return { err: 'no-short-video', shots: shots }
-    })()`)
-    const hit = picked && picked.hit
-    let cid = ''
-    if (!hit) {
-      warn('离线缓存：没找到够短的分P（网络风控或都是长视频？），跳过这一段 → ' + show(picked))
-    } else {
-      const started = await js(`(async () => {
-        try {
-          const c = '${hit.cid}'
-          window.__smokeCache = { bvid: '${hit.bvid}', cid: c, key: '', duration: ${hit.duration} }
-          const now = await window.bili.cache.list()
-          const already = (now.rows || []).find((r) => String(r.cid) === c && r.done)
-          if (already) {
-            window.__smokeCache.key = already.key
-            return { reuse: true, key: already.key, cid: c }
+          const c = document.createElement('canvas')
+          c.width = 320
+          c.height = 180
+          const ctx = c.getContext('2d')
+          let frame = 0
+          let streaming = true
+          const draw = () => {
+            frame++
+            ctx.fillStyle = 'rgb(' + ((frame * 7) % 255) + ',' + ((frame * 3) % 255) + ',' + ((frame * 11) % 255) + ')'
+            ctx.fillRect(0, 0, 320, 180)
+            ctx.fillStyle = '#fff'
+            ctx.font = '20px sans-serif'
+            ctx.fillText('smoke ' + frame, 12, 96)
+            if (streaming) requestAnimationFrame(draw)
           }
-          const res = await window.bili.cache.start({
-            bvid: '${hit.bvid}', cid: c, qn: 16, page: 1, partTitle: '', title: '冒烟缓存', upName: '', cover: '', qualityLabel: ''
+          draw()
+          const stream = c.captureStream(25)
+          const mr = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8' })
+          const chunks = []
+          mr.ondataavailable = (e) => {
+            if (e.data && e.data.size) chunks.push(e.data)
+          }
+          const stopped = new Promise((r) => {
+            mr.onstop = r
           })
-          window.__smokeCache.key = (res && res.key) || ''
-          return { key: window.__smokeCache.key, cid: c, duration: ${hit.duration}, res: res || null }
+          mr.start()
+          await new Promise((r) => setTimeout(r, 2200))
+          mr.stop()
+          streaming = false
+          await stopped
+          const bytes = new Uint8Array(await new Blob(chunks, { type: 'video/webm' }).arrayBuffer())
+          let s = ''
+          for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i])
+          return { b64: btoa(s), bytes: bytes.length }
         } catch (err) {
           return { err: String((err && err.message) || err) }
         }
       })()`)
-      cid = (started && started.cid) || ''
-      if (!started || started.err || !cid) {
-        warn('离线缓存：拿不到 playurl/分P（网络风控？），跳过这一段 → ' + show(started))
+      if (!rec || rec.err || !rec.b64) {
+        warn('本地播放：造夹具视频失败，跳过这一段 → ' + show(rec))
       } else {
-        // 轮询到下载结束（短视频 360P 通常十几秒；最多等 3 分钟）
-        let last = null
-        const t0 = Date.now()
-        while (Date.now() - t0 < 180000) {
-          last = await js(`(async () => {
-            try {
-              const data = await window.bili.cache.list()
-              const row = (data.rows || []).find((x) => x.key === window.__smokeCache.key)
-              const task = (data.tasks || []).find((x) => x.key === window.__smokeCache.key)
-              return {
-                row: row ? { done: !!row.done, vBytes: row.vBytes, aBytes: row.aBytes, bytes: row.bytes, quality: row.quality } : null,
-                task: task ? { stage: task.stage, pct: task.pct, message: task.message, error: task.error } : null
-              }
-            } catch (err) {
-              return { err: String((err && err.message) || err) }
-            }
-          })()`)
-          if (last && last.row && last.row.done) break
-          if (last && last.task && last.task.stage === 'error') break
-          await sleep(2500)
-        }
-        const dir = join(ud, 'offline-cache', hit.bvid, cid)
-        const vPath = join(dir, 'v.m4s')
-        const aPath = join(dir, 'a.m4s')
-        const vSize = existsSync(vPath) ? statSync(vPath).size : 0
-        const aSize = existsSync(aPath) ? statSync(aPath).size : 0
-        const cacheDiag = { started, last, vSize, aSize }
-        if (last && last.row && last.row.done && vSize > 0) {
-          pass('离线缓存：下载完一个分P，v.m4s/a.m4s 真的落盘', { row: last.row, vSize, aSize })
-        } else {
-          fail('离线缓存：下载完一个分P，v.m4s/a.m4s 真的落盘', cacheDiag)
-        }
-        // 调试用：把真实 DASH 分片留一份给 remux 自测（默认不开；remux 的正式自测见 tools/check-remux.mjs）
-        if (process.env.STUDY_SMOKE_KEEP_CACHE === '1' && vSize > 0) {
-          const keep = join(process.cwd(), 'scratch', 'cache-slice')
+        writeFileSync(fixture, Buffer.from(rec.b64, 'base64'))
+        const fixtureBytes = statSync(fixture).size
+
+        // 进「本地」页（页面挂载后才会装上 __addLocalFiles / __localProbe 这两个自动化钩子）
+        await js(`(() => { location.hash = '#/local'; return true })()`)
+        await sleep(1100)
+        const added = await js(`(async () => {
           try {
-            mkdirSync(keep, { recursive: true })
-            copyFileSync(vPath, join(keep, 'v.m4s'))
-            if (aSize > 0) copyFileSync(aPath, join(keep, 'a.m4s'))
-          } catch (err) {
-            warn('离线缓存：留档真实分片失败 → ' + String((err && err.message) || err))
-          }
-        }
-
-        // 缓存页：占用条 + 按稿件分组的卡片（同一稿件的多个分P应该归到一张卡里）
-        await js(`(() => { location.hash = '#/cache'; return true })()`)
-        await sleep(1400)
-        const page = await js(`(() => {
-          const cards = document.querySelectorAll('.ccard').length
-          const counts = [...document.querySelectorAll('.ccard .ccount')].map((el) => el.textContent.replace(/\\s+/g, ' ').trim())
-          const dir = document.querySelector('.cdir')
-          const head = document.querySelector('.page-head')
-          return {
-            cards,
-            counts,
-            dir: dir ? dir.textContent.trim().slice(0, 80) : '',
-            text: head ? head.textContent.replace(/\\s+/g, ' ').trim().slice(0, 90) : ''
-          }
-        })()`)
-        await shot('6-缓存页.png')
-        if (page && page.cards >= 1) pass('缓存页：占用与已缓存列表（含刚下载的分P）', page)
-        else fail('缓存页：占用与已缓存列表（含刚下载的分P）', page)
-        // 分组断言：同稿件多分P → 一张卡 + 「N 个内容」；这张卡的 bvid 必须是我们刚缓存的那个
-        const grouped = await js(`(() => {
-          const key = window.__smokeCache ? window.__smokeCache.bvid : ''
-          const cards = [...document.querySelectorAll('.ccard')]
-          const hit = cards.find((c) => (c.textContent || '').indexOf(key) >= 0) || cards[0] || null
-          const rows = hit ? hit.querySelectorAll('.crow').length : 0
-          const count = hit ? hit.querySelector('.ccount') : null
-          return {
-            key,
-            cards: cards.length,
-            rows,
-            count: count ? count.textContent.replace(/\\s+/g, ' ').trim() : ''
-          }
-        })()`)
-        if (grouped && grouped.cards >= 1 && /个内容/.test(grouped.count))
-          pass('缓存页：同一稿件的分P归到一张卡片（「N 个内容」）', grouped)
-        else fail('缓存页：同一稿件的分P归到一张卡片（「N 个内容」）', grouped)
-        // 缓存目录：默认目录 = <userData>/offline-cache，未自定义时 custom 为空
-        // （弹系统目录选择框的那条路没法自动点，只验 path() 的读取与渲染）
-        const dirInfo = await js(`(async () => {
-          const info = await window.bili.cache.path()
-          const shown = document.querySelector('.cdir')
-          return {
-            current: String((info && info.current) || ''),
-            isDefault: Boolean(info && info.current && info.current === info.default),
-            custom: String((info && info.custom) || ''),
-            shown: shown ? shown.textContent.trim().slice(0, 80) : ''
-          }
-        })()`)
-        if (
-          dirInfo &&
-          /offline-cache$/.test(dirInfo.current) &&
-          dirInfo.isDefault &&
-          dirInfo.custom === '' &&
-          dirInfo.shown === dirInfo.current
-        )
-          pass('缓存页：缓存文件夹显示默认位置，且和主进程 path() 一致', dirInfo)
-        else fail('缓存页：缓存文件夹显示默认位置，且和主进程 path() 一致', dirInfo)
-
-        // 本地播放：离开再回来，逼 startPlay 重跑；应该走 bcache:// 本地文件并真的出画面
-        await js(`(() => { location.hash = '#/'; return true })()`)
-        await sleep(1200)
-        await js(`(() => { location.hash = '#/video/' + window.__smokeCache.bvid; return true })()`)
-        let playDiag = null
-        for (let i = 0; i < 14; i++) {
-          await sleep(900)
-          playDiag = await js(`(() => {
-            const v = document.querySelector('video')
-            const log = window.__cacheLog || null
-            return {
-              source: log ? log.source : '',
-              url: log ? String(log.videoUrl || '').slice(0, 46) : '',
-              t: v ? Number(v.currentTime.toFixed(2)) : null,
-              paused: v ? v.paused : null,
-              err: v && v.error ? v.error.code : null
-            }
-          })()`)
-          if (playDiag && playDiag.source === 'cache' && playDiag.t > 0.5) break
-        }
-        if (playDiag && playDiag.source === 'cache' && playDiag.t > 0.5)
-          pass('离线缓存：打开这个视频走的是本地分片并真的播起来', playDiag)
-        else fail('离线缓存：打开这个视频走的是本地分片并真的播起来', playDiag)
-
-        // 导出通用 MP4：不弹对话框；再用 <video> 让 Chromium 自己解一遍（能读出时长才算通用）
-        const exp = await js(
-          `(async () => {
-            try {
-              const r = await window.bili.cache.exportMp4(window.__smokeCache.key, false)
-              return { ok: true, r: r || null }
-            } catch (err) {
-              return { err: String((err && err.message) || err) }
-            }
-          })()`,
-          120000
-        )
-        const mp4Path = join(dir, 'export.mp4')
-        const mp4Size = existsSync(mp4Path) ? statSync(mp4Path).size : 0
-        let mp4Info = null
-        try {
-          const mod = await import('./mp4/remux.js')
-          const info = mod.inspectMp4(readFileSync(mp4Path))
-          // 诊断只留标量：完整结构上万字符，会把报告里的 show() 撑爆（截断后连 mp4Play 都看不到）
-          const briefTrack = (t) => {
-            const o = {}
-            for (const [k, v] of Object.entries(t || {})) {
-              if (v === null || typeof v !== 'object') o[k] = v
-              else if (Array.isArray(v)) o[k] = '[' + v.length + ']'
-            }
-            return o
-          }
-          mp4Info = {
-            size: info.size,
-            boxes: (info.boxes || []).map((b) => b.type + '@' + b.offset),
-            tracks: (info.tracks || []).map(briefTrack)
-          }
-        } catch (err) {
-          mp4Info = { inspectErr: String((err && err.message) || err) }
-        }
-        const mp4Play = await js(`(async () => {
-          const url = 'bcache://media/' + window.__smokeCache.bvid + '/' + window.__smokeCache.cid + '/export.mp4'
-          const v = document.createElement('video')
-          v.muted = true
-          v.preload = 'metadata'
-          v.src = url
-          document.body.appendChild(v)
-          const got = await new Promise((res) => {
-            v.addEventListener('loadedmetadata', () => res({ duration: Number(v.duration || 0), w: v.videoWidth, h: v.videoHeight }), { once: true })
-            v.addEventListener('error', () => res({ error: v.error ? v.error.code : -1 }), { once: true })
-            setTimeout(() => res({ timeout: true }), 9000)
-            v.load()
-          })
-          v.removeAttribute('src')
-          v.load()
-          v.remove()
-          await new Promise((r) => setTimeout(r, 400))
-          return got
-        })()`)
-        const exportDiag = { exp, mp4Size, mp4Info, mp4Play }
-        if (mp4Size > 0 && mp4Play && mp4Play.duration > 0.5)
-          pass('离线缓存：导出成通用 MP4（Chromium 能读出时长与画面尺寸）', exportDiag)
-        else fail('离线缓存：导出成通用 MP4（Chromium 能读出时长与画面尺寸）', exportDiag)
-
-        // 删除：列表清空 + 磁盘目录消失
-        // 先离开播放页并给播放器一点时间拆干净：Windows 上 MSE/媒体元素还抓着 a.m4s 时，
-        // 删目录会撞上 EPERM/ENOTEMPTY（真实的句柄竞态，不是删除逻辑写错了）。
-        await js(`(() => { location.hash = '#/'; return true })()`)
-        await sleep(1800)
-        const del = await js(`(async () => {
-          try {
-            await window.bili.cache.remove(window.__smokeCache.key)
-            const d = await window.bili.cache.list()
-            return { rows: (d.rows || []).length, stats: d.stats || null }
+            const n = await window.__addLocalFiles([${JSON.stringify(fixture)}])
+            return { rows: n, probe: window.__localProbe ? window.__localProbe() : null }
           } catch (err) {
             return { err: String((err && err.message) || err) }
           }
         })()`)
-        let gone = !existsSync(dir)
-        for (let i = 0; i < 6 && !gone; i++) {
+
+        // ① 加入列表 → 隐藏 <video> 解析时长 + canvas 抽封面（都写进 IndexedDB）
+        let lp = null
+        for (let i = 0; i < 30; i++) {
+          lp = await js(`(() => (window.__localProbe ? window.__localProbe() : null))()`)
+          if (lp && lp.length === 1 && lp[0].duration > 0 && lp[0].thumb && !lp[0].missing) break
           await sleep(500)
-          gone = !existsSync(dir)
         }
-        const delDiag = { del, gone }
-        if (del && del.rows === 0 && gone) pass('离线缓存：删除后列表清空、磁盘目录也删掉', delDiag)
-        else fail('离线缓存：删除后列表清空、磁盘目录也删掉', delDiag)
+        const addDiag = { file: fixtureBytes, added, probe: lp }
+        if (lp && lp.length === 1 && lp[0].duration > 0 && lp[0].thumb && !lp[0].missing)
+          pass('本地播放：加进列表后解析出时长与封面缩略图', addDiag)
+        else fail('本地播放：加进列表后解析出时长与封面缩略图', addDiag)
+        await shot('7-本地页.png')
+
+        // ② 打开播放：应该走 lmedia:// 自定义协议，并且真的出画面
+        const localId = lp && lp[0] ? lp[0].id : ''
+        await js(`(() => { location.hash = '#/local/' + ${JSON.stringify(localId)}; return true })()`)
+        let pp = null
+        for (let i = 0; i < 22; i++) {
+          await sleep(700)
+          pp = await js(`(() => (window.__playProbe ? window.__playProbe() : null))()`)
+          if (pp && pp.t > 0.3) break
+        }
+        const plog = await js(`window.__playLog || null`)
+        const playDiag = { probe: pp, log: plog }
+        if (pp && pp.t > 0.3 && plog && plog.source === 'local' && String(plog.url || '').startsWith('lmedia://'))
+          pass('本地播放：点播放真的放起来（走 lmedia:// 本地协议）', playDiag)
+        else fail('本地播放：点播放真的放起来（走 lmedia:// 本地协议）', playDiag)
+        await shot('8-本地播放.png')
+
+        // ③ 回到列表：进度已经写回本地库（这条是「续播」的地基）
+        await js(`(() => { location.hash = '#/local'; return true })()`)
+        let back = null
+        for (let i = 0; i < 14; i++) {
+          back = await js(`(() => (window.__localProbe ? window.__localProbe() : null))()`)
+          if (back && back.length === 1 && back[0].pos > 0) break
+          await sleep(500)
+        }
+        const resumeDiag = { probe: back }
+        if (back && back.length === 1 && back[0].pos > 0) pass('本地播放：播放进度写回本地库（下次进来即续播）', resumeDiag)
+        else fail('本地播放：播放进度写回本地库（下次进来即续播）', resumeDiag)
+
+        // ④ 从列表移除（真实点按钮 + 确认框）：列表清空，但磁盘上的文件不能动
+        const clicked = await js(`(() => {
+          const b = document.querySelector('button[title^="从列表移除"]')
+          if (!b) return false
+          b.click()
+          return true
+        })()`)
+        await sleep(600)
+        const okBtn = await js(`(() => {
+          const b = document.querySelector('.overlay .modal .btn.danger')
+          if (!b) return false
+          b.click()
+          return true
+        })()`)
+        let after = null
+        for (let i = 0; i < 10; i++) {
+          await sleep(400)
+          after = await js(`(() => (window.__localProbe ? window.__localProbe() : null))()`)
+          if (after && after.length === 0) break
+        }
+        const delDiag = { clicked, okBtn, after, fileStill: existsSync(fixture) }
+        if (clicked && okBtn && after && after.length === 0 && existsSync(fixture))
+          pass('本地播放：从列表移除后列表清空，磁盘上的原文件没被删', delDiag)
+        else fail('本地播放：从列表移除后列表清空，磁盘上的原文件没被删', delDiag)
+      }
+    } catch (err) {
+      warn('本地播放：这一段异常跳过 → ' + String((err && err.message) || err))
+    }
+    if (process.env.STUDY_SMOKE_KEEP_LOCAL !== '1') {
+      try {
+        rmSync(fixtureDir, { recursive: true, force: true })
+      } catch {
+        /* 夹具目录删不掉也不影响结论 */
       }
     }
   }
@@ -1236,7 +1107,7 @@ export async function runSmoke(win) {
     ['搜索', '.page-head'],
     ['收藏', '.page-head'],
     ['学习', '.stat-grid'],
-    ['缓存', '.page-head'],
+    ['本地', '.page-head'],
     ['设置', '.panel'],
     ['首页', '.grid, .page-head']
   ]

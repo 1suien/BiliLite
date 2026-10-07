@@ -1,5 +1,5 @@
-import { ipcMain, shell, dialog, app, BrowserWindow } from 'electron'
-import { mkdir, writeFile, readFile, stat, rm } from 'node:fs/promises'
+import { ipcMain, shell, dialog, app } from 'electron'
+import { mkdir, writeFile, readFile, stat } from 'node:fs/promises'
 import { join, basename, extname } from 'node:path'
 import { store } from './store.js'
 import { qrGenerate, qrPoll, restore, logout } from './bili/auth.js'
@@ -9,22 +9,7 @@ import { fetchRecommend, fetchPopular } from './bili/home.js'
 import { fetchFavFolders, fetchCollectedFolders, fetchFavResources } from './bili/fav.js'
 import { fetchUpInfo, fetchUpVideos, fetchLatestByMids, fetchFollowings, resolveUp } from './bili/space.js'
 import { fetchDanmaku, fetchOnlineTotal, fetchSubtitle, sendDanmaku } from './bili/danmaku.js'
-import {
-  initVideoCache,
-  listCache,
-  cacheStats,
-  lookupCache,
-  probeCache,
-  startCache,
-  cancelCache,
-  removeCache,
-  clearCache,
-  revealCache,
-  runningTasks,
-  exportCache,
-  cacheRootPath,
-  defaultCacheRoot
-} from './video-cache.js'
+import { pickLocalFiles, pickLocalFolder, registerLocal, removeLocal, revealLocal } from './local-media.js'
 
 function wrap(handler) {
   return async (_event, payload) => {
@@ -140,66 +125,15 @@ const handlers = {
   }),
   'sys:readSubtitle': wrap(async ({ path }) => readSubtitleFile(path)),
 
-  // ---- 离线缓存 ----
-  // 列表接口一次性把「已缓存 + 正在下载 + 占用统计」都给渲染层，省得缓存页发三次请求
-  'cache:list': wrap(async () => ({ rows: await listCache(), tasks: runningTasks(), stats: await cacheStats() })),
-  'cache:stats': wrap(async () => cacheStats()),
-  'cache:local': wrap(async ({ bvid, cid }) => lookupCache(bvid, cid)),
-  'cache:probe': wrap(async ({ bvid, cid, qn }) => probeCache({ bvid, cid, qn })),
-  'cache:start': wrap(async (req) => startCache(req)),
-  'cache:cancel': wrap(async ({ key }) => cancelCache(key)),
-  'cache:remove': wrap(async ({ key }) => removeCache(key)),
-  'cache:clear': wrap(async () => clearCache()),
-  'cache:reveal': wrap(async ({ key }) => revealCache(key)),
-  // 缓存目录：默认 <userData>/offline-cache，用户可在缓存页改成任意文件夹（settings.cacheDir）
-  'cache:path': wrap(async () => ({
-    current: cacheRootPath(),
-    default: defaultCacheRoot(),
-    custom: typeof store.state.settings.cacheDir === 'string' ? store.state.settings.cacheDir : ''
-  })),
-  'cache:pickDir': wrap(async () => {
-    const res = await dialog.showOpenDialog({
-      title: '选择缓存文件夹',
-      buttonLabel: '用这个文件夹',
-      defaultPath: cacheRootPath(),
-      properties: ['openDirectory', 'createDirectory']
-    })
-    if (res.canceled || !res.filePaths[0]) return { canceled: true }
-    const dir = res.filePaths[0]
-    // 立刻试写一次：选到只读盘/无权限目录时当场报错，而不是等每个下载任务都失败
-    const probeFile = join(dir, '.cache-write-test')
-    try {
-      await mkdir(dir, { recursive: true })
-      await writeFile(probeFile, '', 'utf8')
-      await rm(probeFile, { force: true })
-    } catch (err) {
-      throw new Error(`这个文件夹不可写：${err && err.message}`)
-    }
-    store.patchSettings({ cacheDir: dir })
-    return { path: dir }
-  }),
-  'cache:openDir': wrap(async () => {
-    const dir = cacheRootPath()
-    if (!dir) throw new Error('缓存目录还没准备好')
-    await mkdir(dir, { recursive: true })
-    const err = await shell.openPath(dir)
-    if (err) throw new Error(err)
-    return dir
-  }),
-  'cache:export': wrap(async ({ key, saveAs }) => {
-    if (!saveAs) return exportCache(key)
-    const rows = await listCache()
-    const row = rows.find((r) => r.key === key)
-    const base = row && row.title ? `${row.title}${row.page ? ` P${row.page}` : ''}` : String(key || '').replace(':', '-')
-    const safe = `${base}.mp4`.replace(/[\\/:*?"<>|]/g, '_').slice(0, 120)
-    const res = await dialog.showSaveDialog({
-      title: '导出为 MP4',
-      defaultPath: safe,
-      filters: [{ name: 'MP4 视频', extensions: ['mp4'] }]
-    })
-    if (res.canceled || !res.filePath) return { canceled: true }
-    return exportCache(key, { outPath: res.filePath })
-  }),
+  // ---- 本地视频 ----
+  // 选择/扫描只回传文件信息（路径、名字、大小、mime），解码、时长、缩略图都在渲染层用 <video> 做，
+  // 这样主进程不需要任何音视频解析库（不引入 ffmpeg / mp4box）。
+  'local:pickFiles': wrap(async () => pickLocalFiles()),
+  'local:pickFolder': wrap(async () => pickLocalFolder()),
+  // 把绝对路径注册成 lmedia://local/<id> 地址；渲染层每次启动都用本地列表里的路径换一次地址
+  'local:register': wrap(async ({ paths }) => registerLocal(paths)),
+  'local:remove': wrap(async ({ id }) => removeLocal(id)),
+  'local:reveal': wrap(async ({ path }) => revealLocal(path)),
 
   // ---- 备份 ----
   'backup:write': wrap(async ({ dir, name, text }) => {
@@ -211,29 +145,7 @@ const handlers = {
   })
 }
 
-/**
- * 缓存模块初始化：默认目录 `<userData>/offline-cache`（用户可在缓存页改成别的文件夹，
- * 见 settings.cacheDir → video-cache.js 的 cacheRootPath()）。下载进度通过 `cache:progress`
- * 事件广播给所有窗口（渲染层用 preload 暴露的 api.cache.onProgress 订阅）。
- *
- * ⚠ 别用 `<userData>/cache`：Windows 路径大小写不敏感，那正好是 Chromium 自己的
- * HTTP 磁盘缓存目录（`Cache/Cache_Data/...`），我们的分片会和它混在一起 —— 占用统计、
- * 清空缓存都会误伤浏览器缓存（实测第一次跑就出现了 `cache/Cache_Data/data_3` 这种文件）。
- */
-function initCache() {
-  initVideoCache({
-    root: join(app.getPath('userData'), 'offline-cache'),
-    getPlayurl: (bvid, cid, qn) => fetchPlayurl(bvid, cid, qn || 80),
-    onProgress: (payload) => {
-      for (const win of BrowserWindow.getAllWindows()) {
-        if (!win.isDestroyed()) win.webContents.send('cache:progress', payload)
-      }
-    }
-  })
-}
-
 export function registerIpc() {
-  initCache()
   for (const [channel, handler] of Object.entries(handlers)) {
     ipcMain.handle(channel, handler)
   }
