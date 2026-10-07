@@ -200,19 +200,25 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 搜不到多分P视频时软跳过；失败诊断里带 `head`（组件自己渲染的「当前 Pn」）、`onAll`、`rowsInfo`（该 bvid 在 `progress`
 表里的 `page@updatedAt`，用来区分「库里就没写上」还是「只是内存顺序错了」））、侧栏拖拽换序（发一遍 dragstart → dragover → drop 后顺序变化并且落进设置的 `navOrder`）、
 专注快捷任务可自定义（学习页点「绑定任务」→「＋ 自定义」→ 填「背单词」→「添加」后 chip 出现、设置里的 `focusTasks` 也有它；再点该 chip 的 ✕ 后设置里同样没有了）、
+自定义主题（设置页点「启用自定义主题」→ 把「背景」改成 `#2b1b3d` → `getComputedStyle(<html>).--bg` 立刻变、设置里 `themeOn` 为真且
+`themeCustom.bg` 是同一色值 → 命名为「紫夜」保存后 `themeSets` 有 1 套 → 点 chip 上的 ✕ 并在确认框点「确定」后剩 0 套 →
+关掉自定义后 `--bg` 回到内置值且 `themeOn` 为假；这一条同时覆盖「7 行颜色控件都在」）、
 播放中不显示「缓冲中」遮罩（视频推进后 `.player-msg` 必须已消失）、
 跳转后能继续播放（目标点按已知总时长给：`dur > 10` 时取 `min(120, dur * 0.6)` —— 短视频硬跳 120 秒会落到片尾之外，
 那是无效目标而不是播放器卡死；断言 `readyState ≥ 3`、`currentTime` 落在目标附近并继续推进、遮罩已消失；
 再单独一条 `跳转走 ranged 起流（sidx 定位）`：`[dash] streamFrom video offset=<≥5 位数>`，CDN 不配合时降级为 WARN）、
 分P列表带分P标题（`.pages-list .page-pill` 里 `.pn` 必须形如 `P2`、`.pt` 非空、`title` 属性非空、`.on` 恰好一行、
-「正在播放」行不含 `undefined`；要指定视频验收就设 `STUDY_SMOKE_BVID=<bvid>`，实测用 `BV1cu411r7pw` 分P 177 通过）、
+「正在播放」行不含 `undefined`；另外「至少有一个分P的标题与序号徽章不同」——因为上传者没给分P起名时后端返回的
+`part` 就是 `P1` 这种序号占位（桌面打包版那轮撞到过一个），此时无从比较，按「每行都有非空标题」通过；
+要指定视频验收就设 `STUDY_SMOKE_BVID=<bvid>`，实测用 `BV1cu411r7pw` 分P 177 通过）、
 分P列表可按关键字筛选（分P > 12 时出现 `.pages-filter`，输入「单词」后行数变少：177 → 48）、
 进度库没有缺失 bvid 的脏行（`progress` 表里 `key` 不该出现 `:<cid>` 这种行；冒烟启动后会等应用的
 `learn.cleanupJunk()` 跑完，最多轮询 4 秒）、
 首页「继续学习」卡片不重复（`section .grid .vcard .title` 文本唯一 —— 同一视频的多个分P只该出现一张卡）、
 读书模块已于 2026-10-07 按用户要求摘除（本机归档在 `backup\reader-module\`，那里有 `MANIFEST.txt`；
 ⚠ 读书模块从未进入过这个仓库（`backup/` 被 `.gitignore` 忽略），所以仓库里没有它的历史版本，要留副本得另存），
-所以断言总数从 139 降到 72：读书段 67 项、侧栏「读书」那 1 项删掉，新增「侧栏已没有读书入口」1 项。
+所以断言总数从 139 降到 72：读书段 67 项、侧栏「读书」那 1 项删掉，新增「侧栏已没有读书入口」1 项；
+之后做「自定义主题」时又加了 1 项（改色即时生效并落盘 / 套装可存可删 / 关掉后回到内置），现在是 **73 项**。
 **下面那些 139 / 137 / 118 项的历史验收记录都是「含读书段」时跑的**，摘除后的数字另见本节末尾那一轮。
 
 解析层还能单独跑（不启动 Electron，改 `src/renderer/src/utils/subtitle.js` 后先跑它，15 项断言）：
@@ -270,6 +276,24 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 > 覆盖到桌面那份之后，又对**用户实际启动的那个可执行文件**跑了一轮打包版冒烟（浅色、干净目录）：
 > **72 PASS / 0 FAIL / 0 WARN / 0 渲染层异常**（`smoke-desktop6-report.txt`、`shots-desktop6/`，
 > 5 张截图亮度 200~243 全是浅色，`shots-desktop6/1-首页顶部.png` 里侧栏只剩 5 项、没有「读书」）。
+
+> **自定义主题**（这一轮的验收）：深色 `smoke-theme5-report.txt`（`shots-theme5/`）与浅色
+> `smoke-themelight5-report.txt`（`shots-themelight5/`）各 **72 PASS / 0 FAIL / 1 WARN / 0 渲染层异常**，
+> 桌面那份同步后 `smoke-desktop8-report.txt`（`shots-desktop8/`）是 **72 PASS / 0 FAIL / 0 WARN / 0 渲染层异常**
+> （唯一那条 WARN 是「跳转未走 ranged 起流」——CDN 没给 Range、回退顺序拉流，与主题无关，两种主题都会随机出现）。
+> `自定义主题：改色即时生效并落盘、套装可存可删、关掉后回到内置配色` 的实测诊断（三轮同字段、只差 `theme`）
+> 是 `{"step":"ok1","bgBefore":"#0a0a0b"(浅色 `#f6f6f7`),"theme":"dark"(浅色 "light"),"expect":"#2b1b3d","rows":7,
+> "picker":true,"bgAfter":"#2b1b3d","persistOn":true,"persistBg":"#2b1b3d","setsSaved":1,"setNames":["紫夜"],
+> "setIdSet":true,"hasDelX":true,"confirmShown":true,"setsAfterDel":0,"bgReset":"#0a0a0b"(浅色 `#f6f6f7`),"stillOn":false}` ——
+> 改色即时生效（`--bg` 真的变了）、落盘（`themeOn` / `themeCustom.bg` 读回来一致）、套装存 1 套、✕ 删除后
+> `themeSets` 归零、关掉后 `--bg` 回到内置值且 `themeOn === false`。截图 `5-设置页自定义主题.png` 是
+> **面板开着、背景刚改成 `#2b1b3d` 时**拍的（浅色那轮能明显看到整页底色变紫、卡片与文字仍按浅色主题的派生值走）。
+> 数到 73 还是 72 取决于 `首页「继续学习」卡片不重复` 那条：首页没有继续学习卡时它是**软跳过**
+> （只 log 不打 PASS/FAIL），所以「最多 73 项」。
+> 写这个面板时踩的坑：为了「面板开着 + 已改色」留一张图，注入脚本必须拆成两段（改色那段**故意不关**，
+> 拍完再让第二段去存套装/删套装/关掉），两段之间用 `const ct1` / `const ct2` 命名 —— 沿用原来的 `const ct = await js(...)`
+> 会直接 `ERROR: The symbol "ct" has already been declared` 让 `vite build` 失败；而 `run-smoke.ps1 -SkipBuild`
+> 会拿旧的 `out/` 继续跑出一份「看起来全绿但什么都没证明」的报告。**改完 `src/` 先看 `BUILD_EXIT`，再谈冒烟。**
 
 > 主题验收：设置 `STUDY_SMOKE_THEME=light`（或 `dark`）会让冒烟把主题强制成对应主题再跑一遍，
 > 每次截图前也会重新强制一次 —— `settings.init()` 是异步的，完成时会按落盘设置把主题刷回来，
@@ -479,6 +503,18 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
   dragover 里必须把 `dropEffect` 改回 `'move'` —— preload 在 capture 阶段已经把 window 上的 dragover 设成 `copy` 了）。
   新顺序落进设置的 `navOrder`，`App.vue` 的 `navList` 只认「仍存在的路径」、其余按 `DEFAULT_NAV` 顺序补后面，
   所以以后新增页面不会被老顺序弄丢，删页面也不会留空条目。
+- **自定义主题**：设置页新增「自定义主题」面板 —— 启用后可以改 **7 个颜色**
+  （背景 / 卡片 / 次级底色 / 边框线 / 主文字 / 次文字 / 强调色），一个颜色一行：左边 `input[type=color]` 取色器
+  （拖动即时预览、松手落盘），右边十六进制输入框（填 `#7fd68a` 这种、失焦或回车生效，非法值会 toast 并保留原值）。
+  改完立刻写到 `<html>` 的内联 CSS 变量上并持久化（`themeOn` / `themeCustom`）。
+  其余令牌（`--bg-elev` / `--card-hover` / `--soft-hover` / `--line-strong` / `--t3` / `--link` / `--block` / `--skeleton`）
+  **不单独让用户填**：`buildThemeVars()` 用 sRGB 线性混合（`mix()`）从这 7 个色推出来，免得「只改几个色」时
+  深色 hover 落在浅色背景上；`--accent-fg` 仍按相对亮度算（`readableFg()`），保证强调色上的文字看得清。
+  改满意了可以**存成命名套装**（最多 12 字、同名覆盖），chip 一点就切回来，chip 上的 ✕ 删除
+  （删掉正在用的那套只清标记，画面停在这套颜色上，不偷偷换回内置）；「已启用（点此关掉）」一键回到内置深浅 + 强调色预设。
+  ⚠️ 关掉自定义主题时 `applyTheme()` 会**逐个 `removeProperty()` 清掉自定义写进去的内联变量**，
+  否则旧颜色会继续盖在页面上（`styles/tokens.css` 的值只有在没有内联变量时才生效）。
+  ⚠️ 基底深浅主题仍然有用：阴影与 `--danger / --ok / --warn / --star` 这些状态色没有开放自定义，跟着 `data-theme` 走。
 - **学习记录**：播放中每秒计时、每 5s 落一次进度，>95% 自动标记完成；按 UP 累计学习时长；
   学习页只留 **7 张统计卡**（总时长 / 看过视频 / 已看完 / 在看 / 连续签到 / 今日专注 / 本周专注）+ 专注面板 + 学习清单；
   **签到日历、近 14 天条形图、按 UP 分布饼图与手动打卡按钮已按需求移除**（`LearnView.vue` 487 → 194 行，

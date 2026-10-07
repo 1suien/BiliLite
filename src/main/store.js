@@ -24,7 +24,12 @@ const DEFAULT_SETTINGS = {
   subBg: true,
   subBottom: 8,
   /** 专注弹层里的快捷任务（可自定义；空数组 = 用代码里的默认四个） */
-  focusTasks: ['阅读', '刷题', '看课', '整理笔记']
+  focusTasks: ['阅读', '刷题', '看课', '整理笔记'],
+  /** 自定义主题：是否启用 / 当前的 7 个颜色 / 存下来的套装 / 正在套用的套装 id */
+  themeOn: false,
+  themeCustom: {},
+  themeSets: [],
+  themeSetId: ''
 }
 
 function filePath() {

@@ -446,6 +446,9 @@ export async function runSmoke(win) {
       n: pills.length,
       first: rows.slice(0, 3),
       pillTitle: rows.length ? rows[0].title : '',
+      // 上传者没给分P起名时后端 pagelist 的 part 就是序号占位（pt === pn === 'P1'），
+      // 这时「标题和序号不一样」根本无从满足，不该判失败（桌面打包版那轮就撞上了一个单P视频）。
+      placeholderOnly: rows.length > 0 && rows.every((r) => r.pt === r.pn),
       onCount,
       hasFilter: !!document.querySelector('.pages-filter'),
       onStyle: onCs
@@ -472,11 +475,12 @@ export async function runSmoke(win) {
     partInfo.n > 0 &&
     partInfo.bad.length === 0 &&
     partInfo.onCount === 1 &&
-    // 原来要求 pillTitle 长度 > 1，但真有人给分P起名叫「B」（这一轮搜到的单P视频标题就是 1 个字），
+    // 原来要求 pillTitle 长度 > 1，但真有人给分P起名叫「B」（搜到的单P视频标题就是 1 个字），
     // 于是断言把正确的界面判成失败。改成「至少有一个分P的标题和序号徽章不一样」——
     // 这才是「带分P标题」的意思，标题真的丢了（pt 为空）仍由上面的 bad 拦住。
+    // 例外：后端给的 part 全是序号占位（placeholderOnly）时无从比较，只要每行都有非空标题就算过。
     String(partInfo.pillTitle || '').length >= 1 &&
-    (partInfo.first || []).some((r) => r.pt && r.pt !== r.pn) &&
+    (partInfo.placeholderOnly || (partInfo.first || []).some((r) => r.pt && r.pt !== r.pn)) &&
     String(partInfo.cur || '').indexOf('undefined') < 0
   ) {
     pass('分P列表带分P标题', partInfo)
@@ -1000,6 +1004,143 @@ export async function runSmoke(win) {
       log(`      · 诊断 ${label} :: ${show(info)}`)
       log(`      · nav-item 文本 :: ${show(navLabels)}`)
     }
+  }
+
+  // ---- 自定义主题：改一个颜色 → 立刻生效并落盘；存一套 → 删掉；关掉自定义 → 回到内置配色 ----
+  {
+    await js(`(() => {
+      const el = Array.from(document.querySelectorAll('.nav-item')).find((e) => e.textContent.includes('设置'))
+      if (el) el.click()
+      return true
+    })()`)
+    await sleep(900)
+    const ct1 = await js(`(async () => {
+      const out = { step: 'start' }
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+      const root = document.documentElement
+      const v = (k) => getComputedStyle(root).getPropertyValue(k).trim()
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+      const panel = () =>
+        Array.from(document.querySelectorAll('.panel')).find((p) => {
+          const h = p.querySelector('.sec')
+          return h && h.textContent.trim() === '自定义主题'
+        })
+      const setVal = (el, val) => {
+        setter.call(el, val)
+        el.dispatchEvent(new Event('input', { bubbles: true }))
+        el.dispatchEvent(new Event('change', { bubbles: true }))
+      }
+      out.bgBefore = v('--bg')
+      out.theme = root.dataset.theme
+      const want = '#2b1b3d'
+      out.expect = want
+      try {
+        const p = panel()
+        if (!p) { out.step = 'no-panel'; return out }
+        const toggle = p.querySelector('.chip')
+        if (!toggle) { out.step = 'no-toggle'; return out }
+        toggle.click()
+        await wait(350)
+        out.opened = /已启用/.test(toggle.textContent)
+        const rows = Array.from(p.querySelectorAll('.crow'))
+        out.rows = rows.length
+        const bgRow = rows.find((r) => {
+          const l = r.querySelector('.clabel')
+          return l && l.textContent.trim() === '背景'
+        })
+        if (!bgRow) { out.step = 'no-bg-row'; return out }
+        out.picker = !!bgRow.querySelector('input.cpick')
+        setVal(bgRow.querySelector('input.ctext'), want)
+        await wait(350)
+        out.bgAfter = v('--bg')
+        const s1 = await window.bili.settings.get()
+        out.persistOn = s1.themeOn === true
+        out.persistBg = String((s1.themeCustom || {}).bg || '')
+        out.step = 'ok1'
+      } catch (e) {
+        out.err = String((e && e.message) || e)
+      }
+      return out
+    })()`)
+    await sleep(300)
+    // 编辑器开着、颜色已经改掉，留一张图：新面板长什么样、7 行控件是否整齐
+    await shot('5-设置页自定义主题.png')
+    const ct2 = await js(`(async () => {
+      const out = {}
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+      const root = document.documentElement
+      const v = (k) => getComputedStyle(root).getPropertyValue(k).trim()
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+      const panel = () =>
+        Array.from(document.querySelectorAll('.panel')).find((p) => {
+          const h = p.querySelector('.sec')
+          return h && h.textContent.trim() === '自定义主题'
+        })
+      try {
+        const p = panel()
+        if (!p) { out.err2 = 'no-panel'; return out }
+        const nameInput = p.querySelector('input.grow')
+        if (nameInput) {
+          setter.call(nameInput, '紫夜')
+          nameInput.dispatchEvent(new Event('input', { bubbles: true }))
+          await wait(150)
+          const save = Array.from(p.querySelectorAll('.btn')).find((b) => b.textContent.trim() === '保存')
+          if (save) { save.click(); await wait(450) }
+        }
+        const s2 = await window.bili.settings.get()
+        out.setsSaved = (s2.themeSets || []).length
+        out.setNames = (s2.themeSets || []).map((x) => x.name)
+        out.setIdSet = !!s2.themeSetId
+        const x = p.querySelector('.chip-x')
+        out.hasDelX = !!x
+        if (x) {
+          x.click()
+          await wait(300)
+          const okBtn = Array.from(document.querySelectorAll('.modal button, .overlay button')).find((b) => /确定/.test(b.textContent))
+          out.confirmShown = !!okBtn
+          if (okBtn) { okBtn.click(); await wait(450) }
+        }
+        const s3 = await window.bili.settings.get()
+        out.setsAfterDel = (s3.themeSets || []).length
+        const off = Array.from(p.querySelectorAll('.chip')).find((b) => /已启用/.test(b.textContent))
+        if (off) { off.click(); await wait(450) }
+        out.bgReset = v('--bg')
+        const s4 = await window.bili.settings.get()
+        out.stillOn = s4.themeOn === true
+      } catch (e) {
+        out.err2 = String((e && e.message) || e)
+      }
+      return out
+    })()`)
+    const ct = { ...ct1, ...ct2 }
+    const okCustom =
+      ct.step === 'ok1' &&
+      String(ct.bgAfter || '').toLowerCase() === String(ct.expect || '').toLowerCase() &&
+      ct.persistOn === true &&
+      String(ct.persistBg || '').toLowerCase() === String(ct.expect || '').toLowerCase() &&
+      ct.rows === 7 &&
+      ct.setsSaved === 1 &&
+      ct.setsAfterDel === 0 &&
+      ct.stillOn === false &&
+      String(ct.bgReset || '').toLowerCase() === String(ct.bgBefore || '').toLowerCase()
+    if (okCustom) pass('自定义主题：改色即时生效并落盘、套装可存可删、关掉后回到内置配色', ct)
+    else fail('自定义主题：改色即时生效并落盘、套装可存可删、关掉后回到内置配色', ct)
+    // 兜底：万一中途失败把自定义主题留在开启状态，别把后面的截图带偏
+    await js(`(async () => {
+      try {
+        const p = Array.from(document.querySelectorAll('.panel')).find((x) => {
+          const h = x.querySelector('.sec')
+          return h && h.textContent.trim() === '自定义主题'
+        })
+        const on = p && Array.from(p.querySelectorAll('.chip')).find((b) => /已启用/.test(b.textContent))
+        if (on) {
+          on.click()
+          await new Promise((r) => setTimeout(r, 300))
+        }
+      } catch {}
+      return true
+    })()`)
+    await sleep(300)
   }
 
   // ---- 侧栏换序：真的发一遍 HTML5 拖拽事件（dragstart → dragover → drop），看顺序有没有变、有没有落盘 ----
