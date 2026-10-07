@@ -32,8 +32,21 @@ const CHANNELS = [
   'sys:revealPath',
   'sys:pickSubtitle',
   'sys:readSubtitle',
+  'cache:list',
+  'cache:stats',
+  'cache:local',
+  'cache:probe',
+  'cache:start',
+  'cache:cancel',
+  'cache:remove',
+  'cache:clear',
+  'cache:reveal',
+  'cache:export',
   'backup:write'
 ]
+
+// 主进程 → 渲染层的单向事件（下载进度）。只允许订阅这张表里的通道。
+const EVENTS = ['cache:progress']
 
 const allowed = new Set(CHANNELS)
 
@@ -52,6 +65,14 @@ async function call(channel, payload) {
   if (res && res.needLogin) err.needLogin = true
   if (res && res.code) err.biliCode = res.code
   throw err
+}
+
+/** 订阅主进程事件（只允许 EVENTS 白名单）；返回取消订阅函数。 */
+function onEvent(channel, cb) {
+  if (!EVENTS.includes(channel) || typeof cb !== 'function') return () => {}
+  const listener = (_e, payload) => cb(payload)
+  ipcRenderer.on(channel, listener)
+  return () => ipcRenderer.removeListener(channel, listener)
 }
 
 const api = {
@@ -123,6 +144,21 @@ const api = {
 
   backup: {
     write: (dir, name, text) => call('backup:write', { dir, name, text })
+  },
+
+  cache: {
+    list: () => call('cache:list'),
+    stats: () => call('cache:stats'),
+    local: (bvid, cid) => call('cache:local', { bvid, cid }),
+    probe: (bvid, cid, qn) => call('cache:probe', { bvid, cid, qn }),
+    start: (req) => call('cache:start', req),
+    cancel: (key) => call('cache:cancel', { key }),
+    remove: (key) => call('cache:remove', { key }),
+    clear: () => call('cache:clear'),
+    reveal: (key) => call('cache:reveal', { key }),
+    exportMp4: (key, saveAs = false) => call('cache:export', { key, saveAs }),
+    /** 订阅下载进度；返回取消订阅函数（组件卸载时务必调用）。 */
+    onProgress: (cb) => onEvent('cache:progress', cb)
   }
 }
 

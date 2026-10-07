@@ -8,6 +8,7 @@ import Icon from '../components/Icon.vue'
 import EmptyBlock from '../components/EmptyBlock.vue'
 import PartList from '../components/PartList.vue'
 import CollectModal from '../components/CollectModal.vue'
+import CacheModal from '../components/CacheModal.vue'
 import { useLearnStore } from '../stores/learn'
 import { useCollectStore } from '../stores/collect'
 import { useUpsStore, DEFAULT_GROUP } from '../stores/ups'
@@ -62,6 +63,16 @@ const tab = ref('intro')
 const noteText = ref('')
 const notes = ref([])
 const collectOpen = ref(false)
+
+/* ── 离线缓存 ───────── */
+const cacheOpen = ref(false)
+/** 当前分P 的缓存记录（有值 = 已缓存，可以直接离线播） */
+const cacheRow = ref(null)
+/** 本次播放是否走了本地缓存 */
+const offlineMode = ref(false)
+/** 用户点了「用在线播放」：这次不要走缓存 */
+const forceOnline = ref(false)
+let offCacheProgress = null
 
 /* ── 播放器：倍速 / 字幕 / 控制栏 ───────── */
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2]
@@ -443,6 +454,59 @@ function upRef() {
   return { mid, name }
 }
 
+/** 当前分P 是否已缓存完（按钮文案与离线播放都用它）。 */
+async function refreshCacheRow() {
+  try {
+    cacheRow.value = await api.cache.local(bvid.value, cid.value)
+  } catch {
+    cacheRow.value = null
+  }
+  return cacheRow.value
+}
+
+/** 当前分P 的下载进度变化时刷新按钮状态（下载完成后「缓存」会变成「已缓存」）。 */
+function onCacheProgress(payload) {
+  if (!payload || String(payload.cid) !== String(cid.value)) return
+  if (payload.stage === 'done' || payload.stage === 'error') refreshCacheRow()
+}
+
+/**
+ * 用本地缓存的原始 DASH 分片拼一份「合成 playurl」给播放器。
+ * 播放器只认这个结构（mode/dash.video[].url/codecs/带宽/时长），url 指向 bcache:// 自定义协议，
+ * 协议支持 Range，所以拉流逻辑一行都不用改。
+ */
+function cachePayload(row) {
+  const v = {
+    id: row.vId || row.quality,
+    url: row.urls.video,
+    backup: [],
+    codecs: row.vCodecs,
+    mimeType: 'video/mp4',
+    width: row.width || 0,
+    height: row.height || 0,
+    bandwidth: row.vBandwidth || 0,
+    frameRate: row.frameRate || ''
+  }
+  const a =
+    row.aBytes && row.urls.audio
+      ? {
+          id: row.aId || 0,
+          url: row.urls.audio,
+          backup: [],
+          codecs: row.aCodecs || '',
+          mimeType: 'audio/mp4',
+          bandwidth: row.aBandwidth || 0
+        }
+      : null
+  return {
+    mode: 'dash',
+    quality: row.quality,
+    acceptQuality: [row.quality],
+    acceptDescription: [row.qualityLabel].filter(Boolean),
+    dash: { duration: row.duration || 0, video: [v], audio: a ? [a] : [] }
+  }
+}
+
 function startSeconds() {
   const explicit = Number(route.query.t || 0)
   if (explicit > 0) return explicit
@@ -461,8 +525,40 @@ async function startPlay() {
   errorMsg.value = ''
   watchedTotal = 0
   autoChecked = false
+  offlineMode.value = false
+
+  // 离线优先：这个分P 缓存过就直接用本地文件播（不用网络、也不用 playurl）。
+  let data = null
+  if (!forceOnline.value && settings.settings.cachePrefer !== false) {
+    const row = await refreshCacheRow()
+    if (row && row.done && row.urls && row.urls.video) {
+      data = cachePayload(row)
+      offlineMode.value = true
+      statusText.value = '正在读取本地缓存…'
+      // 冒烟靠它判断这一轮到底是不是走的本地缓存
+      window.__cacheLog = {
+        source: 'cache',
+        bvid: bvid.value,
+        cid: String(cid.value),
+        videoUrl: row.urls.video,
+        audioUrl: row.urls.audio || '',
+        bytes: row.bytes
+      }
+    }
+  }
+  if (!data) {
+    refreshCacheRow()
+    window.__cacheLog = { source: 'online', bvid: bvid.value, cid: String(cid.value) }
+    try {
+      data = await api.video.playurl(bvid.value, cid.value, qn)
+    } catch (err) {
+      errorMsg.value = err.message || '播放地址获取失败'
+      statusText.value = ''
+      return
+    }
+  }
+
   try {
-    const data = await api.video.playurl(bvid.value, cid.value, qn)
     playurl.value = data
     quality.value = data.quality || qn
     actualQuality.value = 0
@@ -702,6 +798,8 @@ async function selectPage(idx) {
   if (idx === pageIndex.value) return
   flushProgress()
   pageIndex.value = idx
+  // 「改为在线播放」只对刚才那一遍生效：换分P 后重新按「优先用缓存」的设置决定
+  forceOnline.value = false
   lastSavedSeconds = -1
   router.replace({ name: 'video', params: { bvid: bvid.value }, query: { p: idx + 1 } })
   statusText.value = '切换分P…'
@@ -805,7 +903,11 @@ function onKey(e) {
 
 watch(
   () => route.params.bvid,
-  () => loadAll()
+  () => {
+    // 换了视频就重新按「优先用缓存」的设置决定（不然一次「改为在线播放」会一直粘着）
+    forceOnline.value = false
+    loadAll()
+  }
 )
 
 watch(isPlaying, (playing) => {
@@ -835,12 +937,14 @@ onMounted(async () => {
   window.addEventListener('keydown', onKey)
   window.addEventListener('pointerdown', onWinDown, true)
   window.addEventListener('bili:files-dropped', onFilesDropped)
+  offCacheProgress = api.cache.onProgress(onCacheProgress)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey)
   window.removeEventListener('pointerdown', onWinDown, true)
   window.removeEventListener('bili:files-dropped', onFilesDropped)
+  if (offCacheProgress) offCacheProgress()
   if (hideTimer) clearTimeout(hideTimer)
   flushProgress()
   teardown()
@@ -1029,6 +1133,17 @@ onBeforeUnmount(() => {
         <div class="grow" style="min-width: 0">
           <h1 style="font-size: 17px; margin: 0 0 6px; line-height: 1.45">{{ info.title }}</h1>
           <div v-if="currentPageTitle" class="dim" style="font-size: 12.5px">正在播放：{{ currentPageTitle }}</div>
+          <div v-if="offlineMode" class="row" style="gap: 6px; margin-top: 4px">
+            <span class="chip plain" style="cursor: default" title="这一遍读的是本机缓存的原始分片"><Icon name="download" :size="12" /> 离线缓存</span>
+            <span
+              class="chip plain"
+              style="cursor: pointer"
+              title="改用在线流播放（这次不改设置）"
+              @click="forceOnline = true; startPlay()"
+            >
+              改为在线播放
+            </span>
+          </div>
           <div class="row muted" style="flex-wrap: wrap; margin-top: 8px; font-size: 12.5px">
             <span class="chip plain" style="cursor: pointer" @click="router.push({ name: 'up', params: { mid: String(info.upMid) } })">
               <Icon name="user" :size="13" /> {{ info.upName }}
@@ -1050,6 +1165,9 @@ onBeforeUnmount(() => {
           </button>
           <button class="btn sm" @click="toggleShelf">
             <Icon :name="inShelf ? 'check' : 'plus'" :size="14" /> {{ inShelf ? '已加入学习清单' : '加入学习清单' }}
+          </button>
+          <button class="btn sm" :title="cacheRow ? '这个分P 已缓存，离线也能播' : '把这个分P 存到本机'" @click="cacheOpen = true">
+            <Icon :name="cacheRow ? 'check' : 'download'" :size="14" /> {{ cacheRow ? '已缓存' : '缓存' }}
           </button>
           <RouterLink to="/learn" class="btn sm ghost"><Icon name="book" :size="14" /> 学习面板</RouterLink>
         </div>
@@ -1142,5 +1260,15 @@ onBeforeUnmount(() => {
     </aside>
 
     <CollectModal :open="collectOpen" :video="collectTarget" @close="collectOpen = false" />
+    <CacheModal
+      :open="cacheOpen"
+      :bvid="bvid"
+      :parts="pageList"
+      :index="pageIndex"
+      :info="{ title: info.title, upName: info.upName, cover: info.cover, duration: info.duration }"
+      :default-qn="Number(settings.settings.defaultQuality) || 80"
+      @close="cacheOpen = false"
+      @started="refreshCacheRow()"
+    />
   </div>
 </template>

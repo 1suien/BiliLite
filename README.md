@@ -33,14 +33,17 @@ src/
     ipc.js                  IPC 通道注册（统一 { ok, data | message, code, needLogin } 信封）
     store.js                设置 + 登录态持久化（Cookie 走 safeStorage 加密）
     smoke.js                端到端冒烟测试（见下文）
+    video-cache.js          离线缓存：探测大小 / 多线程分片下载（可续传）/ 列表 / 上限 / 导出
+    cache-protocol.js       自定义协议 `bcache://`：把缓存目录里的分片当本地媒体喂给播放器（支持 Range）
+    mp4/remux.js            自写 fMP4 → 通用 MP4 重封装（应用里没有 ffmpeg，导出靠它）
     bili/                   B 站接口：http / wbi 签名 / auth / home / video / search / fav / space
   preload/index.js          window.bili 白名单桥接（含全局拖拽拦截 → bili:files-dropped 自定义事件）
   renderer/
-    index.html              含 CSP meta（`worker-src 'self' blob:` 是当年 pdf.js 的 Blob worker 要的；
-                            读书模块摘除后已无人使用，留着不影响安全 —— 渲染层现在没有任何 `new Worker`，
-                            且 EPUB 净化那条「外部 HTML 进渲染层」的路径也随模块一起没了）
+    index.html              含 CSP meta（`media-src` / `connect-src` 里有 `bcache:`，离线播放要用；
+                            `worker-src 'self' blob:` 是当年 pdf.js 的 Blob worker 要的 —— 读书模块摘除后
+                            已无人使用，留着不影响安全，渲染层现在没有任何 `new Worker`）
     src/
-      router.js  App.vue     布局（侧栏 5 项 + 顶栏搜索；侧栏不再放搜索入口）
+      router.js  App.vue     布局（侧栏 6 项 + 顶栏搜索；侧栏不再放搜索入口）
       api/index.js           window.bili 门面
       db/index.js            Dexie：progress / daily / notes / shelf / ups / collect / checkins / upTime
                              + v4 追加 focus（每轮专注一行：day / startedAt / seconds / completed / task）
@@ -48,12 +51,13 @@ src/
       stores/                ui / settings / auth / learn / ups / collect / pomodoro
       player/dash.js         DASH 播放核心
       utils/subtitle.js      字幕解析（SRT / VTT / ASS）+ 编码嗅探
-      views/                 Home / UpManage / Search / Video / Fav / FavFolder / Up / Learn / Settings
-      components/            Icon / BiliImage / VideoCard / Pager / DanmakuLayer / PageFloat / LoginModal / ConfirmModal / CollectModal / PartList
+      views/                 Home / UpManage / Search / Video / Fav / FavFolder / Up / Learn / Cache / Settings
+      components/            Icon / BiliImage / VideoCard / Pager / DanmakuLayer / PageFloat / LoginModal / ConfirmModal / CollectModal / CacheModal / PartList
                              + FocusRing（专注圆环）/ FocusPanel（专注面板）/ SessionHistory（专注记录）…
 tools/
   run-smoke.ps1             本机冒烟运行脚本（构建 + 启动 Electron + 收报告，绕开 DSH 沙箱坑）
   check-parsers.mjs         不启动 Electron，直接跑字幕解析（15 项断言，改 src/renderer/src/utils/subtitle.js 后先跑它）
+  check-remux.mjs           不启动 Electron，跑 MP4 重封装的夹具自测（75 项断言，改 src/main/mp4/remux.js 后先跑它）
   check-package.mjs         读 release/win-unpacked/resources/app.asar 的索引，校验打包产物完整、且没夹带 pdf.js 资源
 ```
 
@@ -152,7 +156,7 @@ node 'C:\Users\zouyx\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\pnpm\bin
 
 ## 验证
 
-主进程内置端到端冒烟测试（真实窗口里跑完整闭环：桥接 → 接口 → 播放起流/推进 → 落库 → 5 个路由 → 分P续播/侧栏换序/本地字幕），
+主进程内置端到端冒烟测试（真实窗口里跑完整闭环：桥接 → 接口 → 播放起流/推进 → 落库 → 6 个路由 → 分P续播/侧栏换序/本地字幕/离线缓存），
 报告写到 `$env:STUDY_SMOKE_OUT`，退出码为失败项数。
 
 本机（DSH 沙箱）直接跑用脚本，它会自己处理 `ELECTRON_RUN_AS_NODE`、node 路径、沙箱参数与 userData：
@@ -176,9 +180,9 @@ $env:STUDY_SMOKE_SHOT = "$PWD\shots"   # 可选：顺手把真实界面截图存
 Get-Content smoke-pkg-report.txt -Encoding UTF8
 ```
 
-断言项：bridge 注入/通道齐全/`app:ping`、侧栏 5 项（且已没有「读书」入口）、侧栏不再有「搜索」入口（搜索只保留顶栏）、主题令牌、`home.feed`、`search.videos`、`video.view`、
+断言项：bridge 注入/通道齐全/`app:ping`、侧栏 6 项（且已没有「读书」入口）、侧栏不再有「搜索」入口（搜索只保留顶栏）、主题令牌、`home.feed`、`search.videos`、`video.view`、
 `video.playurl`（DASH 轨道）、视频页渲染、`<video>` 起流（`readyState=4`）、点播放后 `currentTime` 前进、
-学习进度写入 IndexedDB、顶栏搜索跳转、侧栏 5 个路由真实点击可达，以及本机 UP 名单（写入/渲染/首页只显示名单）、
+学习进度写入 IndexedDB、顶栏搜索跳转、侧栏 6 个路由真实点击可达，以及本机 UP 名单（写入/渲染/首页只显示名单）、
 `up.latest`（匿名可拉取，失败才软跳过）、本机收藏写入、学习页 7 卡（并且已经**没有**签到日历 / 近 14 天条形图 /
 按 UP 分布饼图 / 打卡按钮，`.cal .cell`、`.bars14`、`svg.pie`、`今日打卡` 文本四者都为 0）、专注面板（学习页有 `.focus .ring-clock`；点齿轮把「专注」
 改成 1 分钟后开始 → 倒计时前进；暂停 → 倒计时不动（这里只把「时钟继续往下掉」判失败：如果时钟**往上跳回整轮**，
@@ -200,9 +204,6 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 搜不到多分P视频时软跳过；失败诊断里带 `head`（组件自己渲染的「当前 Pn」）、`onAll`、`rowsInfo`（该 bvid 在 `progress`
 表里的 `page@updatedAt`，用来区分「库里就没写上」还是「只是内存顺序错了」））、侧栏拖拽换序（发一遍 dragstart → dragover → drop 后顺序变化并且落进设置的 `navOrder`）、
 专注快捷任务可自定义（学习页点「绑定任务」→「＋ 自定义」→ 填「背单词」→「添加」后 chip 出现、设置里的 `focusTasks` 也有它；再点该 chip 的 ✕ 后设置里同样没有了）、
-自定义主题（设置页点「启用自定义主题」→ 把「背景」改成 `#2b1b3d` → `getComputedStyle(<html>).--bg` 立刻变、设置里 `themeOn` 为真且
-`themeCustom.bg` 是同一色值 → 命名为「紫夜」保存后 `themeSets` 有 1 套 → 点 chip 上的 ✕ 并在确认框点「确定」后剩 0 套 →
-关掉自定义后 `--bg` 回到内置值且 `themeOn` 为假；这一条同时覆盖「7 行颜色控件都在」）、
 播放中不显示「缓冲中」遮罩（视频推进后 `.player-msg` 必须已消失）、
 跳转后能继续播放（目标点按已知总时长给：`dur > 10` 时取 `min(120, dur * 0.6)` —— 短视频硬跳 120 秒会落到片尾之外，
 那是无效目标而不是播放器卡死；断言 `readyState ≥ 3`、`currentTime` 落在目标附近并继续推进、遮罩已消失；
@@ -215,11 +216,20 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 进度库没有缺失 bvid 的脏行（`progress` 表里 `key` 不该出现 `:<cid>` 这种行；冒烟启动后会等应用的
 `learn.cleanupJunk()` 跑完，最多轮询 4 秒）、
 首页「继续学习」卡片不重复（`section .grid .vcard .title` 文本唯一 —— 同一视频的多个分P只该出现一张卡）、
+**离线缓存**（自己从搜索里挑一个够短的分P（P1 时长 20–300 秒）→ `cache.start` 用 qn 16 下这个分P → 轮询到 `done`
+且主进程 `statSync(<userData>\offline-cache\<bvid>\<cid>\v.m4s)` 真的有字节（`v.m4s`/`a.m4s` 是原样保存的 DASH 分片，没改一个字节）→
+进 `#/cache` 断言列表里能看到它并留一张 `6-缓存页.png` → 离开再回到 `#/video/<bvid>`，断言
+`window.__cacheLog.source === 'cache'` 且 `video.currentTime > 0.5`（证明确实走 `bcache://` 本地分片播起来了，
+而不是偷偷回落到在线流）→ `cache.exportMp4(key, false)` 导出通用 MP4，既查文件字节数、也**让 Chromium 自己解一遍**
+（临时 `<video src="bcache://…/export.mp4">` 等 `loadedmetadata`，要求 `duration > 0.5`）→ 最后 `cache.remove` 后
+列表为空且缓存目录真的消失；拿不到 playurl/分P（网络风控）时软跳过）、
 读书模块已于 2026-10-07 按用户要求摘除（本机归档在 `backup\reader-module\`，那里有 `MANIFEST.txt`；
 ⚠ 读书模块从未进入过这个仓库（`backup/` 被 `.gitignore` 忽略），所以仓库里没有它的历史版本，要留副本得另存），
 所以断言总数从 139 降到 72：读书段 67 项、侧栏「读书」那 1 项删掉，新增「侧栏已没有读书入口」1 项；
-之后做「自定义主题」时又加了 1 项（改色即时生效并落盘 / 套装可存可删 / 关掉后回到内置），现在是 **73 项**。
 **下面那些 139 / 137 / 118 项的历史验收记录都是「含读书段」时跑的**，摘除后的数字另见本节末尾那一轮。
+之后做「离线缓存」时又加了 5 项（下载落盘 / 缓存页列表 / 本地分片播放 / 导出 MP4 / 删除清目录），
+并把「侧栏 5 项 / 5 个路由」改成 6 项（侧栏循环又多了 1 项 `侧栏「缓存」`）—— **现在最多 78 项**
+（`首页「继续学习」卡片不重复` 在首页没有继续学习卡时软跳过，只 log 不打 PASS/FAIL，所以那轮会显示 77）。
 
 解析层还能单独跑（不启动 Electron，改 `src/renderer/src/utils/subtitle.js` 后先跑它，15 项断言）：
 
@@ -277,23 +287,9 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 > **72 PASS / 0 FAIL / 0 WARN / 0 渲染层异常**（`smoke-desktop6-report.txt`、`shots-desktop6/`，
 > 5 张截图亮度 200~243 全是浅色，`shots-desktop6/1-首页顶部.png` 里侧栏只剩 5 项、没有「读书」）。
 
-> **自定义主题**（这一轮的验收）：深色 `smoke-theme5-report.txt`（`shots-theme5/`）与浅色
-> `smoke-themelight5-report.txt`（`shots-themelight5/`）各 **72 PASS / 0 FAIL / 1 WARN / 0 渲染层异常**，
-> 桌面那份同步后 `smoke-desktop8-report.txt`（`shots-desktop8/`）是 **72 PASS / 0 FAIL / 0 WARN / 0 渲染层异常**
-> （唯一那条 WARN 是「跳转未走 ranged 起流」——CDN 没给 Range、回退顺序拉流，与主题无关，两种主题都会随机出现）。
-> `自定义主题：改色即时生效并落盘、套装可存可删、关掉后回到内置配色` 的实测诊断（三轮同字段、只差 `theme`）
-> 是 `{"step":"ok1","bgBefore":"#0a0a0b"(浅色 `#f6f6f7`),"theme":"dark"(浅色 "light"),"expect":"#2b1b3d","rows":7,
-> "picker":true,"bgAfter":"#2b1b3d","persistOn":true,"persistBg":"#2b1b3d","setsSaved":1,"setNames":["紫夜"],
-> "setIdSet":true,"hasDelX":true,"confirmShown":true,"setsAfterDel":0,"bgReset":"#0a0a0b"(浅色 `#f6f6f7`),"stillOn":false}` ——
-> 改色即时生效（`--bg` 真的变了）、落盘（`themeOn` / `themeCustom.bg` 读回来一致）、套装存 1 套、✕ 删除后
-> `themeSets` 归零、关掉后 `--bg` 回到内置值且 `themeOn === false`。截图 `5-设置页自定义主题.png` 是
-> **面板开着、背景刚改成 `#2b1b3d` 时**拍的（浅色那轮能明显看到整页底色变紫、卡片与文字仍按浅色主题的派生值走）。
-> 数到 73 还是 72 取决于 `首页「继续学习」卡片不重复` 那条：首页没有继续学习卡时它是**软跳过**
-> （只 log 不打 PASS/FAIL），所以「最多 73 项」。
-> 写这个面板时踩的坑：为了「面板开着 + 已改色」留一张图，注入脚本必须拆成两段（改色那段**故意不关**，
-> 拍完再让第二段去存套装/删套装/关掉），两段之间用 `const ct1` / `const ct2` 命名 —— 沿用原来的 `const ct = await js(...)`
-> 会直接 `ERROR: The symbol "ct" has already been declared` 让 `vite build` 失败；而 `run-smoke.ps1 -SkipBuild`
-> 会拿旧的 `out/` 继续跑出一份「看起来全绿但什么都没证明」的报告。**改完 `src/` 先看 `BUILD_EXIT`，再谈冒烟。**
+> **冒烟前先看构建结果**：`tools\run-smoke.ps1 -SkipBuild` 会拿旧的 `out/` 继续跑，跑出一份「看起来全绿但什么都没证明」的报告
+> （踩过：`vite build` 失败、报告却照样满绿）。**改完 `src/` 先看 `BUILD_EXIT`，再谈冒烟。**
+> 断言总数是 **78 项**（`首页「继续学习」卡片不重复` 在首页没有继续学习卡时是软跳过、只 log 不打 PASS/FAIL → 那轮显示 77）。
 
 > 主题验收：设置 `STUDY_SMOKE_THEME=light`（或 `dark`）会让冒烟把主题强制成对应主题再跑一遍，
 > 每次截图前也会重新强制一次 —— `settings.init()` 是异步的，完成时会按落盘设置把主题刷回来，
@@ -471,6 +467,30 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
   画面一恢复就清掉 —— 不会再有遮罩一直盖在正在播放的画面上。
   `.player-wrap` 的描边固定用纯黑（`border: 1px solid #000`）：浅色主题下 `--line` 是 `#e2e2e6`，
   围着黑画面就是一圈白边（用户反馈的「视频有白边」），播放器卡片必须用黑边。
+- **离线缓存**：视频页信息区有「缓存」按钮 → 弹层里勾分P（可多选、已缓存的打标）+ 选清晰度
+  （chip 来自 `cache:probe` 的 `acceptQuality`，会顺手探测并显示「当前分P 约 XX MB」）→ 开始缓存，
+  进度条同时出现在弹层和缓存页；侧栏第 6 项「缓存」是缓存页：占用条（已占用 / 上限 · N 个分P · M 个视频）、
+  改上限（256–65536 MB，落设置 `cacheMaxMB`）、「播放时优先用缓存」开关（`cachePrefer`）、清空缓存，
+  列表里每行可以 播放（回视频页走本地分片）/ 导出 MP4 / 打开位置 / 删除。
+  文件在 `<userData>\offline-cache\<bvid>\<cid>\{meta.json,v.m4s,a.m4s[,export.mp4]}`，`v.m4s`/`a.m4s` 是
+  **原样保存的 DASH 分片**（一个字节都没改），`meta.json` 记着 codecs / 尺寸 / 带宽 / 时长 / 标题分P
+  —— 离线时没有 playurl 可查，这些都得自己存下来。
+  > ⚠ 目录名不能叫 `cache`：Windows 路径大小写不敏感，`<userData>\cache` 正好是 Chromium 自己的 HTTP
+  > 磁盘缓存（`Cache\Cache_Data\…`），第一版就把两者混在了一起（占用统计和「清空缓存」都会误伤浏览器缓存），
+  > 所以改成 `offline-cache`。
+  下载是 3 个 worker 按 2MB 分片并行拉（`Range: bytes=a-b`），失败最多重试 3 次并轮换备用 CDN；
+  中断过的任务按已落盘字节续传；开始前先查占用上限，超了直接拒绝并提示先去删一些。
+  轨道挑 **avc1（H.264）优先**（同画质在 `dash.video` 里常有 av01 / avc1 / hevc 三条，H.264 在 MSE 播放
+  和自写 MP4 导出这两条路上兼容性最好）。
+  **离线播放**靠自定义协议 `bcache://media/<bvid>/<cid>/<文件名>`：主进程 `protocol.registerSchemesAsPrivileged`
+  声明 `stream / supportFetchAPI / corsEnabled / bypassCSP`，再用 `protocol.handle` 把请求映射到缓存文件并
+  **完整支持 `Range`（206 / `Content-Range` / 416）**。渲染层因此可以零改动复用 DASH 播放器：把本地两条轨
+  拼成一个合成的 playurl（`mode: 'dash'`）丢给 `player.load()` 就行；播放中显示「离线缓存」chip，
+  点「改为在线播放」可以强制走网络（`window.__cacheLog` 会记录这次到底走的哪条路，冒烟靠它断言）。
+  **导出通用 MP4** 是自写的 fMP4 → MP4 重封装（`src/main/mp4/remux.js`，应用里没有 ffmpeg）：
+  读 `moov/moof/trun` 的 sample 表，把 `mdat` 重排成 `ftyp + moov + mdat`，`stco/co64`、`stss`、`tfdt` 偏移、
+  非零起始时间都按实际字节重算；导出的文件能被 Chromium 直接读出时长与画面尺寸（冒烟就是这么验的），
+  也能拖进别的播放器。改重封装后先跑 `node tools/check-remux.mjs`（不启动 Electron）。
 - **字幕**：**在线字幕**改走**带 wbi 签名**的 `x/player/wbi/v2`（2024 年起不签名会被 -403；签名失败自动退回不签名的旧接口），
   取投稿级字幕列表、只拉前 5 种语言，条目结构和弹幕一样是 `{from,to,content}`，播放时按 `from` 二分查找当前句。
   **本地字幕**支持 `.srt / .vtt / .ass(ssa)`：CC 菜单里「选择字幕文件…」或把字幕文件**拖进窗口**都能加
@@ -503,18 +523,6 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
   dragover 里必须把 `dropEffect` 改回 `'move'` —— preload 在 capture 阶段已经把 window 上的 dragover 设成 `copy` 了）。
   新顺序落进设置的 `navOrder`，`App.vue` 的 `navList` 只认「仍存在的路径」、其余按 `DEFAULT_NAV` 顺序补后面，
   所以以后新增页面不会被老顺序弄丢，删页面也不会留空条目。
-- **自定义主题**：设置页新增「自定义主题」面板 —— 启用后可以改 **7 个颜色**
-  （背景 / 卡片 / 次级底色 / 边框线 / 主文字 / 次文字 / 强调色），一个颜色一行：左边 `input[type=color]` 取色器
-  （拖动即时预览、松手落盘），右边十六进制输入框（填 `#7fd68a` 这种、失焦或回车生效，非法值会 toast 并保留原值）。
-  改完立刻写到 `<html>` 的内联 CSS 变量上并持久化（`themeOn` / `themeCustom`）。
-  其余令牌（`--bg-elev` / `--card-hover` / `--soft-hover` / `--line-strong` / `--t3` / `--link` / `--block` / `--skeleton`）
-  **不单独让用户填**：`buildThemeVars()` 用 sRGB 线性混合（`mix()`）从这 7 个色推出来，免得「只改几个色」时
-  深色 hover 落在浅色背景上；`--accent-fg` 仍按相对亮度算（`readableFg()`），保证强调色上的文字看得清。
-  改满意了可以**存成命名套装**（最多 12 字、同名覆盖），chip 一点就切回来，chip 上的 ✕ 删除
-  （删掉正在用的那套只清标记，画面停在这套颜色上，不偷偷换回内置）；「已启用（点此关掉）」一键回到内置深浅 + 强调色预设。
-  ⚠️ 关掉自定义主题时 `applyTheme()` 会**逐个 `removeProperty()` 清掉自定义写进去的内联变量**，
-  否则旧颜色会继续盖在页面上（`styles/tokens.css` 的值只有在没有内联变量时才生效）。
-  ⚠️ 基底深浅主题仍然有用：阴影与 `--danger / --ok / --warn / --star` 这些状态色没有开放自定义，跟着 `data-theme` 走。
 - **学习记录**：播放中每秒计时、每 5s 落一次进度，>95% 自动标记完成；按 UP 累计学习时长；
   学习页只留 **7 张统计卡**（总时长 / 看过视频 / 已看完 / 在看 / 连续签到 / 今日专注 / 本周专注）+ 专注面板 + 学习清单；
   **签到日历、近 14 天条形图、按 UP 分布饼图与手动打卡按钮已按需求移除**（`LearnView.vue` 487 → 194 行，

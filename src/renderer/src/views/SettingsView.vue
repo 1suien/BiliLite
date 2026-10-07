@@ -2,14 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import api from '../api'
 import Icon from '../components/Icon.vue'
-import {
-  useSettingsStore,
-  ACCENT_PRESETS,
-  THEME_COLORS,
-  THEME_NAME_MAX,
-  defaultThemeColors,
-  themeColorValue
-} from '../stores/settings'
+import { useSettingsStore, ACCENT_PRESETS } from '../stores/settings'
 import { useUiStore } from '../stores/ui'
 import { useAuthStore } from '../stores/auth'
 import { useLearnStore } from '../stores/learn'
@@ -34,53 +27,6 @@ function swatchColor(a) {
 
 function setTheme(t) {
   settings.patch({ theme: t })
-}
-
-/* ---------- 自定义主题 ---------- */
-const setName = ref('')
-
-/** 界面上每个颜色该显示的值（缺的键回落到当前基底主题） */
-function themeValue(key) {
-  return themeColorValue(settings.settings.themeCustom, key, settings.settings.theme)
-}
-
-function toggleCustomTheme() {
-  if (settings.settings.themeOn) settings.resetCustomTheme()
-  else settings.enableCustomTheme()
-}
-
-/** 取色器拖动时只预览（不落盘，避免每移动一格就写一次设置） */
-function onColorInput(key, e) {
-  settings.previewThemeColor(key, e.target.value)
-}
-
-function onColorChange(key, e) {
-  const v = String(e.target.value || '').trim()
-  settings.setThemeColor(key, v).then((ok) => {
-    if (!ok) ui.err('颜色要写成 6 位十六进制，如 #7fd68a')
-  })
-}
-
-/** 把这 7 个色恢复成当前深色/浅色底色的默认值 */
-function resetColors() {
-  settings.patch({ themeOn: true, themeCustom: defaultThemeColors(settings.settings.theme) })
-}
-
-async function saveSet() {
-  const ok = await settings.saveThemeSet(setName.value)
-  if (ok) {
-    ui.ok('已保存主题套装')
-    setName.value = ''
-  } else {
-    ui.err(`给这套主题起个名字（最多 ${THEME_NAME_MAX} 个字）`)
-  }
-}
-
-async function delSet(s) {
-  const yes = await ui.confirm(`删除主题套装「${s.name}」？`, '当前颜色不会被改掉，只是删掉这套存档。')
-  if (!yes) return
-  await settings.removeThemeSet(s.id)
-  ui.ok('已删除')
 }
 
 async function pickBackupDir() {
@@ -205,83 +151,6 @@ onMounted(() => {
           />
         </div>
         <p class="hint">可以点色板，也可以直接填 6 位十六进制色值（如 #7fd68a）。</p>
-      </div>
-    </section>
-
-    <!-- 自定义主题 -->
-    <section class="panel" style="margin-bottom: 16px">
-      <h2 class="sec">自定义主题</h2>
-      <div class="field">
-        <label>开关</label>
-        <div class="row" style="gap: 8px; flex-wrap: wrap">
-          <button class="chip" :class="{ on: settings.settings.themeOn }" @click="toggleCustomTheme()">
-            <Icon name="palette" :size="13" />
-            {{ settings.settings.themeOn ? '已启用（点此关掉）' : '启用自定义主题' }}
-          </button>
-          <button v-if="settings.settings.themeOn" class="chip plain" @click="resetColors()">
-            <Icon name="refresh" :size="13" /> 恢复这套底色
-          </button>
-        </div>
-        <p class="hint">
-          启用后，下面这几个颜色会覆盖内置的深色/浅色配色；悬停底色、三级文字、强边框、骨架屏这些不单独让你填，按你选的色自动推出来，免得配色打架。
-        </p>
-      </div>
-
-      <div v-if="settings.settings.themeOn" class="field">
-        <label>颜色</label>
-        <div class="colors">
-          <div v-for="c in THEME_COLORS" :key="c.key" class="crow">
-            <span class="clabel">{{ c.label }}</span>
-            <input
-              class="cpick"
-              type="color"
-              :value="themeValue(c.key)"
-              :title="`选择${c.label}`"
-              @input="onColorInput(c.key, $event)"
-              @change="onColorChange(c.key, $event)"
-            />
-            <input
-              class="input mono ctext"
-              :value="themeValue(c.key)"
-              @change="onColorChange(c.key, $event)"
-            />
-          </div>
-        </div>
-        <p class="hint">点色块打开取色器即时预览，或直接填 6 位十六进制色值（如 #7fd68a）。</p>
-      </div>
-
-      <div v-if="settings.settings.themeOn" class="field">
-        <label>主题套装</label>
-        <div class="row" style="gap: 8px; flex-wrap: wrap">
-          <input
-            v-model="setName"
-            class="input grow"
-            :maxlength="THEME_NAME_MAX"
-            placeholder="给这套主题起个名字"
-            @keyup.enter="saveSet()"
-          />
-          <button class="btn primary" :disabled="!setName.trim()" @click="saveSet()">保存</button>
-        </div>
-        <div
-          v-if="settings.settings.themeSets.length"
-          class="row"
-          style="gap: 8px; flex-wrap: wrap; margin-top: 10px"
-        >
-          <button
-            v-for="s in settings.settings.themeSets"
-            :key="s.id"
-            class="chip"
-            :class="{ on: settings.settings.themeSetId === s.id }"
-            :title="`套用「${s.name}」`"
-            @click="settings.applyThemeSet(s.id)"
-          >
-            {{ s.name }}
-            <i class="chip-x" @click.stop="delSet(s)">✕</i>
-          </button>
-        </div>
-        <p class="hint">
-          最多 {{ THEME_NAME_MAX }} 个字，可以存多套随时切换（同名覆盖）。改一套已有的：先点它套用，改完颜色再用同名保存。
-        </p>
       </div>
     </section>
 
@@ -423,42 +292,5 @@ onMounted(() => {
   font-size: 12px;
   color: var(--t3);
   margin-top: 6px;
-}
-/* 自定义主题：一色一行（标签 / 取色器 / 十六进制输入） */
-.colors {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(216px, 1fr));
-  gap: 8px 14px;
-}
-.crow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.clabel {
-  flex: none;
-  width: 62px;
-  font-size: 12.5px;
-  color: var(--t2);
-}
-.cpick {
-  flex: none;
-  width: 30px;
-  height: 26px;
-  padding: 0;
-  border: 2px solid var(--line-strong);
-  border-radius: 6px;
-  background: none;
-  cursor: pointer;
-}
-.cpick::-webkit-color-swatch-wrapper {
-  padding: 2px;
-}
-.cpick::-webkit-color-swatch {
-  border: none;
-  border-radius: 3px;
-}
-.ctext {
-  width: 96px;
 }
 </style>

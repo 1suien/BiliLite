@@ -6,7 +6,7 @@
  * 返回进程退出码：0 全部通过，1 有失败。
  */
 import { app } from 'electron'
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -223,7 +223,7 @@ export async function runSmoke(win) {
   await step('bridge 已注入', 'typeof window.bili', (v) => v === 'object')
   await step('bridge 通道齐全', "Object.keys(window.bili).join(',')", (v) => /auth/.test(v) && /video/.test(v))
   await step('app:ping', 'window.bili.ping()', (v) => v === 'pong' || Boolean(v))
-  await step('侧栏导航 5 项', "document.querySelectorAll('.nav-item').length", (v) => v === 5)
+  await step('侧栏导航 6 项', "document.querySelectorAll('.nav-item').length", (v) => v === 6)
   await step(
     '侧栏已没有「读书」入口',
     "Array.from(document.querySelectorAll('.nav-item')).some((e) => e.textContent.includes('读书'))",
@@ -958,11 +958,240 @@ export async function runSmoke(win) {
     else fail('分P续播：不带 ?p 回到上次那个分P', partProbe)
   }
 
+  // ---- 离线缓存：下载 → 缓存页 → 本地播放 → 导出 MP4 → 删除 ----
+  // 一定要挑一个**短视频**（P1 几十秒到 4 分钟）来缓存：qn 16 的 360P 每分钟只有几 MB，
+  // 短视频十几秒就下完；要是拿当前页那个 23 分钟的视频，会白下几百 MB 还可能超时。
+  {
+    const ud = app.getPath('userData')
+    const picked = await js(`(async () => {
+      const shots = []
+      const tryOne = async (bvid) => {
+        try {
+          const pages = await window.bili.video.pages(bvid)
+          if (!Array.isArray(pages) || !pages.length) return null
+          const d = Number(pages[0].duration) || 0
+          if (d >= 20 && d <= 300) return { bvid: bvid, cid: String(pages[0].cid), duration: d }
+          return null
+        } catch (err) {
+          return null
+        }
+      }
+      try {
+        const r = await window.bili.search.videos('梗百科', 1)
+        for (const v of (r.items || []).slice(0, 8)) {
+          shots.push(v.bvid)
+          const hit = await tryOne(v.bvid)
+          if (hit) return { hit: hit, from: 'search' }
+        }
+      } catch (err) {
+        shots.push('search-failed:' + String((err && err.message) || err))
+      }
+      const m = location.hash.match(/video\\/([^/?#]+)/)
+      if (m) {
+        const hit = await tryOne(m[1])
+        if (hit) return { hit: hit, from: 'current' }
+      }
+      return { err: 'no-short-video', shots: shots }
+    })()`)
+    const hit = picked && picked.hit
+    let cid = ''
+    if (!hit) {
+      warn('离线缓存：没找到够短的分P（网络风控或都是长视频？），跳过这一段 → ' + show(picked))
+    } else {
+      const started = await js(`(async () => {
+        try {
+          const c = '${hit.cid}'
+          window.__smokeCache = { bvid: '${hit.bvid}', cid: c, key: '', duration: ${hit.duration} }
+          const now = await window.bili.cache.list()
+          const already = (now.rows || []).find((r) => String(r.cid) === c && r.done)
+          if (already) {
+            window.__smokeCache.key = already.key
+            return { reuse: true, key: already.key, cid: c }
+          }
+          const res = await window.bili.cache.start({
+            bvid: '${hit.bvid}', cid: c, qn: 16, page: 1, partTitle: '', title: '冒烟缓存', upName: '', cover: '', qualityLabel: ''
+          })
+          window.__smokeCache.key = (res && res.key) || ''
+          return { key: window.__smokeCache.key, cid: c, duration: ${hit.duration}, res: res || null }
+        } catch (err) {
+          return { err: String((err && err.message) || err) }
+        }
+      })()`)
+      cid = (started && started.cid) || ''
+      if (!started || started.err || !cid) {
+        warn('离线缓存：拿不到 playurl/分P（网络风控？），跳过这一段 → ' + show(started))
+      } else {
+        // 轮询到下载结束（短视频 360P 通常十几秒；最多等 3 分钟）
+        let last = null
+        const t0 = Date.now()
+        while (Date.now() - t0 < 180000) {
+          last = await js(`(async () => {
+            try {
+              const data = await window.bili.cache.list()
+              const row = (data.rows || []).find((x) => x.key === window.__smokeCache.key)
+              const task = (data.tasks || []).find((x) => x.key === window.__smokeCache.key)
+              return {
+                row: row ? { done: !!row.done, vBytes: row.vBytes, aBytes: row.aBytes, bytes: row.bytes, quality: row.quality } : null,
+                task: task ? { stage: task.stage, pct: task.pct, message: task.message, error: task.error } : null
+              }
+            } catch (err) {
+              return { err: String((err && err.message) || err) }
+            }
+          })()`)
+          if (last && last.row && last.row.done) break
+          if (last && last.task && last.task.stage === 'error') break
+          await sleep(2500)
+        }
+        const dir = join(ud, 'offline-cache', hit.bvid, cid)
+        const vPath = join(dir, 'v.m4s')
+        const aPath = join(dir, 'a.m4s')
+        const vSize = existsSync(vPath) ? statSync(vPath).size : 0
+        const aSize = existsSync(aPath) ? statSync(aPath).size : 0
+        const cacheDiag = { started, last, vSize, aSize }
+        if (last && last.row && last.row.done && vSize > 0) {
+          pass('离线缓存：下载完一个分P，v.m4s/a.m4s 真的落盘', { row: last.row, vSize, aSize })
+        } else {
+          fail('离线缓存：下载完一个分P，v.m4s/a.m4s 真的落盘', cacheDiag)
+        }
+        // 调试用：把真实 DASH 分片留一份给 remux 自测（默认不开；remux 的正式自测见 tools/check-remux.mjs）
+        if (process.env.STUDY_SMOKE_KEEP_CACHE === '1' && vSize > 0) {
+          const keep = join(process.cwd(), 'scratch', 'cache-slice')
+          try {
+            mkdirSync(keep, { recursive: true })
+            copyFileSync(vPath, join(keep, 'v.m4s'))
+            if (aSize > 0) copyFileSync(aPath, join(keep, 'a.m4s'))
+          } catch (err) {
+            warn('离线缓存：留档真实分片失败 → ' + String((err && err.message) || err))
+          }
+        }
+
+        // 缓存页：占用条 + 列表里能看到刚缓存的分P
+        await js(`(() => { location.hash = '#/cache'; return true })()`)
+        await sleep(1400)
+        const page = await js(`(() => {
+          const items = document.querySelectorAll('.rowitem').length
+          const head = document.querySelector('.page-head')
+          return { items, text: head ? head.textContent.replace(/\\s+/g, ' ').trim().slice(0, 90) : '' }
+        })()`)
+        await shot('6-缓存页.png')
+        if (page && page.items >= 1) pass('缓存页：占用与已缓存列表（含刚下载的分P）', page)
+        else fail('缓存页：占用与已缓存列表（含刚下载的分P）', page)
+
+        // 本地播放：离开再回来，逼 startPlay 重跑；应该走 bcache:// 本地文件并真的出画面
+        await js(`(() => { location.hash = '#/'; return true })()`)
+        await sleep(1200)
+        await js(`(() => { location.hash = '#/video/' + window.__smokeCache.bvid; return true })()`)
+        let playDiag = null
+        for (let i = 0; i < 14; i++) {
+          await sleep(900)
+          playDiag = await js(`(() => {
+            const v = document.querySelector('video')
+            const log = window.__cacheLog || null
+            return {
+              source: log ? log.source : '',
+              url: log ? String(log.videoUrl || '').slice(0, 46) : '',
+              t: v ? Number(v.currentTime.toFixed(2)) : null,
+              paused: v ? v.paused : null,
+              err: v && v.error ? v.error.code : null
+            }
+          })()`)
+          if (playDiag && playDiag.source === 'cache' && playDiag.t > 0.5) break
+        }
+        if (playDiag && playDiag.source === 'cache' && playDiag.t > 0.5)
+          pass('离线缓存：打开这个视频走的是本地分片并真的播起来', playDiag)
+        else fail('离线缓存：打开这个视频走的是本地分片并真的播起来', playDiag)
+
+        // 导出通用 MP4：不弹对话框；再用 <video> 让 Chromium 自己解一遍（能读出时长才算通用）
+        const exp = await js(
+          `(async () => {
+            try {
+              const r = await window.bili.cache.exportMp4(window.__smokeCache.key, false)
+              return { ok: true, r: r || null }
+            } catch (err) {
+              return { err: String((err && err.message) || err) }
+            }
+          })()`,
+          120000
+        )
+        const mp4Path = join(dir, 'export.mp4')
+        const mp4Size = existsSync(mp4Path) ? statSync(mp4Path).size : 0
+        let mp4Info = null
+        try {
+          const mod = await import('./mp4/remux.js')
+          const info = mod.inspectMp4(readFileSync(mp4Path))
+          // 诊断只留标量：完整结构上万字符，会把报告里的 show() 撑爆（截断后连 mp4Play 都看不到）
+          const briefTrack = (t) => {
+            const o = {}
+            for (const [k, v] of Object.entries(t || {})) {
+              if (v === null || typeof v !== 'object') o[k] = v
+              else if (Array.isArray(v)) o[k] = '[' + v.length + ']'
+            }
+            return o
+          }
+          mp4Info = {
+            size: info.size,
+            boxes: (info.boxes || []).map((b) => b.type + '@' + b.offset),
+            tracks: (info.tracks || []).map(briefTrack)
+          }
+        } catch (err) {
+          mp4Info = { inspectErr: String((err && err.message) || err) }
+        }
+        const mp4Play = await js(`(async () => {
+          const url = 'bcache://media/' + window.__smokeCache.bvid + '/' + window.__smokeCache.cid + '/export.mp4'
+          const v = document.createElement('video')
+          v.muted = true
+          v.preload = 'metadata'
+          v.src = url
+          document.body.appendChild(v)
+          const got = await new Promise((res) => {
+            v.addEventListener('loadedmetadata', () => res({ duration: Number(v.duration || 0), w: v.videoWidth, h: v.videoHeight }), { once: true })
+            v.addEventListener('error', () => res({ error: v.error ? v.error.code : -1 }), { once: true })
+            setTimeout(() => res({ timeout: true }), 9000)
+            v.load()
+          })
+          v.removeAttribute('src')
+          v.load()
+          v.remove()
+          await new Promise((r) => setTimeout(r, 400))
+          return got
+        })()`)
+        const exportDiag = { exp, mp4Size, mp4Info, mp4Play }
+        if (mp4Size > 0 && mp4Play && mp4Play.duration > 0.5)
+          pass('离线缓存：导出成通用 MP4（Chromium 能读出时长与画面尺寸）', exportDiag)
+        else fail('离线缓存：导出成通用 MP4（Chromium 能读出时长与画面尺寸）', exportDiag)
+
+        // 删除：列表清空 + 磁盘目录消失
+        // 先离开播放页并给播放器一点时间拆干净：Windows 上 MSE/媒体元素还抓着 a.m4s 时，
+        // 删目录会撞上 EPERM/ENOTEMPTY（真实的句柄竞态，不是删除逻辑写错了）。
+        await js(`(() => { location.hash = '#/'; return true })()`)
+        await sleep(1800)
+        const del = await js(`(async () => {
+          try {
+            await window.bili.cache.remove(window.__smokeCache.key)
+            const d = await window.bili.cache.list()
+            return { rows: (d.rows || []).length, stats: d.stats || null }
+          } catch (err) {
+            return { err: String((err && err.message) || err) }
+          }
+        })()`)
+        let gone = !existsSync(dir)
+        for (let i = 0; i < 6 && !gone; i++) {
+          await sleep(500)
+          gone = !existsSync(dir)
+        }
+        const delDiag = { del, gone }
+        if (del && del.rows === 0 && gone) pass('离线缓存：删除后列表清空、磁盘目录也删掉', delDiag)
+        else fail('离线缓存：删除后列表清空、磁盘目录也删掉', delDiag)
+      }
+    }
+  }
+
   // ---- 路由与页面可用性 ----
   const routes = [
     ['搜索', '.page-head'],
     ['收藏', '.page-head'],
     ['学习', '.stat-grid'],
+    ['缓存', '.page-head'],
     ['设置', '.panel'],
     ['首页', '.grid, .page-head']
   ]
@@ -1004,143 +1233,6 @@ export async function runSmoke(win) {
       log(`      · 诊断 ${label} :: ${show(info)}`)
       log(`      · nav-item 文本 :: ${show(navLabels)}`)
     }
-  }
-
-  // ---- 自定义主题：改一个颜色 → 立刻生效并落盘；存一套 → 删掉；关掉自定义 → 回到内置配色 ----
-  {
-    await js(`(() => {
-      const el = Array.from(document.querySelectorAll('.nav-item')).find((e) => e.textContent.includes('设置'))
-      if (el) el.click()
-      return true
-    })()`)
-    await sleep(900)
-    const ct1 = await js(`(async () => {
-      const out = { step: 'start' }
-      const wait = (ms) => new Promise((r) => setTimeout(r, ms))
-      const root = document.documentElement
-      const v = (k) => getComputedStyle(root).getPropertyValue(k).trim()
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
-      const panel = () =>
-        Array.from(document.querySelectorAll('.panel')).find((p) => {
-          const h = p.querySelector('.sec')
-          return h && h.textContent.trim() === '自定义主题'
-        })
-      const setVal = (el, val) => {
-        setter.call(el, val)
-        el.dispatchEvent(new Event('input', { bubbles: true }))
-        el.dispatchEvent(new Event('change', { bubbles: true }))
-      }
-      out.bgBefore = v('--bg')
-      out.theme = root.dataset.theme
-      const want = '#2b1b3d'
-      out.expect = want
-      try {
-        const p = panel()
-        if (!p) { out.step = 'no-panel'; return out }
-        const toggle = p.querySelector('.chip')
-        if (!toggle) { out.step = 'no-toggle'; return out }
-        toggle.click()
-        await wait(350)
-        out.opened = /已启用/.test(toggle.textContent)
-        const rows = Array.from(p.querySelectorAll('.crow'))
-        out.rows = rows.length
-        const bgRow = rows.find((r) => {
-          const l = r.querySelector('.clabel')
-          return l && l.textContent.trim() === '背景'
-        })
-        if (!bgRow) { out.step = 'no-bg-row'; return out }
-        out.picker = !!bgRow.querySelector('input.cpick')
-        setVal(bgRow.querySelector('input.ctext'), want)
-        await wait(350)
-        out.bgAfter = v('--bg')
-        const s1 = await window.bili.settings.get()
-        out.persistOn = s1.themeOn === true
-        out.persistBg = String((s1.themeCustom || {}).bg || '')
-        out.step = 'ok1'
-      } catch (e) {
-        out.err = String((e && e.message) || e)
-      }
-      return out
-    })()`)
-    await sleep(300)
-    // 编辑器开着、颜色已经改掉，留一张图：新面板长什么样、7 行控件是否整齐
-    await shot('5-设置页自定义主题.png')
-    const ct2 = await js(`(async () => {
-      const out = {}
-      const wait = (ms) => new Promise((r) => setTimeout(r, ms))
-      const root = document.documentElement
-      const v = (k) => getComputedStyle(root).getPropertyValue(k).trim()
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
-      const panel = () =>
-        Array.from(document.querySelectorAll('.panel')).find((p) => {
-          const h = p.querySelector('.sec')
-          return h && h.textContent.trim() === '自定义主题'
-        })
-      try {
-        const p = panel()
-        if (!p) { out.err2 = 'no-panel'; return out }
-        const nameInput = p.querySelector('input.grow')
-        if (nameInput) {
-          setter.call(nameInput, '紫夜')
-          nameInput.dispatchEvent(new Event('input', { bubbles: true }))
-          await wait(150)
-          const save = Array.from(p.querySelectorAll('.btn')).find((b) => b.textContent.trim() === '保存')
-          if (save) { save.click(); await wait(450) }
-        }
-        const s2 = await window.bili.settings.get()
-        out.setsSaved = (s2.themeSets || []).length
-        out.setNames = (s2.themeSets || []).map((x) => x.name)
-        out.setIdSet = !!s2.themeSetId
-        const x = p.querySelector('.chip-x')
-        out.hasDelX = !!x
-        if (x) {
-          x.click()
-          await wait(300)
-          const okBtn = Array.from(document.querySelectorAll('.modal button, .overlay button')).find((b) => /确定/.test(b.textContent))
-          out.confirmShown = !!okBtn
-          if (okBtn) { okBtn.click(); await wait(450) }
-        }
-        const s3 = await window.bili.settings.get()
-        out.setsAfterDel = (s3.themeSets || []).length
-        const off = Array.from(p.querySelectorAll('.chip')).find((b) => /已启用/.test(b.textContent))
-        if (off) { off.click(); await wait(450) }
-        out.bgReset = v('--bg')
-        const s4 = await window.bili.settings.get()
-        out.stillOn = s4.themeOn === true
-      } catch (e) {
-        out.err2 = String((e && e.message) || e)
-      }
-      return out
-    })()`)
-    const ct = { ...ct1, ...ct2 }
-    const okCustom =
-      ct.step === 'ok1' &&
-      String(ct.bgAfter || '').toLowerCase() === String(ct.expect || '').toLowerCase() &&
-      ct.persistOn === true &&
-      String(ct.persistBg || '').toLowerCase() === String(ct.expect || '').toLowerCase() &&
-      ct.rows === 7 &&
-      ct.setsSaved === 1 &&
-      ct.setsAfterDel === 0 &&
-      ct.stillOn === false &&
-      String(ct.bgReset || '').toLowerCase() === String(ct.bgBefore || '').toLowerCase()
-    if (okCustom) pass('自定义主题：改色即时生效并落盘、套装可存可删、关掉后回到内置配色', ct)
-    else fail('自定义主题：改色即时生效并落盘、套装可存可删、关掉后回到内置配色', ct)
-    // 兜底：万一中途失败把自定义主题留在开启状态，别把后面的截图带偏
-    await js(`(async () => {
-      try {
-        const p = Array.from(document.querySelectorAll('.panel')).find((x) => {
-          const h = x.querySelector('.sec')
-          return h && h.textContent.trim() === '自定义主题'
-        })
-        const on = p && Array.from(p.querySelectorAll('.chip')).find((b) => /已启用/.test(b.textContent))
-        if (on) {
-          on.click()
-          await new Promise((r) => setTimeout(r, 300))
-        }
-      } catch {}
-      return true
-    })()`)
-    await sleep(300)
   }
 
   // ---- 侧栏换序：真的发一遍 HTML5 拖拽事件（dragstart → dragover → drop），看顺序有没有变、有没有落盘 ----

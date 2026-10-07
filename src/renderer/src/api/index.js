@@ -81,6 +81,21 @@ export const api = {
 
   backup: {
     write: proxy((dir, name, text) => bridge.backup.write(dir, name, text))
+  },
+
+  cache: {
+    list: proxy(() => bridge.cache.list()),
+    stats: proxy(() => bridge.cache.stats()),
+    local: proxy((bvid, cid) => bridge.cache.local(bvid, cid)),
+    probe: proxy((bvid, cid, qn) => bridge.cache.probe(bvid, cid, qn)),
+    start: proxy((req) => bridge.cache.start(req)),
+    cancel: proxy((key) => bridge.cache.cancel(key)),
+    remove: proxy((key) => bridge.cache.remove(key)),
+    clear: proxy(() => bridge.cache.clear()),
+    reveal: proxy((key) => bridge.cache.reveal(key)),
+    exportMp4: proxy((key, saveAs) => bridge.cache.exportMp4(key, saveAs)),
+    // 事件订阅不是 Promise：桥接缺失时返回一个空退订函数
+    onProgress: (cb) => (bridge && bridge.cache.onProgress ? bridge.cache.onProgress(cb) : () => {})
   }
 }
 

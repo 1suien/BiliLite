@@ -1,4 +1,4 @@
-import { ipcMain, shell, dialog } from 'electron'
+import { ipcMain, shell, dialog, app, BrowserWindow } from 'electron'
 import { mkdir, writeFile, readFile, stat } from 'node:fs/promises'
 import { join, basename, extname } from 'node:path'
 import { store } from './store.js'
@@ -9,6 +9,20 @@ import { fetchRecommend, fetchPopular } from './bili/home.js'
 import { fetchFavFolders, fetchCollectedFolders, fetchFavResources } from './bili/fav.js'
 import { fetchUpInfo, fetchUpVideos, fetchLatestByMids, fetchFollowings, resolveUp } from './bili/space.js'
 import { fetchDanmaku, fetchOnlineTotal, fetchSubtitle, sendDanmaku } from './bili/danmaku.js'
+import {
+  initVideoCache,
+  listCache,
+  cacheStats,
+  lookupCache,
+  probeCache,
+  startCache,
+  cancelCache,
+  removeCache,
+  clearCache,
+  revealCache,
+  runningTasks,
+  exportCache
+} from './video-cache.js'
 
 function wrap(handler) {
   return async (_event, payload) => {
@@ -124,6 +138,32 @@ const handlers = {
   }),
   'sys:readSubtitle': wrap(async ({ path }) => readSubtitleFile(path)),
 
+  // ---- 离线缓存 ----
+  // 列表接口一次性把「已缓存 + 正在下载 + 占用统计」都给渲染层，省得缓存页发三次请求
+  'cache:list': wrap(async () => ({ rows: await listCache(), tasks: runningTasks(), stats: await cacheStats() })),
+  'cache:stats': wrap(async () => cacheStats()),
+  'cache:local': wrap(async ({ bvid, cid }) => lookupCache(bvid, cid)),
+  'cache:probe': wrap(async ({ bvid, cid, qn }) => probeCache({ bvid, cid, qn })),
+  'cache:start': wrap(async (req) => startCache(req)),
+  'cache:cancel': wrap(async ({ key }) => cancelCache(key)),
+  'cache:remove': wrap(async ({ key }) => removeCache(key)),
+  'cache:clear': wrap(async () => clearCache()),
+  'cache:reveal': wrap(async ({ key }) => revealCache(key)),
+  'cache:export': wrap(async ({ key, saveAs }) => {
+    if (!saveAs) return exportCache(key)
+    const rows = await listCache()
+    const row = rows.find((r) => r.key === key)
+    const base = row && row.title ? `${row.title}${row.page ? ` P${row.page}` : ''}` : String(key || '').replace(':', '-')
+    const safe = `${base}.mp4`.replace(/[\\/:*?"<>|]/g, '_').slice(0, 120)
+    const res = await dialog.showSaveDialog({
+      title: '导出为 MP4',
+      defaultPath: safe,
+      filters: [{ name: 'MP4 视频', extensions: ['mp4'] }]
+    })
+    if (res.canceled || !res.filePath) return { canceled: true }
+    return exportCache(key, { outPath: res.filePath })
+  }),
+
   // ---- 备份 ----
   'backup:write': wrap(async ({ dir, name, text }) => {
     if (!dir) throw new Error('还没有选择备份目录')
@@ -134,7 +174,28 @@ const handlers = {
   })
 }
 
+/**
+ * 缓存模块初始化：目录固定在 `<userData>/offline-cache`，下载进度通过 `cache:progress`
+ * 事件广播给所有窗口（渲染层用 preload 暴露的 api.cache.onProgress 订阅）。
+ *
+ * ⚠ 别用 `<userData>/cache`：Windows 路径大小写不敏感，那正好是 Chromium 自己的
+ * HTTP 磁盘缓存目录（`Cache/Cache_Data/...`），我们的分片会和它混在一起 —— 占用统计、
+ * 清空缓存都会误伤浏览器缓存（实测第一次跑就出现了 `cache/Cache_Data/data_3` 这种文件）。
+ */
+function initCache() {
+  initVideoCache({
+    root: join(app.getPath('userData'), 'offline-cache'),
+    getPlayurl: (bvid, cid, qn) => fetchPlayurl(bvid, cid, qn || 80),
+    onProgress: (payload) => {
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send('cache:progress', payload)
+      }
+    }
+  })
+}
+
 export function registerIpc() {
+  initCache()
   for (const [channel, handler] of Object.entries(handlers)) {
     ipcMain.handle(channel, handler)
   }
