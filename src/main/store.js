@@ -25,9 +25,10 @@ const DEFAULT_SETTINGS = {
   subBottom: 8,
   /** 专注弹层里的快捷任务（可自定义；空数组 = 用代码里的默认四个） */
   focusTasks: ['阅读', '刷题', '看课', '整理笔记'],
-  /** 离线缓存：占用上限（MB）/ 播放时优先用缓存 */
+  /** 离线缓存：占用上限（MB）/ 播放时优先用缓存 / 自定义缓存目录（空 = <userData>/offline-cache） */
   cacheMaxMB: 4096,
-  cachePrefer: true
+  cachePrefer: true,
+  cacheDir: ''
 }
 
 function filePath() {
@@ -69,17 +70,33 @@ export const store = {
   },
 
   load() {
+    let parsed = null
     try {
-      const raw = fs.readFileSync(filePath(), 'utf8')
-      const parsed = JSON.parse(raw)
-      this.state.settings = { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) }
-      this.state.user = parsed.user || null
-      this.state.cookies = decodeSecret(parsed.secure).cookies || {}
+      parsed = JSON.parse(fs.readFileSync(filePath(), 'utf8'))
     } catch {
+      parsed = null
+    }
+    if (!parsed || typeof parsed !== 'object') {
       this.state.settings = { ...DEFAULT_SETTINGS }
       this.state.user = null
       this.state.cookies = {}
+      return this.state
     }
+    this.state.settings = { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) }
+    this.state.user = parsed.user || null
+    const secure = parsed.secure
+    const decoded = decodeSecret(secure)
+    if (typeof secure === 'string' && secure.startsWith('enc:') && !decoded.cookies) {
+      // 密文解不开（DPAPI 变了 / userData 目录被搬过）：先备份一份原始文件，
+      // 免得下一次 persist() 把最后的凭据覆盖掉。此时 cookie 会空 → 表现为「自动退出登录」。
+      console.warn('[store] 登录凭据解密失败（已备份 study-bili.json.bak）')
+      try {
+        fs.copyFileSync(filePath(), filePath() + '.bak')
+      } catch {
+        /* ignore */
+      }
+    }
+    this.state.cookies = decoded.cookies || {}
     return this.state
   },
 

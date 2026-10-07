@@ -33,10 +33,10 @@ src/
     ipc.js                  IPC 通道注册（统一 { ok, data | message, code, needLogin } 信封）
     store.js                设置 + 登录态持久化（Cookie 走 safeStorage 加密）
     smoke.js                端到端冒烟测试（见下文）
-    video-cache.js          离线缓存：探测大小 / 多线程分片下载（可续传）/ 列表 / 上限 / 导出
+    video-cache.js          离线缓存：探测大小 / 多线程分片下载（可续传）/ 列表（按稿件分组）/ 上限 / 自定义目录 / 导出
     cache-protocol.js       自定义协议 `bcache://`：把缓存目录里的分片当本地媒体喂给播放器（支持 Range）
     mp4/remux.js            自写 fMP4 → 通用 MP4 重封装（应用里没有 ffmpeg，导出靠它）
-    bili/                   B 站接口：http / wbi 签名 / auth / home / video / search / fav / space
+    bili/                   B 站接口：http / wbi 签名 / auth / nav-classify（登录态分类）/ home / video / search / fav / space
   preload/index.js          window.bili 白名单桥接（含全局拖拽拦截 → bili:files-dropped 自定义事件）
   renderer/
     index.html              含 CSP meta（`media-src` / `connect-src` 里有 `bcache:`，离线播放要用；
@@ -56,7 +56,7 @@ src/
                              + FocusRing（专注圆环）/ FocusPanel（专注面板）/ SessionHistory（专注记录）…
 tools/
   run-smoke.ps1             本机冒烟运行脚本（构建 + 启动 Electron + 收报告，绕开 DSH 沙箱坑）
-  check-parsers.mjs         不启动 Electron，直接跑字幕解析（15 项断言，改 src/renderer/src/utils/subtitle.js 后先跑它）
+  check-parsers.mjs         不启动 Electron，直接跑字幕解析 + 登录态分类（22 项断言，改 src/renderer/src/utils/subtitle.js 或 src/main/bili/nav-classify.js 后先跑它）
   check-remux.mjs           不启动 Electron，跑 MP4 重封装的夹具自测（75 项断言，改 src/main/mp4/remux.js 后先跑它）
   check-package.mjs         读 release/win-unpacked/resources/app.asar 的索引，校验打包产物完整、且没夹带 pdf.js 资源
 ```
@@ -218,7 +218,8 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 首页「继续学习」卡片不重复（`section .grid .vcard .title` 文本唯一 —— 同一视频的多个分P只该出现一张卡）、
 **离线缓存**（自己从搜索里挑一个够短的分P（P1 时长 20–300 秒）→ `cache.start` 用 qn 16 下这个分P → 轮询到 `done`
 且主进程 `statSync(<userData>\offline-cache\<bvid>\<cid>\v.m4s)` 真的有字节（`v.m4s`/`a.m4s` 是原样保存的 DASH 分片，没改一个字节）→
-进 `#/cache` 断言列表里能看到它并留一张 `6-缓存页.png` → 离开再回到 `#/video/<bvid>`，断言
+进 `#/cache` 断言卡片里能看到它（`.ccard` ≥ 1，留一张 `6-缓存页.png`）、同一稿件的分P归到一张卡片（卡片里的
+「N 个内容」徽标）、以及缓存文件夹那段显示的是默认位置且和主进程 `cache:path` 的 `current` 一致 → 离开再回到 `#/video/<bvid>`，断言
 `window.__cacheLog.source === 'cache'` 且 `video.currentTime > 0.5`（证明确实走 `bcache://` 本地分片播起来了，
 而不是偷偷回落到在线流）→ `cache.exportMp4(key, false)` 导出通用 MP4，既查文件字节数、也**让 Chromium 自己解一遍**
 （临时 `<video src="bcache://…/export.mp4">` 等 `loadedmetadata`，要求 `duration > 0.5`）→ 最后 `cache.remove` 后
@@ -228,10 +229,12 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 所以断言总数从 139 降到 72：读书段 67 项、侧栏「读书」那 1 项删掉，新增「侧栏已没有读书入口」1 项；
 **下面那些 139 / 137 / 118 项的历史验收记录都是「含读书段」时跑的**，摘除后的数字另见本节末尾那一轮。
 之后做「离线缓存」时又加了 5 项（下载落盘 / 缓存页列表 / 本地分片播放 / 导出 MP4 / 删除清目录），
-并把「侧栏 5 项 / 5 个路由」改成 6 项（侧栏循环又多了 1 项 `侧栏「缓存」`）—— **现在最多 78 项**
-（`首页「继续学习」卡片不重复` 在首页没有继续学习卡时软跳过，只 log 不打 PASS/FAIL，所以那轮会显示 77）。
+并把「侧栏 5 项 / 5 个路由」改成 6 项（侧栏循环又多了 1 项 `侧栏「缓存」`）；
+2026-10-07 这轮（缓存页按稿件分组 + 自定义缓存目录 + 登录态修复）把「缓存页列表」拆成「缓存页卡片」+
+「同一稿件分P归到一张卡片」两条，并新增 1 条「缓存文件夹显示默认位置且与主进程一致」—— **现在最多 80 项**
+（`首页「继续学习」卡片不重复` 在首页没有继续学习卡时软跳过，只 log 不打 PASS/FAIL，所以那轮会显示 79）。
 
-解析层还能单独跑（不启动 Electron，改 `src/renderer/src/utils/subtitle.js` 后先跑它，15 项断言）：
+解析层还能单独跑（不启动 Electron，改 `src/renderer/src/utils/subtitle.js` / `src/main/bili/nav-classify.js` 后先跑它，22 项断言）：
 
 ```powershell
 & "$nodeDir\node.exe" tools\check-parsers.mjs
@@ -289,7 +292,7 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 
 > **冒烟前先看构建结果**：`tools\run-smoke.ps1 -SkipBuild` 会拿旧的 `out/` 继续跑，跑出一份「看起来全绿但什么都没证明」的报告
 > （踩过：`vite build` 失败、报告却照样满绿）。**改完 `src/` 先看 `BUILD_EXIT`，再谈冒烟。**
-> 断言总数是 **78 项**（`首页「继续学习」卡片不重复` 在首页没有继续学习卡时是软跳过、只 log 不打 PASS/FAIL → 那轮显示 77）。
+> 断言总数是 **80 项**（`首页「继续学习」卡片不重复` 在首页没有继续学习卡时是软跳过、只 log 不打 PASS/FAIL → 那轮显示 79）。
 
 > 主题验收：设置 `STUDY_SMOKE_THEME=light`（或 `dark`）会让冒烟把主题强制成对应主题再跑一遍，
 > 每次截图前也会重新强制一次 —— `settings.init()` 是异步的，完成时会按落盘设置把主题刷回来，
@@ -442,6 +445,14 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 ## 功能与数据
 
 - **登录**：B 站二维码扫码（`qrcode` 渲染），凭证经 Electron `safeStorage`（DPAPI）加密后存于 `userData/study-bili.json`。
+  登录态校验（`x/web-interface/nav`）**必须分清三种结果**：正常登录 → 更新 user；B 站**明确**回未登录
+  （`code -101`，或 `code 0` 且 `isLogin === false`）→ 才清凭据；其余（-352 风控、超时、5xx、缺 `data`）算
+  **暂时失败**，`restore()` 会重试一次并保留 cookie 与上次的 user 信息（`{loggedIn:true, stale:true}`）。
+  判定逻辑抽在纯函数 `src/main/bili/nav-classify.js` 里，`tools/check-parsers.mjs` 有 7 项断言锁住它
+  —— 旧写法「拿不到 user 就当未登录」会在 nav 被风控一次时 `clearAuth()` 清空 cookie，
+  用户看到的就是「扫码登录后过一会儿自动退出」。扫码成功后 `qrPoll()` 也只在真的明确未登录时才不置 user。
+  另外 `store.load()` 若发现 `secure` 是 `enc:` 但解不开（换了 Windows 账户 / 换了 userData 目录），
+  会把原文件备份成 `study-bili.json.bak` 再继续，避免下一次 `persist()` 把最后的凭据覆盖掉。
 - **UP 管理**：本机维护专注名单（UID / 空间链接 / 昵称添加，支持分组，登录后一键导入 B 站关注）；首页只显示这批 UP 的最新投稿。
 - **播放**：DASH 按 `sidx` 直接定位到目标字节偏移起流；缓冲超前超过 45s 暂停拉流、低于 18s 恢复
   （音视频**各自**按自己的 SourceBuffer 计算，避免音轨甩开视频轨把配额撑爆）；配额不足时先淘汰
@@ -470,9 +481,15 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 - **离线缓存**：视频页信息区有「缓存」按钮 → 弹层里勾分P（可多选、已缓存的打标）+ 选清晰度
   （chip 来自 `cache:probe` 的 `acceptQuality`，会顺手探测并显示「当前分P 约 XX MB」）→ 开始缓存，
   进度条同时出现在弹层和缓存页；侧栏第 6 项「缓存」是缓存页：占用条（已占用 / 上限 · N 个分P · M 个视频）、
-  改上限（256–65536 MB，落设置 `cacheMaxMB`）、「播放时优先用缓存」开关（`cachePrefer`）、清空缓存，
-  列表里每行可以 播放（回视频页走本地分片）/ 导出 MP4 / 打开位置 / 删除。
-  文件在 `<userData>\offline-cache\<bvid>\<cid>\{meta.json,v.m4s,a.m4s[,export.mp4]}`，`v.m4s`/`a.m4s` 是
+  改上限（256–65536 MB，落设置 `cacheMaxMB`）、「播放时优先用缓存」开关（`cachePrefer`）、清空缓存。
+  **缓存页按稿件分组**：同一个 bvid 的多个分P聚成一张卡片（封面 + 总大小 + 「N 个内容」+ 标题 + UP），
+  卡片上可直接「播放全部」（从 P 号最小的分P开始）、「更多操作」里 打开整组位置 / 依次导出整组 MP4 /
+  删除整组，点标题或「展开 N 个分P」展开后每行还能单独 播放 / 导出 MP4 / 打开位置 / 删除。
+  **缓存文件夹可自定义**：缓存页显示当前目录（`cache:path` 返回 `{current,default,custom}`），
+  「更改文件夹」弹系统目录选择框（选完先试写一个临时文件，不可写就当场报错并保持原设置），
+  落设置 `cacheDir`；`video-cache.js` 的 `cacheRootPath()` 每次都用它解析根目录（自定义目录不可用时回退默认），
+  自定义过会有「恢复默认位置」按钮。已缓存的旧文件留在旧文件夹里，不会自动搬（UI 里有提示）。
+  文件在 `<userData>\offline-cache\<bvid>\<cid>\{meta.json,v.m4s,a.m4s[,export.mp4]}`（默认目录），`v.m4s`/`a.m4s` 是
   **原样保存的 DASH 分片**（一个字节都没改），`meta.json` 记着 codecs / 尺寸 / 带宽 / 时长 / 标题分P
   —— 离线时没有 playurl 可查，这些都得自己存下来。
   > ⚠ 目录名不能叫 `cache`：Windows 路径大小写不敏感，`<userData>\cache` 正好是 Chromium 自己的 HTTP

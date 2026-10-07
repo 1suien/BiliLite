@@ -1,4 +1,5 @@
 import { api, request, fixUrl } from './http.js'
+import { classifyNav, toNavUser } from './nav-classify.js'
 import { store } from '../store.js'
 
 const QR_GENERATE = 'https://passport.bilibili.com/x/passport-login/web/qrcode/generate'
@@ -36,18 +37,24 @@ function absorbCrossDomain(url) {
   }
 }
 
+/**
+ * 登录态校验。三种结果要分清楚，别把「风控/网络异常」当成「未登录」：
+ * - 正常登录 → 返回用户对象
+ * - B 站**明确**回未登录（code -101，或 code 0 且 isLogin === false）→ 返回 null
+ * - 其他异常（-352 风控、超时、缺 data、5xx）→ 抛 `err.transient = true`，调用方必须保留 cookie
+ *
+ * 曾经的写法是「拿不到 user 就当未登录」，于是 nav 被风控一次，restore() 就把
+ * cookie 全清掉（store.clearAuth()），表现就是「扫码登录后过一会儿自动退出」。
+ */
 export async function fetchNav() {
   const res = await request(NAV)
-  const data = res.json && res.json.data
-  if (!data || !data.isLogin) return null
-  return {
-    mid: data.mid,
-    uname: data.uname,
-    face: fixUrl(data.face),
-    level: (data.level_info && data.level_info.current_level) || 0,
-    coins: data.money || 0,
-    vip: data.vipStatus === 1
-  }
+  const c = classifyNav(res.json || {}, res.status)
+  if (c.kind === 'user') return toNavUser(c.data, fixUrl)
+  if (c.kind === 'guest') return null
+  const err = new Error(c.message)
+  err.transient = true
+  err.biliCode = c.code
+  throw err
 }
 
 export async function qrGenerate() {
@@ -73,10 +80,15 @@ export async function qrPoll(qrcodeKey) {
   const status = POLL_STATUS[data.code] || 'error'
   if (status === 'success') {
     absorbCrossDomain(data.url)
-    const user = await fetchNav()
-    if (!user) return { status: 'error', message: '登录成功但获取用户信息失败，请重试' }
-    store.setUser(user)
-    return { status: 'success', user }
+    let user = null
+    try {
+      user = await fetchNav()
+    } catch (err) {
+      // 扫码已经成功、cookie 也已经落盘，nav 这一下被风控/超时不该判登录失败
+      console.warn('[auth] 登录后校验暂失败（登录仍有效）：', err.message)
+    }
+    if (user) store.setUser(user)
+    return { status: 'success', user: user || store.state.user || null }
   }
   return { status, message: data.message || body.message || '' }
 }
@@ -84,13 +96,27 @@ export async function qrPoll(qrcodeKey) {
 export async function restore() {
   await ensureBuvid()
   if (!store.isLoggedIn()) return { loggedIn: false, user: null }
-  const user = await fetchNav()
-  if (!user) {
-    store.clearAuth()
-    return { loggedIn: false, user: null }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const user = await fetchNav()
+      if (!user) {
+        // 只有 B 站明确回「未登录」才清凭据
+        store.clearAuth()
+        return { loggedIn: false, user: null }
+      }
+      store.setUser(user)
+      return { loggedIn: true, user }
+    } catch (err) {
+      if (attempt === 0) {
+        await new Promise((r) => setTimeout(r, 600))
+        continue
+      }
+      // 风控/网络异常：保留 cookie 与上次的用户信息，别把用户踢下线
+      console.warn('[auth] 登录态校验失败，保留登录：', err.message)
+      return { loggedIn: true, user: store.state.user || null, stale: true, message: err.message }
+    }
   }
-  store.setUser(user)
-  return { loggedIn: true, user }
+  return { loggedIn: true, user: store.state.user || null, stale: true }
 }
 
 export async function logout() {

@@ -94,6 +94,9 @@ export const api = {
     clear: proxy(() => bridge.cache.clear()),
     reveal: proxy((key) => bridge.cache.reveal(key)),
     exportMp4: proxy((key, saveAs) => bridge.cache.exportMp4(key, saveAs)),
+    path: proxy(() => bridge.cache.path()),
+    pickDir: proxy(() => bridge.cache.pickDir()),
+    openDir: proxy(() => bridge.cache.openDir()),
     // 事件订阅不是 Promise：桥接缺失时返回一个空退订函数
     onProgress: (cb) => (bridge && bridge.cache.onProgress ? bridge.cache.onProgress(cb) : () => {})
   }

@@ -1,8 +1,9 @@
-// 解析层离线自检：不启动 Electron，直接跑字幕解析（SRT / VTT / ASS）。
+// 解析层离线自检：不启动 Electron，直接跑字幕解析（SRT / VTT / ASS）与 nav 分类。
 //   node tools/check-parsers.mjs
-// 改动 src/renderer/src/utils/subtitle.js 之后先跑它，再去跑冒烟。
+// 改动 src/renderer/src/utils/subtitle.js 或 src/main/bili/nav-classify.js 之后先跑它，再去跑冒烟。
 // （读书模块的 zip/xml/txt/epub 解析曾在这里自检，随模块一起归档到 backup/reader-module/。）
 import { decodeSubtitleBytes, isSubtitleFile, parseSubtitle } from '../src/renderer/src/utils/subtitle.js'
+import { classifyNav, toNavUser } from '../src/main/bili/nav-classify.js'
 
 let bad = 0
 const check = (label, ok, detail) => {
@@ -73,6 +74,28 @@ const gbkParsed = parseSubtitle(decodeSubtitleBytes(gbkSrt), 'srt')
 check('GB18030 字幕能解码出中文', gbkParsed.items[0].content === '中文字幕测试', gbkParsed.items[0].content)
 check('BOM 开头的 UTF-8 字幕不把 BOM 当正文', parseSubtitle('\uFEFF' + srtText, 'srt').items[0].content === srt.items[0].content, 1)
 check('认字幕扩展名', isSubtitleFile('a.SRT') && isSubtitleFile('b.ass') && !isSubtitleFile('c.mp4'), 1)
+
+// ------------------------------------------------------- nav 分类（决定要不要清登录态）
+// 回归保护：以前「拿不到 user 就当未登录」，nav 被风控一次就把 cookie 全清掉、
+// 用户表现为「扫码登录后过一会儿自动退出」。这里锁住三种结果的判定。
+const navUser = classifyNav({ code: 0, data: { isLogin: true, mid: 42, uname: 'up' } })
+check('nav：正常登录 → user', navUser.kind === 'user' && navUser.data.mid === 42, navUser.kind)
+const navGuest = classifyNav({ code: -101, message: '账号未登录' })
+check('nav：code -101 → guest', navGuest.kind === 'guest', navGuest.kind)
+const navGuest2 = classifyNav({ code: 0, data: { isLogin: false } })
+check('nav：code 0 + isLogin false → guest', navGuest2.kind === 'guest', navGuest2.kind)
+const navRisk = classifyNav({ code: -352, message: '请求被拦截' })
+check('nav：-352 风控 → transient（不能清 cookie）', navRisk.kind === 'transient' && navRisk.code === -352, navRisk)
+const navEmpty = classifyNav({}, 412)
+check('nav：缺 data → transient 且带上 HTTP 状态', navEmpty.kind === 'transient' && /412/.test(navEmpty.message), navEmpty)
+const navNoData = classifyNav({ code: 0 })
+check('nav：code 0 但没 data → transient', navNoData.kind === 'transient', navNoData.kind)
+const navUserName = toNavUser({ mid: 7, uname: '随流水儿', face: '//i0.hdslb.com/x.jpg', level_info: { current_level: 6 }, money: 3, vipStatus: 1 }, (u) => 'https:' + u)
+check(
+  'nav：用户字段映射（face 补协议、等级、会员）',
+  navUserName.mid === 7 && navUserName.face === 'https://i0.hdslb.com/x.jpg' && navUserName.level === 6 && navUserName.coins === 3 && navUserName.vip === true,
+  navUserName
+)
 
 console.log(bad ? `\n=== 失败 ${bad} 项 ===` : '\n=== 解析层自检全部通过 ===')
 process.exit(bad ? 1 : 0)

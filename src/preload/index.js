@@ -42,6 +42,9 @@ const CHANNELS = [
   'cache:clear',
   'cache:reveal',
   'cache:export',
+  'cache:path',
+  'cache:pickDir',
+  'cache:openDir',
   'backup:write'
 ]
 
@@ -157,6 +160,10 @@ const api = {
     clear: () => call('cache:clear'),
     reveal: (key) => call('cache:reveal', { key }),
     exportMp4: (key, saveAs = false) => call('cache:export', { key, saveAs }),
+    /** 当前/默认/自定义缓存目录；pickDir 会弹系统文件夹选择框并在确认后落盘设置。 */
+    path: () => call('cache:path'),
+    pickDir: () => call('cache:pickDir'),
+    openDir: () => call('cache:openDir'),
     /** 订阅下载进度；返回取消订阅函数（组件卸载时务必调用）。 */
     onProgress: (cb) => onEvent('cache:progress', cb)
   }

@@ -68,6 +68,14 @@ export const useAuthStore = defineStore('auth', {
           if (res.status === 'success') {
             this.user = res.user || null
             this.qr.message = '登录成功'
+            // 扫码成功但用户信息没取到（nav 被风控/断网）：cookie 已存好，再校验一次补上昵称
+            if (!this.user) {
+              try {
+                await this.restore()
+              } catch {
+                /* 保底：下次启动或下次成功 nav 时会补上 */
+              }
+            }
             break
           }
         } catch (err) {

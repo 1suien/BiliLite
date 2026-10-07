@@ -1065,17 +1065,62 @@ export async function runSmoke(win) {
           }
         }
 
-        // 缓存页：占用条 + 列表里能看到刚缓存的分P
+        // 缓存页：占用条 + 按稿件分组的卡片（同一稿件的多个分P应该归到一张卡里）
         await js(`(() => { location.hash = '#/cache'; return true })()`)
         await sleep(1400)
         const page = await js(`(() => {
-          const items = document.querySelectorAll('.rowitem').length
+          const cards = document.querySelectorAll('.ccard').length
+          const counts = [...document.querySelectorAll('.ccard .ccount')].map((el) => el.textContent.replace(/\\s+/g, ' ').trim())
+          const dir = document.querySelector('.cdir')
           const head = document.querySelector('.page-head')
-          return { items, text: head ? head.textContent.replace(/\\s+/g, ' ').trim().slice(0, 90) : '' }
+          return {
+            cards,
+            counts,
+            dir: dir ? dir.textContent.trim().slice(0, 80) : '',
+            text: head ? head.textContent.replace(/\\s+/g, ' ').trim().slice(0, 90) : ''
+          }
         })()`)
         await shot('6-缓存页.png')
-        if (page && page.items >= 1) pass('缓存页：占用与已缓存列表（含刚下载的分P）', page)
+        if (page && page.cards >= 1) pass('缓存页：占用与已缓存列表（含刚下载的分P）', page)
         else fail('缓存页：占用与已缓存列表（含刚下载的分P）', page)
+        // 分组断言：同稿件多分P → 一张卡 + 「N 个内容」；这张卡的 bvid 必须是我们刚缓存的那个
+        const grouped = await js(`(() => {
+          const key = window.__smokeCache ? window.__smokeCache.bvid : ''
+          const cards = [...document.querySelectorAll('.ccard')]
+          const hit = cards.find((c) => (c.textContent || '').indexOf(key) >= 0) || cards[0] || null
+          const rows = hit ? hit.querySelectorAll('.crow').length : 0
+          const count = hit ? hit.querySelector('.ccount') : null
+          return {
+            key,
+            cards: cards.length,
+            rows,
+            count: count ? count.textContent.replace(/\\s+/g, ' ').trim() : ''
+          }
+        })()`)
+        if (grouped && grouped.cards >= 1 && /个内容/.test(grouped.count))
+          pass('缓存页：同一稿件的分P归到一张卡片（「N 个内容」）', grouped)
+        else fail('缓存页：同一稿件的分P归到一张卡片（「N 个内容」）', grouped)
+        // 缓存目录：默认目录 = <userData>/offline-cache，未自定义时 custom 为空
+        // （弹系统目录选择框的那条路没法自动点，只验 path() 的读取与渲染）
+        const dirInfo = await js(`(async () => {
+          const info = await window.bili.cache.path()
+          const shown = document.querySelector('.cdir')
+          return {
+            current: String((info && info.current) || ''),
+            isDefault: Boolean(info && info.current && info.current === info.default),
+            custom: String((info && info.custom) || ''),
+            shown: shown ? shown.textContent.trim().slice(0, 80) : ''
+          }
+        })()`)
+        if (
+          dirInfo &&
+          /offline-cache$/.test(dirInfo.current) &&
+          dirInfo.isDefault &&
+          dirInfo.custom === '' &&
+          dirInfo.shown === dirInfo.current
+        )
+          pass('缓存页：缓存文件夹显示默认位置，且和主进程 path() 一致', dirInfo)
+        else fail('缓存页：缓存文件夹显示默认位置，且和主进程 path() 一致', dirInfo)
 
         // 本地播放：离开再回来，逼 startPlay 重跑；应该走 bcache:// 本地文件并真的出画面
         await js(`(() => { location.hash = '#/'; return true })()`)

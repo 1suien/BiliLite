@@ -1,5 +1,5 @@
 import { ipcMain, shell, dialog, app, BrowserWindow } from 'electron'
-import { mkdir, writeFile, readFile, stat } from 'node:fs/promises'
+import { mkdir, writeFile, readFile, stat, rm } from 'node:fs/promises'
 import { join, basename, extname } from 'node:path'
 import { store } from './store.js'
 import { qrGenerate, qrPoll, restore, logout } from './bili/auth.js'
@@ -21,7 +21,9 @@ import {
   clearCache,
   revealCache,
   runningTasks,
-  exportCache
+  exportCache,
+  cacheRootPath,
+  defaultCacheRoot
 } from './video-cache.js'
 
 function wrap(handler) {
@@ -149,6 +151,41 @@ const handlers = {
   'cache:remove': wrap(async ({ key }) => removeCache(key)),
   'cache:clear': wrap(async () => clearCache()),
   'cache:reveal': wrap(async ({ key }) => revealCache(key)),
+  // 缓存目录：默认 <userData>/offline-cache，用户可在缓存页改成任意文件夹（settings.cacheDir）
+  'cache:path': wrap(async () => ({
+    current: cacheRootPath(),
+    default: defaultCacheRoot(),
+    custom: typeof store.state.settings.cacheDir === 'string' ? store.state.settings.cacheDir : ''
+  })),
+  'cache:pickDir': wrap(async () => {
+    const res = await dialog.showOpenDialog({
+      title: '选择缓存文件夹',
+      buttonLabel: '用这个文件夹',
+      defaultPath: cacheRootPath(),
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (res.canceled || !res.filePaths[0]) return { canceled: true }
+    const dir = res.filePaths[0]
+    // 立刻试写一次：选到只读盘/无权限目录时当场报错，而不是等每个下载任务都失败
+    const probeFile = join(dir, '.cache-write-test')
+    try {
+      await mkdir(dir, { recursive: true })
+      await writeFile(probeFile, '', 'utf8')
+      await rm(probeFile, { force: true })
+    } catch (err) {
+      throw new Error(`这个文件夹不可写：${err && err.message}`)
+    }
+    store.patchSettings({ cacheDir: dir })
+    return { path: dir }
+  }),
+  'cache:openDir': wrap(async () => {
+    const dir = cacheRootPath()
+    if (!dir) throw new Error('缓存目录还没准备好')
+    await mkdir(dir, { recursive: true })
+    const err = await shell.openPath(dir)
+    if (err) throw new Error(err)
+    return dir
+  }),
   'cache:export': wrap(async ({ key, saveAs }) => {
     if (!saveAs) return exportCache(key)
     const rows = await listCache()
@@ -175,7 +212,8 @@ const handlers = {
 }
 
 /**
- * 缓存模块初始化：目录固定在 `<userData>/offline-cache`，下载进度通过 `cache:progress`
+ * 缓存模块初始化：默认目录 `<userData>/offline-cache`（用户可在缓存页改成别的文件夹，
+ * 见 settings.cacheDir → video-cache.js 的 cacheRootPath()）。下载进度通过 `cache:progress`
  * 事件广播给所有窗口（渲染层用 preload 暴露的 api.cache.onProgress 订阅）。
  *
  * ⚠ 别用 `<userData>/cache`：Windows 路径大小写不敏感，那正好是 Chromium 自己的

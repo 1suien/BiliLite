@@ -46,8 +46,33 @@ export function initVideoCache({ root, getPlayurl, onProgress }) {
   }
 }
 
-export function cacheRootPath() {
+/** 默认根目录（`<userData>/offline-cache`），设置页拿它做「恢复默认位置」。 */
+export function defaultCacheRoot() {
   return ctx.root
+}
+
+/** 用户在设置里指定的缓存目录；空串/相对路径都算没设。 */
+function customRoot() {
+  const raw = store.state.settings.cacheDir
+  const s = typeof raw === 'string' ? raw.trim() : ''
+  if (!s || !path.isAbsolute(s)) return ''
+  return s
+}
+
+/**
+ * 当前生效的缓存根目录。自定义目录不可写时回退默认目录（宁可放默认位置，也不要写失败）。
+ * 注意：`bcache://` 协议也走这个函数，所以改目录后离线播放会立刻跟着换。
+ */
+export function cacheRootPath() {
+  const custom = customRoot()
+  if (!custom) return ctx.root
+  try {
+    fs.mkdirSync(custom, { recursive: true })
+    return custom
+  } catch (err) {
+    console.warn('[cache] 自定义缓存目录不可用，回退默认位置：', err && err.message)
+    return ctx.root
+  }
 }
 
 export function cacheKey(bvid, cid) {
@@ -63,8 +88,9 @@ function clean(value) {
 export function cacheDir(bvid, cid) {
   const b = clean(bvid)
   const c = clean(cid)
-  if (!b || !c || !ctx.root) return ''
-  return path.join(ctx.root, b, c)
+  const root = cacheRootPath()
+  if (!b || !c || !root) return ''
+  return path.join(root, b, c)
 }
 
 /** 渲染层/播放器用的离线取流地址。 */
@@ -161,10 +187,11 @@ async function describe(bvid, cid, meta) {
 /** 缓存列表（按加入时间倒序）。 */
 export async function listCache() {
   const out = []
-  if (!ctx.root) return out
+  const root = cacheRootPath()
+  if (!root) return out
   let bvids = []
   try {
-    bvids = await fsp.readdir(ctx.root, { withFileTypes: true })
+    bvids = await fsp.readdir(root, { withFileTypes: true })
   } catch {
     return out
   }
@@ -172,7 +199,7 @@ export async function listCache() {
     if (!b.isDirectory() || !clean(b.name)) continue
     let cids = []
     try {
-      cids = await fsp.readdir(path.join(ctx.root, b.name), { withFileTypes: true })
+      cids = await fsp.readdir(path.join(root, b.name), { withFileTypes: true })
     } catch {
       continue
     }
@@ -249,10 +276,11 @@ export async function removeCache(key) {
 
 export async function clearCache() {
   for (const task of tasks.values()) task.cancel()
-  if (!ctx.root) return { removed: 0 }
+  const root = cacheRootPath()
+  if (!root) return { removed: 0 }
   const rows = await listCache()
-  await rmWithRetry(ctx.root)
-  await fsp.mkdir(ctx.root, { recursive: true })
+  await rmWithRetry(root)
+  await fsp.mkdir(root, { recursive: true })
   return { removed: rows.length }
 }
 
