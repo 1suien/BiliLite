@@ -229,7 +229,19 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 `reload()`，两次 `load()` 叠在一起把 MediaSource 顶掉，表现就是「放两秒停住、再点播放也没反应」）→
 切到 `#/learn` 再等 8.6 秒，断言进度又涨了 5 秒以上且 `paused === false`（被卡住的话这条会挂）→ 进视频页点「小窗播放」，断言这一路交给小窗、
 **连「看到哪儿」也带过去了**（`window.__miniLog.startTime` 不小于点击时那一页的秒数减 12）、
-本页显示「视频正在小窗播放」→ 点「收回本页播放」，断言小窗关掉、本页 `currentTime` 重新涨起来；首页信息流没加载出来时整段软跳过）、
+本页显示「视频正在小窗播放」→ 点「收回本页播放」，断言小窗关掉、本页 `currentTime` 重新涨起来 →
+**暂停状态下**用真实鼠标点标题栏的「换大小 / 收起·展开 / 关闭」三个按钮，各自断言宽度变了 / `.collapsed` 加上了且
+`.mp-body` 隐藏 / `.mini-player` 真的消失（**这一组是给用户反馈「画圈部分点击不生效」补的回归**：
+标题栏既能拖动、又长着按钮，真实鼠标按下按钮时 `pointerdown` 先冒泡到拖动逻辑，那边一 `preventDefault()`，
+浏览器就不再补发随后的 `click` —— 这是 Pointer Events 规范行为，按钮看着在、点了没反应。
+冒烟里用的是注入式输入（`sendInputEvent` / CDP），**根本不产生 `pointerdown`**，所以这个 bug 一直测不出来。
+现在按钮自己 `@pointerdown.stop`、拖动侧再加一道 `closest('button')` 保护，并且拖动不再 `setPointerCapture`；
+按钮命中区也从 22×22 放到 26×26）→
+测试还顺手查了另一起「8 个交互点全哑」：交互点收口函数 `tap()` 写成了工厂（返回 handler），而模板里写的是
+`@click="tap(() => …)"` —— 这是 Vue 的**内联语句**，编译出来是 `($event) => tap(() => …)`，只执行工厂、
+把返回的 handler 丢掉。正确写法是 `tap($event, () => …)`（必须把事件显式传进去），
+`window.__tapLog` / DOM 探针（`Symbol(_vei)` 才是 Vue 3.5 装监听器的地方，字符串 `el._vei` 永远是空的）就是为查这个加的，
+首页信息流没加载出来时整段软跳过）、
 读书模块已于 2026-10-07 按用户要求摘除（本机归档在 `backup\reader-module\`，那里有 `MANIFEST.txt`；
 ⚠ 读书模块从未进入过这个仓库（`backup/` 被 `.gitignore` 忽略），所以仓库里没有它的历史版本，要留副本得另存），
 所以断言总数从 139 降到 72：读书段 67 项、侧栏「读书」那 1 项删掉，新增「侧栏已没有读书入口」1 项；
@@ -241,7 +253,9 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 2026-10-07 又一轮按用户要求把整块离线缓存摘掉（源码归档在 `backup\cache-module\`，含 `MANIFEST.txt`），
 换成侧栏「本地」页播放本机视频文件：去掉缓存那 7 项、新增本地播放 4 项；
 同一天再加「小窗播放」（卡片/视频页都能把视频丢进悬浮小窗，边看边翻页）又加 4 项，
-之后修「小窗放两秒就停住」时又加了 1 项（一次点击只取一路流），**现在最多 82 项**
+之后修「小窗放两秒就停住」时又加了 1 项（一次点击只取一路流），
+再修「画圈部分点击不生效」（标题栏按钮被拖动逻辑吞掉 click + `tap()` 内联语句写法）时又加了 3 项
+（暂停时真实鼠标点「换大小 / 收起·展开 / 关闭」），**现在最多 85 项**
 （`首页「继续学习」卡片不重复` 在首页没有继续学习卡时软跳过，只 log 不打 PASS/FAIL，所以那轮会显示 76，
 另有一条「切换页面自动回到顶部」在搜索页没滚起来时也只 `warn`）。
 
@@ -358,10 +372,49 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 > `切换页面自动回到顶部：搜索结果页没滚起来（before=0）` 软跳过）：`pageT 128.258924` → 小窗 `startTime 128.2598`、
 > 小窗当前 `t 128.554603`（**真的从 128 秒接着播，不再从 0 重放**），点「收回本页播放」后 `pageBack 128.246148`。
 > 桌面那份两侧 `app.asar` SHA256 一致 `37DB37DF…D582`（24,476,409 B）、`BiliLite.exe` 一致 `1A11B5B9…3320`。
+>
+> 再一轮是**修「画圈部分点击不生效」**（用户 2026-10-07 反馈，截图 `屏幕截图 2026-10-07 200513.png`：小窗浮在视频页中间、
+> 停在暂停态，红圈圈的是标题栏那排「收起 / 换大小 / 回到视频页 / 关闭」）。根因有两条：
+> ① **用户那份 v0.2.7 里**，按钮长在可拖动的标题栏内，真实鼠标按下按钮时 `pointerdown` 先冒泡到 `onDragStart`，
+> 那边 `setPointerCapture()` + `e.preventDefault()` —— 按 Pointer Events 规范，`pointerdown` 的默认行为被阻止后
+> 浏览器**不再补发兼容鼠标事件（含 `click`）**，于是「按钮看着在、点了没反应」。冒烟用的是注入式输入
+> （`sendInputEvent` / CDP），**根本不产生 `pointerdown`**，所以这个 bug 一直测不出来。改法：按钮各自
+> `@pointerdown.stop` + 拖动侧 `closest('button')` 双保险、拖动改在 `window` 上听 `pointermove/pointerup`（不再抢指针）、
+> `unbindDrag()` 也在 `onBeforeUnmount` 里收尾、按钮命中区 22×22 → 26×26、标题栏高 30 → 32px。
+> ② 这一轮的改造自己写坏过一次：把交互点收口写成**工厂函数** `tap(fn)`（返回 handler），而模板写成
+> `@click="tap(() => …)"` —— 这是 Vue 的**内联语句**，编译出来是 `($event) => tap(() => …)`：只执行工厂、
+> 把返回的 handler 丢掉，8 个交互点全哑。正确写法 `tap($event, () => …)`（事件必须显式传进去）。
+> 为查这条加了 `window.__tapLog` 埋点与 DOM 探针，首轮复现 `-Tag mini8` = **80 PASS / 3 FAIL / 2 WARN**
+> （`smoke-mini8-report.txt`），诊断是「事件到了按钮、处理函数没进」：`taps: []`、`clicks: […"mp-btn@#/learn"]`、
+> 直接派发 `MouseEvent('click')` 后 `tapped: 0`。**探针本身也踩了个坑**：Vue 3.5 把事件调用器存在
+> `Symbol("_vei")` 上，读字符串 `el._vei` 永远是空对象，一开始还以为是「监听器没挂上」。
+> 改成 `tap($event, …)` 后 `-Tag mini9` = **85 PASS / 0 FAIL / 0 WARN**（327 行），探针变成
+> `{"count":1,"items":[{"rect":[821,361,420,299],"cls":"mini-player","nbtn":4,"veiSyms":["Symbol(_vei)"],"sameNode":true,"tapped":1,"err":""}]}`
+> （`tapped: 1` = 派发进去真的进了 `tap`），三条新断言：换大小 `{"w0":320,"w1":420,"paused":true,"overlay":true}`、
+> 收起 `{"collapsed":true,"bodyHidden":true,"expanded":true}`、关闭 `{"at":{"x":1099,"y":370.5}}`，
+> 暂停点击那组 `pauseTaps` 里出现 `{"t":"click","drag":false,"since":-1,"ran":true}`（真的执行到 store）；
+> 位置交接仍然成立：深色 `pageT 60.939437` → `mini.startTime 60.940542`、小窗 `t 61.07732`。
+> 浅色 `-Tag mini9light` = **85 PASS / 0 FAIL / 0 WARN**（319 行，`pageT 122.339044` → `startTime 122.340919`、`t 122.625485`）；
+> `tools\check-parsers.mjs`（22 项）exit 0；`pnpm package` + `tools\check-package.mjs` exit 0（asar 24,487,696 B）。
+> 同步桌面（`robocopy release\win-unpacked "C:\Users\zouyx\Desktop\BiliLite" /E /R:3 /W:2`，`ROBO_EXIT=3` = 成功）后两侧一致：
+> `app.asar` SHA256 `5D41728F1A03E900EB178F543560BED22810383466B20F55114F1B38FF060CF5`（24,487,696 B）、
+> `BiliLite.exe` SHA256 `C6DA647A86E946DD5BA1E0F6C98F9C213DA8547FDBD14491947F3BEDD62C6A56`；
+> `check-package.mjs --dir "C:\Users\zouyx\Desktop\BiliLite"` exit 0；打包版浅色冒烟 `-Tag desk-mini6` = **85 PASS / 0 FAIL / 0 WARN**
+> （`smoke-desk-mini6-report.txt`，323 行；`shots-desk-mini6/`）：三条按钮断言在真机上也全绿
+> （`{"w0":320,"w1":420,"paused":true,"overlay":true}`、`{"collapsed":true,"bodyHidden":true,"expanded":true}`、`{"at":{"x":1099,"y":370.5}}`），
+> 位置交接 `pageT 127.018295` → `mini.startTime 127.018295`、小窗 `t 127.417944`。
+> 断言总数从 82 项涨到 **85 项**。
 
 > **冒烟前先看构建结果**：`tools\run-smoke.ps1 -SkipBuild` 会拿旧的 `out/` 继续跑，跑出一份「看起来全绿但什么都没证明」的报告
 > （踩过：`vite build` 失败、报告却照样满绿）。**改完 `src/` 先看 `BUILD_EXIT`，再谈冒烟。**
-> 断言总数是 **82 项**。其中 `切换页面自动回到顶部` 在搜索页没滚起来时只记 WARN（深色那轮就是 80 PASS + 1 WARN），
+> 而且 `BUILD_EXIT=0` 只说明构建成功，**不说明改动进了 bundle**：查「小窗按钮点不动」时最有用的一步是
+> `Select-String -Path out\renderer\assets\index-*.js -Pattern '__tapLog'`（或任何当轮新加的标记）——
+> 标记在 bundle 里，才排除了「跑的是上一版」。
+> ⚠ 另外，**别在 Windows 上用独立探针脚本查输入管线**：`tools\probe-input.mjs`（`electron tools\probe-input.mjs`）
+> 直接 `0xC0000005` 退出、`tools\probe-input.cjs` 连一行输出都写不出来还把 pwsh 挂住（GUI 子进程占住管道，
+> `Start-Process` 那条也救不回来）。要看「某个事件到底有没有派发 / 处理函数有没有进」，
+> 写成冒烟里的 `window.__tapLog` 埋点 + DOM 探针（`Symbol(_vei)`）最快。
+> 断言总数是 **85 项**。其中 `切换页面自动回到顶部` 在搜索页没滚起来时只记 WARN（深色那轮就是 80 PASS + 1 WARN），
 > `首页「继续学习」卡片不重复` 在首页没有继续学习卡时软跳过、只 log 不打 PASS/FAIL → 这两种情况下 PASS 计数会显示 80。
 
 > 主题验收：设置 `STUDY_SMOKE_THEME=light`（或 `dark`）会让冒烟把主题强制成对应主题再跑一遍，

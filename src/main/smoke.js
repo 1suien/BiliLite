@@ -182,6 +182,64 @@ export async function runSmoke(win) {
     pass(label, value, ms)
     return value
   }
+  // 真实鼠标点击：优先走 CDP 的 Input.dispatchMouseEvent，而不是 Electron 的 sendInputEvent。
+  // 实测 sendInputEvent 只产生 mouse 事件、**不产生 pointer 事件**，所以挂在 @pointerup 上的
+  // 按钮在冒烟里永远点不动（假失败）；而 CDP 的输入注入走的是浏览器真正的输入管线
+  // （Puppeteer 的 page.click 就是它），pointerdown/mousedown/pointerup/mouseup/click 按真实顺序来，
+  // 「拖动抢指针 → 按钮点不动」这类毛病才暴露得出来。
+  let dbgState = null
+  const dbgReady = async () => {
+    if (dbgState !== null) return dbgState
+    try {
+      const d = wc.debugger
+      if (!d.isAttached()) d.attach('1.3')
+      dbgState = true
+    } catch (err) {
+      warn('CDP 调试器挂不上，真实鼠标点击退回 sendInputEvent：' + err.message)
+      dbgState = false
+    }
+    return dbgState
+  }
+  const clickReal = async (x, y) => {
+    const px = Math.round(x)
+    const py = Math.round(y)
+    if (await dbgReady()) {
+      const d = wc.debugger
+      const send = (type, extra) =>
+        d.sendCommand(
+          'Input.dispatchMouseEvent',
+          Object.assign({ type, x: px, y: py, button: 'left', clickCount: 1 }, extra || {})
+        )
+      try {
+        await send('mouseMoved', { buttons: 0 })
+        await sleep(80)
+        await send('mousePressed', { buttons: 1 })
+        await sleep(80)
+        await send('mouseReleased', { buttons: 0 })
+        await sleep(150)
+        return
+      } catch (err) {
+        warn('CDP 点击失败，退回 sendInputEvent：' + err.message)
+        dbgState = false
+      }
+    }
+    wc.sendInputEvent({ type: 'mouseMove', x: px, y: py })
+    await sleep(80)
+    wc.sendInputEvent({ type: 'mouseDown', x: px, y: py, button: 'left', clickCount: 1 })
+    await sleep(80)
+    wc.sendInputEvent({ type: 'mouseUp', x: px, y: py, button: 'left', clickCount: 1 })
+    await sleep(150)
+  }
+  // 点之前先看看那个坐标上站的是谁：如果返回的不是按钮，就是「有东西盖住了」。
+  const hitAt = (x, y) =>
+    js(`(() => {
+      const el = document.elementFromPoint(${Math.round(x)}, ${Math.round(y)})
+      if (!el) return 'none'
+      return (el.tagName + '.' + String(el.className || '')).replace(/\\s+/g, ' ').trim().slice(0, 60)
+    })()`)
+  // 最近 6 条真实 click 记录（冒烟开头挂的捕获阶段监听器记的），用来判断 click 到底有没有派发出来
+  const clickLog = () =>
+    js(`(() => (window.__navLog || []).filter((r) => r[0] === 'click').slice(-6).map((r) => r[1] + '@' + r[2]))()`)
 
   log('=== BiliLite 冒烟测试开始 ===')
 
@@ -1167,9 +1225,161 @@ export async function runSmoke(win) {
 
         // ② 视频页那枚「小窗播放」按钮：点完本页让位，显示「视频正在小窗播放」
         // （先关掉卡片拉起来的小窗，避免两路抢同一个 store）
+        // ③ 标题栏/底栏那排按钮必须真的点得动。用户反馈「画圈部分点击不生效」，
+        //    而且他截图时小窗正好是暂停状态（画面盖着「点一下继续播放」）——
+        //    所以这里刻意先按暂停，再在**暂停状态下**用真实鼠标去点换大小/收起/关闭。
+        //    脚本 b.click() 测不出这类问题，只有让 Electron 发真实输入才算数。
+        const miniRect = async (sel, idx = 0) =>
+          js(`(() => {
+            const list = document.querySelectorAll(${JSON.stringify(sel)})
+            const b = list[${idx}]
+            if (!b) return null
+            const r = b.getBoundingClientRect()
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+          })()`)
+        const miniWidth = () =>
+          js(`(() => { const m = document.querySelector('.mini-player'); return m ? Math.round(m.getBoundingClientRect().width) : 0 })()`)
+        // tap() 里的埋点：判断真实鼠标事件到底有没有进到处理函数（ran=false 就是被 dragging/去重挡了）
+        const tapLog = () => js(`(() => (window.__tapLog || []).slice(-8))()`)
+        // 点击死活不进处理函数时，唯一能分清「监听器没挂上」和「抓到的是另一份 DOM」的办法：
+        // 数一数页面上到底有几个 .mini-player、按钮元素上有没有 Vue 的监听器表（_vei）、
+        // 以及直接派发一次 click 后 __tapLog 有没有长出来。
+        const domProbe = await js(`(() => {
+          const all = [...document.querySelectorAll('.mini-player')]
+          return {
+            count: all.length,
+            items: all.map((m) => {
+              const r = m.getBoundingClientRect()
+              const btns = [...m.querySelectorAll('.mp-head .mp-btn')]
+              const b = btns[1] || null
+              const before = (window.__tapLog || []).length
+              let delta = null
+              let err = ''
+              if (b) {
+                try {
+                  b.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }))
+                  delta = (window.__tapLog || []).length - before
+                } catch (e) {
+                  err = String(e && e.message)
+                }
+              }
+              let topNode = null
+              if (b) {
+                const br = b.getBoundingClientRect()
+                const el = document.elementFromPoint(br.left + br.width / 2, br.top + br.height / 2)
+                topNode = el && el.closest ? el.closest('.mini-player') : null
+              }
+              const syms = b ? Object.getOwnPropertySymbols(b).map(String).filter((s) => /vei/i.test(s)) : null
+              return {
+                rect: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)],
+                cls: String(m.className),
+                nbtn: btns.length,
+                // Vue 3.5 把事件调用器存在一个 Symbol("_vei") 上，字符串 el._vei 是空的（别再用它判断）
+                veiSyms: syms,
+                sameNode: topNode === m,
+                tapped: delta,
+                err
+              }
+            })
+          }
+        })()`)
+        log('      · 小窗 DOM 探针：' + JSON.stringify(domProbe).slice(0, 480))
+        // 探针里那次派发会占掉 500ms 去重窗口，等过去再跑后面的诊断，免得 script 那条看着像坏的
+        await sleep(600)
+        // 先用脚本 b.click() 点一次「换大小」：验证处理函数和 store 动作本身是好的，
+        // 坏的话就跟真实输入无关了，省得一直怀疑事件管线
+        const wScript0 = await miniWidth()
+        const scriptHit = await js(`(() => {
+          const b = document.querySelectorAll('.mini-player .mp-head .mp-btn')[1]
+          if (!b) return 'no-btn'
+          b.click()
+          return 'clicked'
+        })()`)
+        await sleep(500)
+        const wScript1 = await miniWidth()
+
+        // 先暂停：底栏第 1 个按钮
+        const pauseBtn = await miniRect('.mini-player .mp-foot .mp-btn', 0)
+        const pauseHit = pauseBtn ? await hitAt(pauseBtn.x, pauseBtn.y) : 'no-btn'
+        if (pauseBtn) await clickReal(pauseBtn.x, pauseBtn.y)
+        await sleep(700)
+        const pausedNow = await js(`(() => {
+          const m = document.querySelector('.mini-player')
+          const v = m ? m.querySelector('.mp-video') : null
+          const o = m ? m.querySelector('.mp-overlay') : null
+          return { paused: !!(v && v.paused), overlay: !!o, tip: o ? (o.textContent || '').trim().slice(0, 20) : '' }
+        })()`)
+        pausedNow.pauseHit = pauseHit
+        pausedNow.pauseClicks = await clickLog()
+        pausedNow.pauseTaps = await tapLog()
+        pausedNow.script = [wScript0, wScript1, scriptHit]
+
+        // 换大小：真实鼠标点标题栏第 2 个按钮 → 宽度必须变
+        const w0 = await miniWidth()
+        const sizeBtn = await miniRect('.mini-player .mp-head .mp-btn', 1)
+        const sizeHit = sizeBtn ? await hitAt(sizeBtn.x, sizeBtn.y) : 'no-btn'
+        if (sizeBtn) await clickReal(sizeBtn.x, sizeBtn.y)
+        await sleep(600)
+        const w1 = await miniWidth()
+        if (sizeBtn && w1 > 0 && w1 !== w0) pass('小窗播放：暂停时标题栏「换大小」真实鼠标点得动', { w0, w1, ...pausedNow })
+        else
+          fail('小窗播放：暂停时标题栏「换大小」真实鼠标点得动', {
+            w0,
+            w1,
+            ...pausedNow,
+            at: sizeBtn,
+            hit: sizeHit,
+            clicks: await clickLog(),
+            taps: await tapLog(),
+            script: [wScript0, wScript1, scriptHit]
+          })
+
+        // 收起 / 展开：标题栏第 1 个按钮
+        const minBtn = await miniRect('.mini-player .mp-head .mp-btn', 0)
+        const minHit = minBtn ? await hitAt(minBtn.x, minBtn.y) : 'no-btn'
+        if (minBtn) await clickReal(minBtn.x, minBtn.y)
+        await sleep(600)
+        const collapsed = await js(`(() => {
+          const m = document.querySelector('.mini-player')
+          const body = m ? m.querySelector('.mp-body') : null
+          return { has: !!document.querySelector('.mini-player.collapsed'), bodyHidden: body ? body.offsetParent === null : null }
+        })()`)
+        const minBtn2 = await miniRect('.mini-player .mp-head .mp-btn', 0)
+        if (minBtn2) await clickReal(minBtn2.x, minBtn2.y)
+        await sleep(600)
+        const expanded = await js(`!document.querySelector('.mini-player.collapsed')`)
+        if (minBtn && collapsed.has && collapsed.bodyHidden === true && expanded)
+          pass('小窗播放：标题栏「收起/展开」真实鼠标点得动', { collapsed: collapsed.has, bodyHidden: collapsed.bodyHidden, expanded })
+        else
+          fail('小窗播放：标题栏「收起/展开」真实鼠标点得动', {
+            collapsed: collapsed.has,
+            bodyHidden: collapsed.bodyHidden,
+            expanded,
+            at: minBtn,
+            hit: minHit,
+            clicks: await clickLog(),
+            taps: await tapLog()
+          })
+
+        // 关闭：真实鼠标点标题栏最右边那个 ×
+        const closeRect = await miniRect('.mini-player .mp-btn.danger', 0)
+        const closeHit = closeRect ? await hitAt(closeRect.x, closeRect.y) : 'no-btn'
+        let realClosed = false
+        if (closeRect && closeRect.x > 0 && closeRect.y > 0) {
+          await clickReal(closeRect.x, closeRect.y)
+          for (let i = 0; i < 8; i++) {
+            realClosed = await js(`!document.querySelector('.mini-player')`)
+            if (realClosed) break
+            await sleep(300)
+          }
+        }
+        if (realClosed) pass('小窗播放：标题栏「关闭」真实鼠标点得动', { at: closeRect })
+        else fail('小窗播放：标题栏「关闭」真实鼠标点得动', { at: closeRect, hit: closeHit, closed: realClosed, clicks: await clickLog(), taps: await tapLog() })
+        // 真点没生效就用脚本兜底关掉，别让后面的断言跟着一起倒
+        // （小窗里的按钮现在挂在 pointerup 上，所以兜底也要发 pointerup，不能只 b.click()）
         await js(`(() => {
           const b = document.querySelector('.mini-player .mp-btn.danger')
-          if (b) b.click()
+          if (b) b.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true }))
           return !!b
         })()`)
         await sleep(700)

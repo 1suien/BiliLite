@@ -312,21 +312,53 @@ function backToPage() {
 }
 
 /* ── 拖动 ─────────────────────────────────────────────────────────── */
+// ⚠ 别在这里 setPointerCapture：指针被抢到根节点以后，pointerup 的落点也变成根节点，
+// 浏览器算出来的 click 目标就成了「按钮和根节点的共同祖先」= 根节点，
+// 于是标题栏上那排按钮（收起/换大小/回到视频页/关闭）全都点不动（用户反馈「画圈部分点击不生效」）。
+// 现在改成：按钮上的按下直接放行；拖动期间把 move/up 挂到 window 上，指针离开小窗也跟得住。
 let dragFrom = null
+
+function unbindDrag() {
+  window.removeEventListener('pointermove', onDragMove)
+  window.removeEventListener('pointerup', onDragEnd)
+  window.removeEventListener('pointercancel', onDragEnd)
+}
+
+/* 小窗里的按钮同时挂 pointerup 和 click，谁先来用谁，另一次在 500ms 内丢掉：
+   - 真实鼠标/触摸/手写笔一定先来 pointerup（可靠，不受「click 被拖动或 preventDefault 吞掉」影响）；
+   - 某些注入式输入（例如 Electron 的 sendInputEvent，用于冒烟）根本不产生 pointer 事件，
+     这时只有 click 会来，照样能用。
+   配合模板里的 @pointerdown.stop：在按钮上按下绝不会变成拖动；拖动中松手也不算点击。 */
+let lastTap = 0
+
+/* 交互点收口：模板里必须写成 tap($event, () => …)。
+   坑（已踩过）：写成 tap(() => …) 是 Vue 的「内联语句」，编译出来是 ($event) => tap(() => …)——
+   只会执行到工厂函数、把返回的 handler 丢掉，按钮看着有监听器（_vei 里也有 onClick）却永远不响应。 */
+function tap(e, fn) {
+  const row = { t: (e && e.type) || '?', drag: dragging.value, since: lastTap ? Date.now() - lastTap : -1, ran: false }
+  if (!window.__tapLog) window.__tapLog = []
+  if (window.__tapLog.length > 40) window.__tapLog.shift()
+  window.__tapLog.push(row)
+  if (dragging.value) return
+  const now = Date.now()
+  if (e && e.type === 'click' && lastTap && now - lastTap < 500) return
+  lastTap = now
+  row.ran = true
+  if (e && e.stopPropagation) e.stopPropagation()
+  fn()
+}
 
 function onDragStart(e) {
   if (e.button !== 0) return
+  // 点在按钮上就别抢：抢了就是拖动，按钮也按不动
+  if (e.target && e.target.closest && e.target.closest('button')) return
   const el = rootEl.value
   const rect = el ? el.getBoundingClientRect() : { left: mini.x, top: mini.y }
   dragFrom = { dx: e.clientX - rect.left, dy: e.clientY - rect.top }
   dragging.value = true
-  if (el && el.setPointerCapture) {
-    try {
-      el.setPointerCapture(e.pointerId)
-    } catch {
-      /* ignore */
-    }
-  }
+  window.addEventListener('pointermove', onDragMove)
+  window.addEventListener('pointerup', onDragEnd)
+  window.addEventListener('pointercancel', onDragEnd)
   e.preventDefault()
 }
 
@@ -336,6 +368,7 @@ function onDragMove(e) {
 }
 
 function onDragEnd() {
+  unbindDrag()
   if (!dragFrom) return
   dragFrom = null
   dragging.value = false
@@ -361,6 +394,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', resizeWindow)
+  unbindDrag()
   teardown()
 })
 
@@ -390,19 +424,46 @@ watch(
     class="mini-player"
     :class="{ dragging, collapsed: mini.minimized }"
     :style="boxStyle"
-    @pointermove="onDragMove"
-    @pointerup="onDragEnd"
-    @pointercancel="onDragEnd"
   >
     <div class="mp-head" title="按住拖动小窗" @pointerdown="onDragStart">
       <Icon name="pip" :size="14" />
       <span class="mp-title clamp-1">{{ mini.title || '小窗播放' }}</span>
-      <button class="mp-btn" :title="mini.minimized ? '展开小窗' : '收起成一条'" @click="mini.toggleMinimize()">
+      <button
+        class="mp-btn"
+        draggable="false"
+        :title="mini.minimized ? '展开小窗' : '收起成一条'"
+        @pointerdown.stop
+        @pointerup="tap($event, () => mini.toggleMinimize())" @click="tap($event, () => mini.toggleMinimize())"
+      >
         <Icon :name="mini.minimized ? 'up' : 'down'" :size="13" />
       </button>
-      <button class="mp-btn" title="换大小" @click="mini.cycleSize()"><Icon name="size" :size="13" /></button>
-      <button class="mp-btn" title="回到视频页" @click="backToPage"><Icon name="external" :size="13" /></button>
-      <button class="mp-btn danger" title="关闭小窗" @click="mini.close()"><Icon name="x" :size="13" /></button>
+      <button
+        class="mp-btn"
+        draggable="false"
+        title="换大小"
+        @pointerdown.stop
+        @pointerup="tap($event, () => mini.cycleSize())" @click="tap($event, () => mini.cycleSize())"
+      >
+        <Icon name="size" :size="13" />
+      </button>
+      <button
+        class="mp-btn"
+        draggable="false"
+        title="回到视频页"
+        @pointerdown.stop
+        @pointerup="tap($event, backToPage)" @click="tap($event, backToPage)"
+      >
+        <Icon name="external" :size="13" />
+      </button>
+      <button
+        class="mp-btn danger"
+        draggable="false"
+        title="关闭小窗"
+        @pointerdown.stop
+        @pointerup="tap($event, () => mini.close())" @click="tap($event, () => mini.close())"
+      >
+        <Icon name="x" :size="13" />
+      </button>
     </div>
 
     <div v-show="!mini.minimized" class="mp-body">
@@ -410,9 +471,9 @@ watch(
 
       <div v-if="mini.error" class="mp-overlay">
         <div class="mp-err">{{ mini.error }}</div>
-        <button class="btn sm" @click="reload">重试</button>
+        <button class="btn sm" draggable="false" @pointerup="tap($event, reload)" @click="tap($event, reload)">重试</button>
       </div>
-      <div v-else-if="!mini.playing" class="mp-overlay soft" @click="resume">
+      <div v-else-if="!mini.playing" class="mp-overlay soft" @pointerup="tap($event, resume)" @click="tap($event, resume)">
         <Icon name="play" :size="30" />
         <span class="mp-tip">{{ mini.status || (blocked ? '点了播放但被系统拦下，再点一下这里' : '点一下继续播放') }}</span>
       </div>
@@ -421,14 +482,26 @@ watch(
     </div>
 
     <div v-show="!mini.minimized" class="mp-foot">
-      <button class="mp-btn" :title="mini.playing ? '暂停' : '播放'" @click="toggle">
+      <button
+        class="mp-btn"
+        draggable="false"
+        :title="mini.playing ? '暂停' : '播放'"
+        @pointerdown.stop
+        @pointerup="tap($event, toggle)" @click="tap($event, toggle)"
+      >
         <Icon :name="mini.playing ? 'pause' : 'play'" :size="14" />
       </button>
       <span class="mp-time mono">{{ mini.clock }}</span>
       <div class="mp-bar" title="点一下跳转" @click="onSeekClick">
         <div class="mp-track"><i :style="{ width: mini.pct + '%' }" /></div>
       </div>
-      <button class="mp-btn" :title="mini.error ? '重新加载' : '静音开关'" @click="toggleMute">
+      <button
+        class="mp-btn"
+        draggable="false"
+        :title="mini.error ? '重新加载' : '静音开关'"
+        @pointerdown.stop
+        @pointerup="tap($event, toggleMute)" @click="tap($event, toggleMute)"
+      >
         <Icon :name="muted ? 'mute' : 'volume'" :size="14" />
       </button>
     </div>
@@ -453,7 +526,7 @@ watch(
 }
 
 .mp-head {
-  height: 30px;
+  height: 32px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -476,8 +549,8 @@ watch(
 }
 
 .mp-btn {
-  width: 22px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
