@@ -48,16 +48,17 @@ const ICONS = {
   pin: '<path d="M12 21.5s6.5-6.3 6.5-11a6.5 6.5 0 1 0-13 0c0 4.7 6.5 11 6.5 11z"/><circle cx="12" cy="10.5" r="2.4"/>',
   users:
     '<path d="M16.5 20.5v-1.6a3.9 3.9 0 0 0-3.9-3.9H6.9A3.9 3.9 0 0 0 3 18.9v1.6"/><circle cx="9.7" cy="8.2" r="3.6"/><path d="M21 20.5v-1.6a3.9 3.9 0 0 0-2.9-3.8M15.5 4.9a3.9 3.9 0 0 1 0 6.6"/>',
-  calendar:
-    '<rect x="3.2" y="5" width="17.6" height="16" rx="2"/><path d="M3.2 9.6h17.6M8 3.2v3.6M16 3.2v3.6"/>',
-  pie: '<path d="M12 3.2v8.8h8.8A9 9 0 0 0 12 3.2z"/><path d="M20.4 14.4A9 9 0 1 1 9.6 3.6v9.9h9.9z"/>',
   grid: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.6"/>',
   download: '<path d="M12 3.5v11.8M7.4 11l4.6 4.6L16.6 11"/><path d="M4 20.5h16"/>',
   danmaku: '<rect x="2.6" y="5" width="18.8" height="13" rx="2.2"/><path d="M7 9.6h6.4M7 13.4h10"/>',
   speed: '<path d="M4.2 17.8a8.6 8.6 0 1 1 15.6 0"/><path d="M12 17.6l4.4-6.2"/>',
   cc: '<rect x="2.6" y="5" width="18.8" height="14" rx="2.4"/><path d="M10.2 10.4a2.7 2.7 0 1 0 0 3.4M17.4 10.4a2.7 2.7 0 1 0 0 3.4"/>',
   pip: '<rect x="2.6" y="4.6" width="18.8" height="14.8" rx="2"/><rect x="11.6" y="11" width="7.6" height="6" rx="1.2"/>',
-  send: '<path d="M21 3 10.4 13.6"/><path d="M21 3l-6.9 18-3.7-7.4L3 9.9z"/>'
+  send: '<path d="M21 3 10.4 13.6"/><path d="M21 3l-6.9 18-3.7-7.4L3 9.9z"/>',
+  bookmark: '<path d="M6 3.5h12v17.4l-6-4.3-6 4.3z"/>',
+  bookmarkOn: '<path d="M6 3.5h12v17.4l-6-4.3-6 4.3z" fill="currentColor"/>',
+  sun: '<circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2.2M12 19.2v2.2M4.4 4.4l1.6 1.6M18 18l1.6 1.6M2.6 12h2.2M19.2 12h2.2M4.4 19.6 6 18M18 6l1.6-1.6"/>',
+  moon: '<path d="M20.5 14.6A8.6 8.6 0 0 1 9.4 3.5a8.8 8.8 0 1 0 11.1 11.1z"/>'
 }
 </script>
 

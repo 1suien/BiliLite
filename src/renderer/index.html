@@ -4,9 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- 渲染层只通过 preload 暴露的 IPC 访问网络；这里放开的是封面图(https)、MSE blob 与媒体直连 -->
+    <!-- worker-src 给 pdf.js：它的 worker 以 Blob URL 起（file:// 下模块 worker 会被 CORS 拦掉） -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' file:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; media-src 'self' blob: https:; connect-src 'self' ws: wss: https:; font-src 'self' data:; object-src 'none'; base-uri 'none'"
+      content="default-src 'self'; script-src 'self' file:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; media-src 'self' blob: https:; connect-src 'self' ws: wss: https:; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'"
     />
     <title>BiliLite</title>
   </head>

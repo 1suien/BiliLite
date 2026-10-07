@@ -185,8 +185,12 @@ export const useLearnStore = defineStore('learn', {
         completed: rec.completed != null ? rec.completed : Boolean(prev && prev.completed)
       }
       const isFirst = !prev
-      await putProgress(next)
+      // 内存里先按「本次写入的发起时间」记一条，再去落库。
+      // 早先是 await putProgress() 之后才更新时间戳，于是「先发起、后完成」的旧行会拿到更新的
+      // updatedAt，把真正刚看过的分P挤出「最新一行」——分P续播因此偶发地回到 P1（库里是对的，
+      // 只有内存里的顺序错了，所以现象时好时坏）。
       this.progressMap = { ...this.progressMap, [key]: { ...next, key, updatedAt: Date.now() } }
+      await putProgress(next)
       if (isFirst) await bumpDailyVideo(todayKey())
       if (isFirst) this.daily = await getDailyRange(30)
     },
@@ -235,7 +239,9 @@ export const useLearnStore = defineStore('learn', {
         db.notes.clear(),
         db.shelf.clear(),
         db.checkins.clear(),
-        db.upTime.clear()
+        db.upTime.clear(),
+        // 专注记录也属于本机学习数据，一起清掉
+        db.focus.clear()
       ])
       this.progressMap = {}
       this.shelf = []

@@ -221,7 +221,7 @@ onMounted(() => {
         <button class="chip" :class="{ on: settings.settings.autoCheckin }" @click="settings.patch({ autoCheckin: !settings.settings.autoCheckin })">
           {{ settings.settings.autoCheckin ? '已开启' : '已关闭' }}
         </button>
-        <p class="hint">开启后观看满 5 分钟自动完成当天打卡；学习页也可以手动打卡。</p>
+        <p class="hint">开启后观看满 5 分钟自动完成当天打卡；学习页的「连续签到」卡就按这些记录算。</p>
       </div>
     </section>
 

@@ -45,7 +45,17 @@ export const useSettingsStore = defineStore('settings', {
       danmakuOpacity: 0.9,
       danmakuArea: 1,
       /** 播放器：鼠标不动时自动隐藏控制栏 */
-      autoHideCtl: true
+      autoHideCtl: true,
+      /** 侧栏顺序：拖拽调整后存这里（路由路径数组；空 = 默认顺序） */
+      navOrder: [],
+      /** 字幕：自动开启在线字幕 */
+      subAuto: false,
+      /** 字幕显示：字号 px / 背景遮罩 / 距舞台底部百分比 */
+      subFontSize: 22,
+      subBg: true,
+      subBottom: 8,
+      /** 专注弹层里的快捷任务（可自定义；空数组 = 用代码里的默认四个） */
+      focusTasks: ['阅读', '刷题', '看课', '整理笔记']
     }
   }),
   actions: {

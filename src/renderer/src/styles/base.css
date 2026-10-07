@@ -139,6 +139,17 @@ textarea {
   color: var(--t3);
 }
 
+/* 侧栏拖拽换序（App.vue）：被拖起来的那项变淡，落点位置给一条高亮，避免「拖了半天不知道会插到哪」 */
+.nav-item.dragging {
+  opacity: 0.45;
+  background: var(--soft);
+}
+.nav-item.drop-target {
+  background: var(--soft-hover);
+  color: var(--t1);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
 .side-foot {
   margin-top: auto;
   padding: 10px 8px 4px;
@@ -311,6 +322,19 @@ textarea {
 }
 .chip.plain {
   cursor: default;
+}
+/* chip 里的行内 ✕（编辑快捷任务时用） */
+.chip .chip-x {
+  margin-left: 5px;
+  font-style: normal;
+  color: var(--t3);
+}
+.chip .chip-x:hover {
+  color: var(--danger);
+}
+.chip.chip-edit {
+  border-style: dashed;
+  cursor: text;
 }
 
 .card {
@@ -852,8 +876,13 @@ html[data-theme='light'] .player-stage .progress .track i {
 .ctl-menu .mi:hover {
   background: rgba(255, 255, 255, 0.12);
 }
+/* ⚠ 这个浮层是**固定深色**的（下面的 rgba(22,22,26,.97)），里面的文字/选项
+   必须用「深色底上的颜色」，不能跟主题走：浅色主题下 --accent 是近黑、
+   --soft 是近白，套进来就是黑字黑底（选中项看不见）和白底白字（选项刺眼）。 */
 .ctl-menu .mi.on {
-  color: var(--accent);
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+  font-weight: 600;
 }
 .ctl-menu .mi .k {
   color: rgba(255, 255, 255, 0.5);
@@ -868,6 +897,77 @@ html[data-theme='light'] .player-stage .progress .track i {
   height: 1px;
   margin: 5px 4px;
   background: rgba(255, 255, 255, 0.12);
+}
+/* 字幕菜单比倍速菜单长得多：宽一点、可滚、分组带小标题 */
+.ctl-menu.cc-menu {
+  min-width: 236px;
+  max-height: 62vh;
+  padding: 6px 6px 8px;
+}
+.ctl-menu .mhead {
+  padding: 8px 9px 3px;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin-top: 4px;
+}
+.ctl-menu .mhead:first-child {
+  border-top: 0;
+  margin-top: 0;
+}
+.ctl-menu .mi-x {
+  flex: none;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.ctl-menu .mi-x:hover {
+  color: var(--danger);
+}
+/* 「字幕显示」那种「一行一个设置项」的排版：标签固定宽度，选项自己成组换行 */
+.ctl-menu .mrow.sub-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 9px;
+}
+.ctl-menu .mrow .sublab {
+  flex: none;
+  width: 30px;
+  color: rgba(255, 255, 255, 0.5);
+}
+.ctl-menu .mrow .chip-group {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+/* 菜单里的 chip 一律按「深色底」配色（同样的理由见上面 .mi.on 的注释） */
+.ctl-menu .mrow .chip {
+  padding: 2px 8px;
+  font-size: 11.5px;
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #e8e8ee;
+}
+.ctl-menu .mrow .chip:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+.ctl-menu .mrow .chip.on {
+  background: #e8e8ee;
+  border-color: transparent;
+  color: #16161a;
+}
+.ctl-menu .mrow .chip.on:hover {
+  background: #ffffff;
+  color: #16161a;
 }
 .player-msg {
   position: absolute;

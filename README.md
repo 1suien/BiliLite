@@ -1,7 +1,7 @@
 # BiliLite
 
 学习专注型的 B 站桌面客户端（Windows / Electron）。参考 [BiliLite](https://github.com/ywmoyue/biliuwp-lite) 的功能取舍重新实现：
-保留**扫码登录、UP 管理、首页（只看关注 UP 更新）、搜索、视频播放（分 P / 画质 / DASH）、本机收藏 + B 站收藏夹、UP 主主页、学习记录 / 打卡 / 番茄钟**，
+保留**扫码登录、UP 管理、首页（只看关注 UP 更新）、搜索、视频播放（分 P / 画质 / DASH）、本机收藏 + B 站收藏夹、UP 主主页、学习记录 / 打卡 / 专注（番茄钟 + 任务绑定 + 专注记录）**，
 界面走黑白极简 token 体系，不引入娱乐化的信息流。播放页右栏只留「清晰度 + 分P列表」（相关推荐只在下方 tab 里）。
 
 > 仅限个人学习用途。本项目不提供任何视频内容，只做本机客户端；登录凭证只加密保存在本机。
@@ -21,6 +21,9 @@
 | 播放 | 自研 MSE 播放器（DASH fMP4：`sidx` 定位 + 双 SourceBuffer + 背压/配额淘汰），FLV 走 `mpegts.js` |
 | 本机数据 | Dexie（IndexedDB）存学习记录；主进程 `store.json` 存设置与加密 Cookie |
 
+> 定位变了：最初这里是「BiliLite + 读书」两个模块，2026-10-07 按用户要求**把读书模块整体摘掉**了
+> （本机归档在 `backup\reader-module\`，说明见文末「读书模块（已按要求摘除）」）。
+
 ## 目录结构
 
 ```
@@ -31,17 +34,27 @@ src/
     store.js                设置 + 登录态持久化（Cookie 走 safeStorage 加密）
     smoke.js                端到端冒烟测试（见下文）
     bili/                   B 站接口：http / wbi 签名 / auth / home / video / search / fav / space
-  preload/index.js          window.bili 白名单桥接
+  preload/index.js          window.bili 白名单桥接（含全局拖拽拦截 → bili:files-dropped 自定义事件）
   renderer/
-    index.html              含 CSP meta
+    index.html              含 CSP meta（`worker-src 'self' blob:` 是当年 pdf.js 的 Blob worker 要的；
+                            读书模块摘除后已无人使用，留着不影响安全 —— 渲染层现在没有任何 `new Worker`，
+                            且 EPUB 净化那条「外部 HTML 进渲染层」的路径也随模块一起没了）
     src/
       router.js  App.vue     布局（侧栏 5 项 + 顶栏搜索；侧栏不再放搜索入口）
       api/index.js           window.bili 门面
       db/index.js            Dexie：progress / daily / notes / shelf / ups / collect / checkins / upTime
+                             + v4 追加 focus（每轮专注一行：day / startedAt / seconds / completed / task）
+                             + v5 追加 subs（本地字幕，key = `bvid:cid:文件名`）
       stores/                ui / settings / auth / learn / ups / collect / pomodoro
       player/dash.js         DASH 播放核心
+      utils/subtitle.js      字幕解析（SRT / VTT / ASS）+ 编码嗅探
       views/                 Home / UpManage / Search / Video / Fav / FavFolder / Up / Learn / Settings
-      components/            Icon / BiliImage / VideoCard / Pager / DanmakuLayer / PageFloat / LoginModal / ConfirmModal / CollectModal / PartList …
+      components/            Icon / BiliImage / VideoCard / Pager / DanmakuLayer / PageFloat / LoginModal / ConfirmModal / CollectModal / PartList
+                             + FocusRing（专注圆环）/ FocusPanel（专注面板）/ SessionHistory（专注记录）…
+tools/
+  run-smoke.ps1             本机冒烟运行脚本（构建 + 启动 Electron + 收报告，绕开 DSH 沙箱坑）
+  check-parsers.mjs         不启动 Electron，直接跑字幕解析（15 项断言，改 src/renderer/src/utils/subtitle.js 后先跑它）
+  check-package.mjs         读 release/win-unpacked/resources/app.asar 的索引，校验打包产物完整、且没夹带 pdf.js 资源
 ```
 
 ## 本地开发与运行
@@ -69,6 +82,11 @@ $env:TEMP = "$PWD\tmp-temp"; $env:TMP = "$PWD\tmp-temp"
 pnpm run dist
 ```
 
+> 打包还固化了一个坑：`build.npmRebuild: false`。本机没有 Python/MSVC，一旦有依赖带原生模块就会触发
+> `@electron/rebuild` 的 node-gyp 重编（`Error: Could not find any Python installation to use`，整包失败）；
+> 现在主进程零运行时依赖、渲染层已被 Vite 打进 `out/renderer/assets`，跳过原生依赖重编不影响运行。
+> 打包完建议跑一次 asar 自检：`& "$nodeDir\node.exe" tools\check-package.mjs`（见「验证」）。
+
 ### 运行方式（重要：不要在本 DSH 工作区目录里启动）
 
 | 入口 | 路径 | 实测 |
@@ -77,6 +95,21 @@ pnpm run dist
 | 安装版 | `%LOCALAPPDATA%\Programs\BiliLite\BiliLite.exe` | 正常 |
 | 免安装便携版（已复制到桌面） | `%USERPROFILE%\Desktop\BiliLite\BiliLite.exe` | 正常，双击即可，无需任何参数 |
 | 安装包副本（已复制到桌面） | `%USERPROFILE%\Desktop\BiliLite-Setup-0.1.0.exe` | `Start-Process -ArgumentList '/S'` → ExitCode 0 |
+
+> 桌面那份是**手动拷过去的免安装版**（不是 `%LOCALAPPDATA%\Programs` 下的安装版，本机没有那个目录），
+> 所以更新它要手动覆盖 —— 而且覆盖前必须先退出正在运行的 BiliLite，否则 `BiliLite.exe` 被占用，
+> robocopy 会报 `ERROR 32 (0x00000020) ... being used by another process` 并只跳过这一个文件：
+>
+> ```powershell
+> Get-Process BiliLite | Stop-Process -Force     # 先关掉
+> robocopy release\win-unpacked "$env:USERPROFILE\Desktop\BiliLite" /E /R:3 /W:2   # exit 0~7 都是成功
+> ```
+>
+> 因为 `userData` 固定成 `%APPDATA%\study-bili`，覆盖二进制不会丢学习记录/登录态/设置。2026-10-07 用这种方式
+> 更新过三轮：先是把**含读书模块**的版本覆盖过去（旧 asar 备份在 `backup\app-asar-prereader.asar`，23.2 MB），
+> 再是把**修好字幕菜单/专注快捷任务**的版本覆盖过去，最后把**摘掉读书模块**的版本覆盖过去
+> （asar 从 59.3 MB / 1871 个文件降到 **23.3 MB / 982 个文件**）。每次覆盖后都用
+> `tools\check-package.mjs --dir "$env:USERPROFILE\Desktop\BiliLite"` 校验，并对桌面那份跑打包版冒烟。
 
 > 数据目录仍是 `%APPDATA%\study-bili`（改名前后不变，学习记录/登录态/设置都在里面）：
 > `src/main/index.js` 在启动时显式 `app.setPath('userData', join(app.getPath('appData'), 'study-bili'))`，
@@ -119,8 +152,20 @@ node 'C:\Users\zouyx\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\pnpm\bin
 
 ## 验证
 
-主进程内置端到端冒烟测试（真实窗口里跑完整闭环：桥接 → 接口 → 播放起流/推进 → 落库 → 5 个路由），
-报告写到 `$env:STUDY_SMOKE_OUT`，退出码为失败项数：
+主进程内置端到端冒烟测试（真实窗口里跑完整闭环：桥接 → 接口 → 播放起流/推进 → 落库 → 5 个路由 → 分P续播/侧栏换序/本地字幕），
+报告写到 `$env:STUDY_SMOKE_OUT`，退出码为失败项数。
+
+本机（DSH 沙箱）直接跑用脚本，它会自己处理 `ELECTRON_RUN_AS_NODE`、node 路径、沙箱参数与 userData：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\run-smoke.ps1              # 构建 + 全量冒烟
+powershell -ExecutionPolicy Bypass -File tools\run-smoke.ps1 -SkipBuild -Shots
+powershell -ExecutionPolicy Bypass -File tools\run-smoke.ps1 -Theme light -Shots -Tag light
+```
+
+> 脚本里的注释必须是纯 ASCII：`write` 写出的 `.ps1` 是无 BOM UTF-8，PowerShell 5.1 按 GBK 读会解析崩溃。
+
+手工跑（跑打包产物，或不想用脚本时）：
 
 ```powershell
 $env:STUDY_SMOKE = '1'
@@ -131,12 +176,14 @@ $env:STUDY_SMOKE_SHOT = "$PWD\shots"   # 可选：顺手把真实界面截图存
 Get-Content smoke-pkg-report.txt -Encoding UTF8
 ```
 
-断言项：bridge 注入/通道齐全/`app:ping`、侧栏 5 项、侧栏不再有「搜索」入口（搜索只保留顶栏）、主题令牌、`home.feed`、`search.videos`、`video.view`、
+断言项：bridge 注入/通道齐全/`app:ping`、侧栏 5 项（且已没有「读书」入口）、侧栏不再有「搜索」入口（搜索只保留顶栏）、主题令牌、`home.feed`、`search.videos`、`video.view`、
 `video.playurl`（DASH 轨道）、视频页渲染、`<video>` 起流（`readyState=4`）、点播放后 `currentTime` 前进、
 学习进度写入 IndexedDB、顶栏搜索跳转、侧栏 5 个路由真实点击可达，以及本机 UP 名单（写入/渲染/首页只显示名单）、
-`up.latest`（匿名可拉取，失败才软跳过）、本机收藏写入、学习页 5 卡 / 371 格签到日历 /
-近 14 天条形图 / 按 UP 分布饼图、手动打卡写入 `checkins`、番茄钟（学习页有 `.pomo-clock`；改「专注」为 1 分钟后
-开始 → 倒计时前进；暂停 → 倒计时不动；跑完一轮 → 自动进入短休息、`今日完成 1 个`、toast「番茄钟完成」且
+`up.latest`（匿名可拉取，失败才软跳过）、本机收藏写入、学习页 7 卡（并且已经**没有**签到日历 / 近 14 天条形图 /
+按 UP 分布饼图 / 打卡按钮，`.cal .cell`、`.bars14`、`svg.pie`、`今日打卡` 文本四者都为 0）、专注面板（学习页有 `.focus .ring-clock`；点齿轮把「专注」
+改成 1 分钟后开始 → 倒计时前进；暂停 → 倒计时不动（这里只把「时钟继续往下掉」判失败：如果时钟**往上跳回整轮**，
+说明面板收到了重置——`R` 快捷键和「重置」按钮都会把 `remain` 置回 `totalSeconds`，冒烟跑的时候窗口就在桌面上，
+外面的键鼠事件进得来，这种情况按 WARN 记，见下文「无关干扰的识别」）；跑完一轮 → 自动进入短休息、头部变 `今日 1 轮`、toast「番茄钟完成」且
 顶栏「今日」时长增加）、UP 主页投稿列表（同一接口，含分页 `count`）、
 右侧悬浮操作组、页面确实可上下滚动（`.scroll` 的 `scrollHeight > clientHeight`）、下拉后出现「顶部」并点回顶部、
 「换一换」后页面重新渲染、切换页面自动回到顶部（先在长列表拉到 480/1224px，再进视频页 `scrollTop=0`）、
@@ -145,6 +192,14 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 「N 人正在看」四者都不存在）、视频轨按画质挑选（`[dash] picked quality` 的 `got` 与按 `playurl.quality`
 推算出的轨道一致）、「当前清晰度」显示实播画质（清晰度面板的 `.muted` 文本与 `.chip.on` 都是实播档位）、
 倍速切换生效（点 2x → `video.playbackRate === 2` → 还原）、字幕菜单能打开、
+本地字幕（往 userData 写一个真 `.srt` → 走 `bili:files-dropped` 拖入 → 解析 → 落 IndexedDB 的 `subs` 表 → 文本真的出现在
+`.cc-line` 上）、字幕字号「特大」+ 位置「靠上」点完立刻生效（`.cc-line` 的 `font-size` 变 32px；顺带核对字幕设置那一坨的
+排版与对比度——字号 / 背景 / 位置各占一行，菜单里每个 chip 以及选中行的文字对比度都要 ≥ 4.5，因为菜单是**固定深色浮层**，
+浅色主题下也不能变成「白底白字 / 黑底黑字」）、
+分P续播（自己从搜索里找一个真的多分P视频 → 切到 P2 → 离开页面让进度落库 → 不带 `?p` 回到同一个 bvid，仍落在 P2；
+搜不到多分P视频时软跳过；失败诊断里带 `head`（组件自己渲染的「当前 Pn」）、`onAll`、`rowsInfo`（该 bvid 在 `progress`
+表里的 `page@updatedAt`，用来区分「库里就没写上」还是「只是内存顺序错了」））、侧栏拖拽换序（发一遍 dragstart → dragover → drop 后顺序变化并且落进设置的 `navOrder`）、
+专注快捷任务可自定义（学习页点「绑定任务」→「＋ 自定义」→ 填「背单词」→「添加」后 chip 出现、设置里的 `focusTasks` 也有它；再点该 chip 的 ✕ 后设置里同样没有了）、
 播放中不显示「缓冲中」遮罩（视频推进后 `.player-msg` 必须已消失）、
 跳转后能继续播放（目标点按已知总时长给：`dur > 10` 时取 `min(120, dur * 0.6)` —— 短视频硬跳 120 秒会落到片尾之外，
 那是无效目标而不是播放器卡死；断言 `readyState ≥ 3`、`currentTime` 落在目标附近并继续推进、遮罩已消失；
@@ -154,11 +209,82 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 分P列表可按关键字筛选（分P > 12 时出现 `.pages-filter`，输入「单词」后行数变少：177 → 48）、
 进度库没有缺失 bvid 的脏行（`progress` 表里 `key` 不该出现 `:<cid>` 这种行；冒烟启动后会等应用的
 `learn.cleanupJunk()` 跑完，最多轮询 4 秒）、
-首页「继续学习」卡片不重复（`section .grid .vcard .title` 文本唯一 —— 同一视频的多个分P只该出现一张卡）。
+首页「继续学习」卡片不重复（`section .grid .vcard .title` 文本唯一 —— 同一视频的多个分P只该出现一张卡）、
+读书模块已于 2026-10-07 按用户要求摘除（本机归档在 `backup\reader-module\`，那里有 `MANIFEST.txt`；
+⚠ 读书模块从未进入过这个仓库（`backup/` 被 `.gitignore` 忽略），所以仓库里没有它的历史版本，要留副本得另存），
+所以断言总数从 139 降到 72：读书段 67 项、侧栏「读书」那 1 项删掉，新增「侧栏已没有读书入口」1 项。
+**下面那些 139 / 137 / 118 项的历史验收记录都是「含读书段」时跑的**，摘除后的数字另见本节末尾那一轮。
+
+解析层还能单独跑（不启动 Electron，改 `src/renderer/src/utils/subtitle.js` 后先跑它，15 项断言）：
+
+```powershell
+& "$nodeDir\node.exe" tools\check-parsers.mjs
+```
+
+> 无关干扰的识别：实测有人在冒烟跑的时候点了窗口（设置页主题、番茄钟按钮、侧栏），会让「侧栏点 X 后页面没换」这类断言失败，
+> 且失败现场**没有任何渲染层异常**。用 `window.__navLog`（smoke 装的 pushState/replaceState/hashchange/点击调用栈）能看出来是外部点击。
+> 冒烟一律用一次性 userData 目录（`tools\run-smoke.ps1 -Tag <新名字>`），别复用：进度、看书位置、侧栏顺序都是持久化的，
+> 复用目录会污染断言（旧版读书段的 PDF 断言还因此**假通过**过）。
+>
+> 最新一轮（用户反馈的两条 UI 问题修完后，同一份代码、两个干净目录）：深色
+> **139 PASS / 0 FAIL / 0 WARN / 0 渲染层异常**（`smoke-fix1-report.txt`、`shots-fix1/`）、浅色
+> **139 PASS / 0 FAIL / 0 WARN / 0 渲染层异常**（`smoke-fixlight1-report.txt`、`shots-fixlight1/`）。
+> 这一轮新增的两条断言：
+> `字幕显示设置：字号/背景/位置各占一行，菜单里的文字对比度足够（浅色主题下也看得清）`，实测
+> `{"subRows":3,"subLab":["字号","背景","位置"],"chipMin":11.2,"onMin":13.7}` —— 两个主题下这几个数**完全一样**，
+> 正是「菜单改成固定深色配色、不再跟主题走」的证据（改之前浅色主题下 chip 是 `--soft` 近白底配 `--t2` 文字、
+> 选中行是 `--accent` 近黑字，对比度都在 1 附近，也就是用户看到的「一排纯白小球」）；
+> `专注快捷任务可自定义（新增/删除都落盘）`，实测加完「背单词」后 chip 变 `背单词✕`、`settings.focusTasks` 里有它，
+> 点 ✕ 删掉后设置里同样没有了（新增和删除都真的落了盘，不只是界面变了）。
+>
+> 再一轮（把上面那条「浅色其实没验成」的坑修掉之后）：深色 `smoke-fix3-report.txt` / 浅色 `smoke-fixlight3-report.txt`
+> 各 **139 PASS / 0 FAIL / 0 WARN / 0 渲染层异常**，而且 `字幕显示设置` 那条断言的诊断里分别写着
+> `"theme":"dark"` / `"theme":"light"` —— 这回能证明「这条是在浅色下过的」，修前两种配色返回的是同一组数字，
+> 自证不了主题（`shots-fix3/`、`shots-fixlight3/`，`shots-fixlight3/4-学习页专注.png` 亮度 247 确认是浅色）。
+> 同一轮顺手把三条「其实是 fixture/环境问题」的假失败改掉：
+> ① UP 主页接口失败导致列表为空时，页面**本来就不需要滚动**，`页面可上下滚动（右侧下拉）` 与
+> `下拉后出现「顶部」按钮` 改为记 WARN 并说明原因（内容够长却滚不动仍然 FAIL）；
+> ② 有人的分P就叫「B」（1 个字），旧断言要求分P标题长度 > 1 会把正确的界面判成 FAIL，现在改成
+> 「至少有一个分P的标题与序号徽章不同」，标题真丢了仍由 `bad` 拦住；
+> ③ 阅读器会保存滚动比例、`boot()` 再还原一次，同一份代码两次跑分别落在 `scrollTop` 1506 / 1906，
+> 第 2 页的判定从「顶边落在容器顶 +200px 内」放宽为「第 2 页盖住可视区上部」。桌面打包版那一轮
+> （`smoke-desktop4-report.txt`）的 3 个 FAIL 正是这三条：前两条是 UP 主页空列表，第三条是 `scrollTop` 1906
+> 而第 2 页仍占满整个视口。
+>
+> 打包产物另有一层自检：`pnpm package`（= build + `electron-builder --win --dir`）之后跑
+> `& "$nodeDir\node.exe" tools\check-package.mjs`，它解出 `release\win-unpacked\resources\app.asar` 的索引，校验
+> `out/main/index.js`、`out/preload/index.js`、`out/renderer/index.html` 都在包内、**包里不该再有 `out/main/pdfjs/`
+> 的 CMap / 标准字体**（摘掉读书模块后的反向断言），并检查主进程产物里除 `electron` 外没有裸 `require`。
+> 摘掉读书模块后的自检输出：**asar 23.3 MB / 982 个文件**（含读书模块时是 59.3 MB / 1871 个）、主进程入口
+> **43075 B**（含读书解析层时 87274 B）、preload 4130 B、`包里不再带 pdf.js 资源（读书模块已移除） :: 0 cMaps / 0 fonts`、
+> 主进程只剩 `electron, node:path, node:fs, node:fs/promises, node:crypto`（`node:zlib` 随着自研 ZIP 解析一起没了）。
+>
+> 摘掉读书模块之后（2026-10-07，同一份代码、两个干净目录、`-SkipBuild`）：深色
+> **72 PASS / 0 FAIL / 0 WARN / 0 渲染层异常**（`smoke-rm1-report.txt`、`shots-rm1/`）、浅色
+> **72 PASS / 0 FAIL / 0 WARN / 0 渲染层异常**（`smoke-rmlight1-report.txt`、`shots-rmlight1/`，那条
+> `字幕显示设置` 的诊断里写着 `"theme":"light"`、`shots-rmlight1/4-学习页专注.png` 亮度 243 也证明是浅色）。
+> 断言数从 139 掉到 72 的原因就是读书段那 67 项；改写后的 `侧栏导航 5 项` 与新增的
+> `侧栏已没有「读书」入口` 都 PASS，`侧栏拖拽换序` 的 `beforeHrefs` 里只剩 5 项
+> （`["/","/ups","/fav","/learn","/settings"]`），视频段的 `分P续播` / `本地字幕` / `字幕可调` / `专注快捷任务`
+> 这些全部照旧通过。解析层自检同时从 60 项变成 **15 项（只剩 SRT/VTT/ASS 解析）**。
+> 覆盖到桌面那份之后，又对**用户实际启动的那个可执行文件**跑了一轮打包版冒烟（浅色、干净目录）：
+> **72 PASS / 0 FAIL / 0 WARN / 0 渲染层异常**（`smoke-desktop6-report.txt`、`shots-desktop6/`，
+> 5 张截图亮度 200~243 全是浅色，`shots-desktop6/1-首页顶部.png` 里侧栏只剩 5 项、没有「读书」）。
 
 > 主题验收：设置 `STUDY_SMOKE_THEME=light`（或 `dark`）会让冒烟把主题强制成对应主题再跑一遍，
 > 每次截图前也会重新强制一次 —— `settings.init()` 是异步的，完成时会按落盘设置把主题刷回来，
 > 只在开头强制一次会偶发截到默认主题（浅色下的浅色描边/留白问题要靠它才看得出来）。
+>
+> ⚠ 只改 DOM 还不够（这一轮踩到的）：应用里**任何一次 `settings.patch()` 都会调 `applyTheme()`**，
+> 而 `applyTheme()` 是拿「已落盘的主题」去写 `document.documentElement.dataset.theme` 的
+> （`src/renderer/src/stores/settings.js`：`patch()` → `this.settings = {...}` → `applyTheme()`）。
+> 于是「只强制 DOM」的浅色跑法会在中途某次写设置之后**又变回默认深色**：实测前几张截图是浅色（L≈231/205），
+> 学习页那张突然变深（L=24，与深色跑法一模一样），而对比度断言在两种配色下都返回同一组数字，
+> 让人误以为「浅色也验过了」。现在 `forceTheme()` 除了改 DOM，还会
+> `window.bili.settings.patch({ theme: want })` 把主题**一起落盘**（userData 是冒烟自己的一次性目录，改它无害），
+> 之后的 patch 只会把它再设成同一个值；`字幕显示设置` 那条断言也会把此刻的 `dataset.theme` 记进诊断，
+> 并在 `-Theme` 指定了主题时要求它**确实等于**该主题 —— 否则「浅色下也看得清」这句话等于没验。
+> 顺带留了一张 `3-视频-字幕菜单.png`（CC 菜单开着时截的）：这个浮层是固定深色配色，用户就是在这里看不清的。
 > 强制主题时会**连强调色一起换**：`--accent` / `--accent-fg` 是 `settings.applyTheme()` 按「预设 × 主题」
 > 内联写到 `<html>` 上的（见 `src/renderer/src/stores/settings.js` 的 `ACCENT_PRESETS`），只改 `data-theme`
 > 不会重算它们 —— 否则浅色下 `--accent` 还停在深色主题的 `#ffffff`，白底白字会把截图和断言都带偏
@@ -250,6 +376,16 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 > 片尾之外的字节、拿到 416 后卡在「缓冲中…」。现在 `dash.js` 的 `onSeeking()` 先看已知总时长：
 > `t > total - 0.4` 就夹到末尾收工，不做注定失败的 ranged 定位。
 >
+> 分P续播竞态坑（已修）：进度一直是按 `bvid:cid` 存 1-based 的 `page` 的，但播放页入口只认 `?p`，所以从首页 /
+> 学习记录点进多分P视频永远回到 P1（`LearnView` 传的是 `query: { cid }`，`VideoCard` 等卡片也不带 `p`）。补上
+> 「`?p` → `?cid` → `learn.list` 里最新一行」的判定之后，又暴露一个更隐蔽的竞态：`learn.save()` 原来是
+> **`await putProgress()` 之后**才更新内存、并用那时的 `Date.now()` 当 `updatedAt`，而 `putProgress()` 给库里那行
+> 盖的是**发起写入时刻**——于是「先发起、后完成」的旧行反而拿到更新的内存时间戳，把刚落库的新分P挤出「最新一行」。
+> 现象就是同一条用例时对时错，而**库里其实是对的**（冒烟诊断的 `rowsInfo` 能直接看出来：`2@<更大的时间戳>`，
+> 界面却停在 P1）。修法：内存更新挪到 `await` 之前，让「写入顺序 = 内存顺序」。另外冒烟切 P2 后要等
+> `video.currentTime > 0.5` 再离开页面，因为 `flushProgress()` 只写 `currentTime > 0` 的进度，起流没完成就跳走
+> 属于环境慢、不算代码错。
+>
 > 后台定时器限流坑（已修）：窗口被挡住/最小化时 Chromium 会限流定时器，番茄钟 250ms tick 在冒烟里几乎不走
 > （实测 60s 只走了 10s，断言「专注结束」假失败），播放器同理会让「暂停拉流」判断失准。现在主进程窗口设
 > `webPreferences.backgroundThrottling: false`，番茄钟另外监听 `visibilitychange`，页面重新可见时补一次 `tick()`。
@@ -291,7 +427,11 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
   （音视频**各自**按自己的 SourceBuffer 计算，避免音轨甩开视频轨把配额撑爆）；配额不足时先淘汰
   「播放点前 5s 之外」与「播放点后 45s+ 之外」两侧的缓冲；网络 chunk 按批 append（视频 ≥512KB、
   音频 ≥128KB 或距上次 ≥300ms 才 flush 一次，首块立即 append 保证起播快），减少 appendBuffer 调用次数。
-  可选择清晰度、分 P（右栏分P按钮显示分P标题，当前 P 的时长按 pagelist 单P时长算）、自动连播；**选轨按本次下发的画质**（`playurl.quality`）挑，找不到才退回最高带宽那条，
+  可选择清晰度、分 P（右栏分P按钮显示分P标题，当前 P 的时长按 pagelist 单P时长算）、自动连播；
+  **从首页 / 收藏 / UP 页 / 学习记录点进多分P视频会回到上次看的那一 P**（入口按 `?p` → `?cid` → 学习记录里的
+  `page` 依次判定；老版本只认 `?p`，而 `LearnView` 的「继续学习」传的是 `?cid`，所以永远回 P1。
+  进度是新分P真的播过才落的，所以「刚切过去、一秒都没播就离开」这种情况仍会回到上次看过的那个 P），
+  **选轨按本次下发的画质**（`playurl.quality`）挑，找不到才退回最高带宽那条，
   实测出现过「报 720P 只回 480P 轨」的降级情况，此时清晰度面板会显示真正在播的档位。
   `sidx` 定位起流是**逐条线路试**的：探测失败 / 服务端忽略 Range / 64KB 内找不到 `sidx`（会放大到 512KB 再探一次）
   都只是换下一条备用线路，并把剩余备用地址一起带进续流；续流函数会回报「到底有没有真的 append 成功」，
@@ -301,12 +441,27 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
   `MediaSource.duration` 按「当前 P 的单P时长（pagelist）→ playurl 时长（合理才用）→ 投稿信息时长 → 先 `Infinity` 再按 `buffered` 收尾」取值（见下方时长坑）。
 - **播放器**：控制栏是**浮在画面底部**的浮层，鼠标不动 2.8s 自动淡出、移到画面上再出现
   （双击画面 / 快捷键 `F` 全屏）。控制栏里依次是：播放/上一 P/下一 P/时间/进度条、倍速（0.5/0.75/1/1.25/1.5/2）、
-  字幕（CC，可关闭；未登录时 B 站返回 `subtitle_count=0`，会提示「这个视频没有可用字幕」）、静音、音量、全屏。
+  字幕（CC，可关闭；详见下面单独的「字幕」条）、静音、音量、全屏。
   欠载恢复时 Chromium **只补发 `playing` 事件**（不会再来一次 `play`），播放器两个都监听，否则 UI 会一直以为
   「还没开始播」；「缓冲中… 已加载 XXMB」也只在真的欠载（`readyState < 3` 或暂停）时才提示（500ms 节流），
   画面一恢复就清掉 —— 不会再有遮罩一直盖在正在播放的画面上。
   `.player-wrap` 的描边固定用纯黑（`border: 1px solid #000`）：浅色主题下 `--line` 是 `#e2e2e6`，
   围着黑画面就是一圈白边（用户反馈的「视频有白边」），播放器卡片必须用黑边。
+- **字幕**：**在线字幕**改走**带 wbi 签名**的 `x/player/wbi/v2`（2024 年起不签名会被 -403；签名失败自动退回不签名的旧接口），
+  取投稿级字幕列表、只拉前 5 种语言，条目结构和弹幕一样是 `{from,to,content}`，播放时按 `from` 二分查找当前句。
+  **本地字幕**支持 `.srt / .vtt / .ass(ssa)`：CC 菜单里「选择字幕文件…」或把字幕文件**拖进窗口**都能加
+  （复用同一条 `bili:files-dropped` 路径）；主进程 `sys:pickSubtitle` / `sys:readSubtitle` 负责选文件与读文本
+  （只认这四种扩展名、上限 8MB、必须是普通文件），渲染层 `src/renderer/src/utils/subtitle.js` 解析
+  （UTF-8 严格解码失败自动退 GB18030；VTT 跳过 `WEBVTT/NOTE/STYLE/REGION` 与时间行后的定位参数；
+  ASS 按 `[Events]` 的 `Format:` 字段顺序取值、只切前 n-1 个逗号好让 Text 里的逗号保留、剥 `{\...}` 标记、`\N` 变换行），
+  存 Dexie **v5** 的 `subs` 表（key = `bvid:cid:文件名`，一个分P可挂多份），**切分P自动换成本分P的字幕**
+  （老版本切P后还会显示上一P的字幕）。CC 菜单里可调**字号（小/中/大/特大）、背景遮罩（有/无）、位置（靠下/居中/靠上）**，
+  三项存在设置里、点完立刻生效；「自动开启在线字幕」打开后开播/切P会自动取字幕。
+  ⚠️ CC 菜单（`.ctl-menu`）是**固定深色浮层**，里面的 chip / 选中行**不能用主题变量**：浅色主题下 `--soft` 是近白 `#ececef`、
+  `--accent` 是近黑 `#17171a`，套进来就是「一排纯白小球」和「黑底黑字」（用户反馈的「选项纯白看不清」）。
+  所以这里改用固定的 `rgba(255,255,255,.1)` 半透明底 + `#e8e8ee` 文字、选中态直接给白底深字，并且把字号 / 背景 / 位置
+  **各拆成一行**（`.mrow.sub-row` + `.sublab` + `.chip-group`），不再让两组设置挤在同一个 flex-wrap 行里换行错乱；
+  冒烟里有一条断言在算 chip 与选中行的**对比度 ≥ 4.5**，防止以后再退化。（同理的还有 `.ctl-menu .mi.on`。）
 - **弹幕/画中画/在线人数（已按要求从播放页移除，底层代码保留）**：弹幕走旧版 XML 接口
   `api.bilibili.com/x/v1/dm/list.so`（匿名可用，实测单段数百到数千条），长视频按 360s 分段拉取最多 8 段；
   解析后按时间轴用 Web Animations 抛出（滚动 / 顶部 / 底部三种模式，轨道复用、seek 后二分重定位）；
@@ -320,14 +475,45 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
   一点平滑回顶。`src/renderer/src/components/PageFloat.vue` + `stores/ui.js` 的 `refreshSeq`。
   另外**切换页面会自动回到顶部**（`App.vue` 里 watch `route.fullPath` + `scrollTo({behavior:'instant'})`）——
   否则从拉到一半的列表点进视频页，播放器会被顶到屏幕外，看起来像「没有播放器」。
+- **侧栏可拖动换序**：按住侧栏项拖动就能调整顺序（HTML5 拖拽；dragstart 写 `text/plain`，
+  dragover 里必须把 `dropEffect` 改回 `'move'` —— preload 在 capture 阶段已经把 window 上的 dragover 设成 `copy` 了）。
+  新顺序落进设置的 `navOrder`，`App.vue` 的 `navList` 只认「仍存在的路径」、其余按 `DEFAULT_NAV` 顺序补后面，
+  所以以后新增页面不会被老顺序弄丢，删页面也不会留空条目。
 - **学习记录**：播放中每秒计时、每 5s 落一次进度，>95% 自动标记完成；按 UP 累计学习时长；
-  学习页有签到日历、近 14 天条形图、按 UP 分布饼图、连续签到天数，支持手动打卡与（设置里）播放满 5 分钟自动打卡。
-  数据可导出 JSON。
-- **番茄钟**（学习页顶部卡片，`stores/pomodoro.js`）：专注 / 短休息 / 长休息三种模式，可开始暂停、重置、跳过，
-  三个时长（默认 25/5/15 分钟）可改；倒计时按**结束时间戳**推算（只用 250ms 的 `setInterval` 刷新显示），
-  挂机久了也不会走偏；一轮专注跑完自动进入休息（每 4 轮走长休息），Web Audio 抖一声 + 系统通知，
-  并把这一轮的专注分钟数通过 `learn.addSeconds()` 记进当天学习时长（所以会体现在「今日」「近 14 天条形图」里）。
-  `doneToday` 每天跨天归零，状态持久化在 localStorage（`study-bili-pomodoro`）。
+  学习页只留 **7 张统计卡**（总时长 / 看过视频 / 已看完 / 在看 / 连续签到 / 今日专注 / 本周专注）+ 专注面板 + 学习清单；
+  **签到日历、近 14 天条形图、按 UP 分布饼图与手动打卡按钮已按需求移除**（`LearnView.vue` 487 → 194 行，
+  只服务这几块的整个 `<style scoped>` 也删了；`stores/learn.js` 里的 `maxDailySeconds / recentDays / upDistribution`
+  变成没人用但保留未删；`checkins` 表仍由「播放满 5 分钟自动打卡」写入，供「连续签到」卡使用）。
+  数据可导出 JSON（含专注记录）。
+- **专注**（学习页顶部卡片，`stores/pomodoro.js` + `components/FocusPanel.vue`）：TickTick 风格的
+  圆环进度 + 大号倒计时（环上刻度随剩余时间逐个点亮）。专注 / 短休息 / 长休息三种模式，可开始暂停、重置、结束本轮，
+  三个时长（默认 25/5/15 分钟）可改（点面板右上角齿轮展开，有「恢复默认」；**计时进行中不让改**，否则这一轮算几分钟会前后不一致）；
+  倒计时按**结束时间戳**推算（只用 250ms 的 `setInterval`
+  刷新显示），挂机久了也不会走偏；一轮专注跑完自动进入休息（每 4 轮走长休息），Web Audio 抖一声 + 系统通知，
+  并把这一轮的专注时长通过 `learn.addSeconds()` 记进当天学习时长（所以会体现在「今日」「本周专注」里）
+  —— **落库的秒数和计入学习时长的秒数是同一个值**（用真实已专注的秒数，不是配置的分钟数），少于 30 秒则两边都不记。
+  每轮开始前可以**绑定本轮专注目标**：从「学习清单」挑一个视频，或者手输任务名（另有阅读/刷题/看课/整理笔记快捷项），
+  这四个快捷项**自己也能改**：弹层里点「＋ 自定义」进入编辑态，点 chip 改名、点 chip 上的 ✕ 删掉，下面一行输入框回车或点
+  「添加」新增，另有「恢复默认」；最多 8 个、每个 12 字、重名会被拦下并 toast。改动落在设置的 `focusTasks`（空数组 = 用默认四个），
+  跟随设置一起持久化，所以换机器/清 IndexedDB 也还在。
+  计时进行中锁定不可改，选择会持久化到 localStorage 下次带出。
+  快捷键：`空格` 开始/暂停、`R` 重置、`S` 结束本轮、`Esc` 收起设置/关弹层（焦点在输入框或按钮上时不抢键）；
+  「结束本轮」会二次确认，已专注超过 30 秒的按「部分完成」记下（不会白干）。
+  每轮结束（走完或手动结束）在 IndexedDB 的 `focus` 表落一行（Dexie v4），少于 30 秒的轮次不记；
+  `components/SessionHistory.vue` 按这些记录出「近 7 天迷你条形图 + 今日/本周次数与总时长 + 平均每轮 + 连续专注天数
+  + 历史列表（可单条删除/清空）」，
+  今日轮数直接由 `focus` 表算出（删记录后数字自动对齐）。只有三个时长与上次的任务名持久化在
+  localStorage（`study-bili-pomodoro`），计时状态本身不落盘。
+- **读书模块（已按要求摘除）**：2026-10-07 用户要求「去除读书项目」，整个模块（书架页 / 阅读页 / PDF 阅读器 /
+  自研 ZIP+XML+EPUB+TXT 解析层 / `pdfjs-dist` 依赖）已从应用里移除，源码与恢复方法归档在本机的
+  `backup\reader-module\`（那里有 `MANIFEST.txt`，列了归档清单和重新接线要改的 11 处）；
+  注意 `backup/` 被 `.gitignore` 忽略、不进仓库，而读书模块当年也没被提交过任何一次，
+  所以**仓库里没有它的历史版本**——那份归档是本机唯一副本，要长期保留得另存或另行提交。
+  摘除后：侧栏 5 项、`pdfjs-dist` 依赖删除、`reader:*` 共 14 个 IPC 通道与 preload 门面删除、
+  `out/main/pdfjs/` 不再产生（打包自检里是反向断言：包里出现它就算失败）、IndexedDB 里 v3 声明的
+  `books` / `bookmarks` / `highlights` **表定义故意保留不动**（删表要走 Dexie 迁移，一旦表名清单写错就可能
+  动到用户真实的 progress / daily / checkins 数据），只是应用里不再读写它们。
+  用户之前导入的书和阅读进度按「不动用户数据」原则留在 `%APPDATA%\study-bili\books\` 里，没有删。
 
 > 说明：网页版 `x/space/wbi/arc/search`（UP 空间投稿接口）匿名访问在本机（云电脑 IP）被 B 站**IP 级风控**，
 > 实测固定返回 `-412 request was banned` / `-352 风控校验失败`（换 Referer、补 `dm_img_*` 参数、去掉 wbi 签名都无效）。

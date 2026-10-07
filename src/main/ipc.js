@@ -1,6 +1,6 @@
 import { ipcMain, shell, dialog } from 'electron'
-import { mkdir, writeFile } from 'node:fs/promises'
-import { join, basename } from 'node:path'
+import { mkdir, writeFile, readFile, stat } from 'node:fs/promises'
+import { join, basename, extname } from 'node:path'
 import { store } from './store.js'
 import { qrGenerate, qrPoll, restore, logout } from './bili/auth.js'
 import { fetchView, fetchPages, fetchPlayurl, fetchRelated } from './bili/video.js'
@@ -24,6 +24,29 @@ function wrap(handler) {
       }
     }
   }
+}
+
+const SUB_EXTS = ['srt', 'vtt', 'ass', 'ssa']
+const SUB_MAX_BYTES = 8 * 1024 * 1024
+
+/**
+ * 读一个本地字幕文件给渲染层。
+ * 只认字幕扩展名、只读普通文件、限制 8MB —— 渲染层拿到的是字节（Uint8Array），
+ * 编码（UTF-8 / GB18030）由渲染层用 TextDecoder 自己嗅探，主进程不猜编码。
+ */
+async function readSubtitleFile(file) {
+  if (!file || typeof file !== 'string') throw new Error('没有拿到字幕文件路径')
+  const ext = extname(file).slice(1).toLowerCase()
+  if (!SUB_EXTS.includes(ext)) {
+    throw new Error(`不认这种字幕格式：.${ext || '?'}（支持 srt / vtt / ass / ssa）`)
+  }
+  const info = await stat(file)
+  if (!info.isFile()) throw new Error('这不是一个文件')
+  if (info.size > SUB_MAX_BYTES) {
+    throw new Error(`字幕文件太大了（${(info.size / 1024 / 1024).toFixed(1)}MB，上限 8MB）`)
+  }
+  const bytes = await readFile(file)
+  return { path: file, name: basename(file), size: info.size, bytes }
 }
 
 const handlers = {
@@ -86,6 +109,20 @@ const handlers = {
     if (path) shell.showItemInFolder(path)
     return true
   }),
+  // 本地字幕：选文件（只返回路径）+ 按路径读字节
+  'sys:pickSubtitle': wrap(async () => {
+    const res = await dialog.showOpenDialog({
+      title: '选择字幕文件',
+      buttonLabel: '加载',
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        { name: '字幕', extensions: SUB_EXTS },
+        { name: '全部文件', extensions: ['*'] }
+      ]
+    })
+    return res.canceled ? [] : res.filePaths
+  }),
+  'sys:readSubtitle': wrap(async ({ path }) => readSubtitleFile(path)),
 
   // ---- 备份 ----
   'backup:write': wrap(async ({ dir, name, text }) => {

@@ -39,6 +39,7 @@
       "package.json"
     ],
     "asar": true,
+    "npmRebuild": false,
     "win": {
       "target": [
         "nsis"

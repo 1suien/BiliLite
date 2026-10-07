@@ -71,7 +71,12 @@ export const api = {
   sys: {
     openExternal: proxy((url) => bridge.sys.openExternal(url)),
     pickFile: proxy(() => bridge.sys.pickFile()),
-    revealPath: proxy((path) => bridge.sys.revealPath(path))
+    revealPath: proxy((path) => bridge.sys.revealPath(path)),
+    // 本地字幕：选文件只返回路径；读文件返回 { path, name, size, bytes }
+    pickSubtitle: proxy(() => bridge.sys.pickSubtitle()),
+    readSubtitle: proxy((path) => bridge.sys.readSubtitle(path)),
+    // 同步接口：拖拽进来的文件把 File 换成磁盘路径（拖入本地字幕要用）
+    pathForFile: (file) => (bridge ? bridge.sys.pathForFile(file) : '')
   },
 
   backup: {

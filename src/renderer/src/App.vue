@@ -42,13 +42,70 @@ watch(
   }
 )
 
-const NAV = [
+const DEFAULT_NAV = [
   { to: '/', icon: 'home', label: '首页' },
   { to: '/ups', icon: 'users', label: 'UP 管理' },
   { to: '/fav', icon: 'star', label: '收藏' },
   { to: '/learn', icon: 'book', label: '学习' },
   { to: '/settings', icon: 'settings', label: '设置' }
 ]
+
+/**
+ * 侧栏顺序：settings.navOrder 里存的是路由路径数组（用户拖出来的顺序）。
+ * 只认它里面「还存在的」路径，剩下的按默认顺序补在后面 —— 这样以后新增页面
+ * 不会被老顺序弄丢，用户改了名字/删了页面也不会出现空条目。
+ */
+const navList = computed(() => {
+  const saved = Array.isArray(settings.settings.navOrder) ? settings.settings.navOrder : []
+  const picked = saved.map((to) => DEFAULT_NAV.find((n) => n.to === to)).filter(Boolean)
+  const rest = DEFAULT_NAV.filter((n) => !picked.some((p) => p.to === n.to))
+  return [...picked, ...rest]
+})
+
+/* ── 侧栏拖拽换序 ─────────────────────────────────────── */
+const dragFrom = ref('')
+const dragOver = ref('')
+
+function onNavDragStart(n, e) {
+  dragFrom.value = n.to
+  dragOver.value = ''
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    // 内部拖拽带一个标识，别让浏览器把它当链接拖（否则 drop 里拿不到我们的数据）
+    e.dataTransfer.setData('text/plain', n.to)
+  }
+}
+
+function onNavDragOver(n, e) {
+  if (!dragFrom.value || dragFrom.value === n.to) return
+  e.preventDefault() // 不 preventDefault 就不会触发 drop
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+  dragOver.value = n.to
+}
+
+async function onNavDrop(n, e) {
+  e.preventDefault()
+  const from = dragFrom.value || (e.dataTransfer && e.dataTransfer.getData('text/plain')) || ''
+  dragFrom.value = ''
+  dragOver.value = ''
+  if (!from || from === n.to) return
+  const list = navList.value.map((x) => x.to)
+  const i = list.indexOf(from)
+  const j = list.indexOf(n.to)
+  if (i < 0 || j < 0) return
+  // 把拖起来的那项插到目标项的位置（其余顺延），比两两交换更符合直觉
+  list.splice(j, 0, list.splice(i, 1)[0])
+  try {
+    await settings.patch({ navOrder: list })
+  } catch (err) {
+    console.warn('[nav] 侧栏顺序保存失败：', err && err.message)
+  }
+}
+
+function onNavDragEnd() {
+  dragFrom.value = ''
+  dragOver.value = ''
+}
 
 const todayText = computed(() => fmtHours(learn.todaySeconds))
 const activePath = computed(() => route.path)
@@ -99,11 +156,21 @@ onMounted(async () => {
 
       <nav class="side-nav">
         <RouterLink
-          v-for="n in NAV"
+          v-for="n in navList"
           :key="n.to"
           :to="n.to"
           class="nav-item"
-          :class="{ 'router-link-active': activePath === n.to }"
+          :class="{
+            'router-link-active': activePath === n.to,
+            dragging: dragFrom === n.to,
+            'drop-target': dragOver === n.to && dragFrom !== n.to
+          }"
+          draggable="true"
+          :title="`${n.label}（按住拖动可调整顺序）`"
+          @dragstart="onNavDragStart(n, $event)"
+          @dragover="onNavDragOver(n, $event)"
+          @drop="onNavDrop(n, $event)"
+          @dragend="onNavDragEnd"
         >
           <Icon :name="n.icon" :size="17" />
           <span>{{ n.label }}</span>

@@ -1,4 +1,5 @@
 allowBuilds:
+  canvas: false
   electron: true
   esbuild: true
   vue-demi: true

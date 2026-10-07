@@ -16,7 +16,8 @@ import { useUiStore } from '../stores/ui'
 import { useAuthStore } from '../stores/auth'
 import { fmtCount, fmtDate, fmtDuration, parseDuration } from '../utils/format'
 import { qnLabel, sortQuality } from '../utils/quality'
-import { db } from '../db'
+import { db, listLocalSubs, putLocalSub, removeLocalSub } from '../db'
+import { decodeSubtitleBytes, isSubtitleFile, parseSubtitle, subExt } from '../utils/subtitle'
 
 const route = useRoute()
 const router = useRouter()
@@ -70,6 +71,24 @@ const ccMenu = ref(false)
 const ccList = ref([])
 const ccLan = ref('')
 const ccLoading = ref(false)
+/** 在线字幕是按「分P」取的：记住上次取的是哪个 cid，切分P时要重新取（否则 P2 会显示 P1 的字幕） */
+const ccCid = ref('')
+/** 本地字幕：一个分P可以挂多份；localKey 是当前选中的那份 */
+const localSubs = ref([])
+const localKey = ref('')
+/** 用户点了「关闭字幕」：此时即使加载了字幕也不显示，直到他重新选一份 */
+const ccOff = ref(false)
+const SUB_SIZES = [
+  { v: 18, label: '小' },
+  { v: 22, label: '中' },
+  { v: 26, label: '大' },
+  { v: 32, label: '特大' }
+]
+const SUB_POS = [
+  { v: 8, label: '靠下' },
+  { v: 30, label: '居中' },
+  { v: 55, label: '靠上' }
+]
 const ctlVisible = ref(true)
 let hideTimer = null
 
@@ -99,11 +118,22 @@ const inUpsList = computed(() =>
 
 /* 字幕 / 菜单 */
 const menuOpen = computed(() => speedMenu.value || ccMenu.value)
+
+/** 生效中的字幕 cues：本地选中的优先，其次在线选中的；点过「关闭字幕」就都不显示 */
+const ccItems = computed(() => {
+  if (ccOff.value) return []
+  const local = localSubs.value.find((s) => s.key === localKey.value)
+  if (local && local.items && local.items.length) return local.items
+  const online = ccList.value.find((s) => s.lan === ccLan.value)
+  return online && online.items ? online.items : []
+})
+
+const ccOn = computed(() => !ccOff.value && ccItems.value.length > 0)
+
 const activeCc = computed(() => {
-  const cc = ccList.value.find((s) => s.lan === ccLan.value)
-  if (!cc || !cc.items.length) return ''
+  const items = ccItems.value
+  if (!items.length) return ''
   const t = currentTime.value
-  const items = cc.items
   let lo = 0
   let hi = items.length - 1
   let hit = null
@@ -117,6 +147,17 @@ const activeCc = computed(() => {
   if (!hit) return ''
   const end = hit.to || hit.from + 8
   return t <= end ? hit.content : ''
+})
+
+/** 字幕样式：字号 / 有没有背景遮罩 / 距舞台底部百分之多少（都在设置里存着） */
+const ccStyle = computed(() => {
+  const s = settings.settings
+  return {
+    fontSize: `${Number(s.subFontSize) || 22}px`,
+    bottom: `${Number(s.subBottom) >= 0 ? Number(s.subBottom) : 10}%`,
+    background: s.subBg ? '' : 'transparent',
+    textShadow: s.subBg ? '' : '0 1px 4px rgba(0, 0, 0, 0.95)'
+  }
 })
 
 function applyRate() {
@@ -134,13 +175,22 @@ async function setSpeed(v) {
   }
 }
 
+/**
+ * 取在线字幕。按 cid 记一份「已经取过谁」：切分P后必须重新取，
+ * 不然 P2 会一直显示 P1 的字幕（老版本就有这个毛病）。
+ */
 async function loadSubtitles() {
-  if (ccLoading.value || ccList.value.length) return
+  const cidNow = String(cid.value || '')
+  if (!cidNow || ccLoading.value) return
+  if (ccCid.value === cidNow && ccList.value.length) return
   ccLoading.value = true
+  ccCid.value = cidNow
+  ccList.value = []
+  ccLan.value = ''
   try {
-    const r = await api.video.subtitle(bvid.value, cid.value)
+    const r = await api.video.subtitle(bvid.value, cidNow)
     ccList.value = (r && r.list) || []
-    if (ccList.value.length && !ccLan.value) ccLan.value = ccList.value[0].lan
+    if (ccList.value.length && !ccOff.value && !localKey.value) ccLan.value = ccList.value[0].lan
   } catch {
     ccList.value = []
   } finally {
@@ -151,13 +201,104 @@ async function loadSubtitles() {
 async function openCcMenu() {
   ccMenu.value = !ccMenu.value
   if (!ccMenu.value) return
+  await loadLocalSubs()
   await loadSubtitles()
-  if (!ccList.value.length) ui.toast('这个视频没有可用字幕（未登录时多数视频拿不到）')
+  if (!ccList.value.length && !localSubs.value.length) {
+    ui.toast('这个视频没有可用字幕，可以点「选择字幕文件…」加载本地字幕')
+  }
 }
 
+/** 选在线字幕：会清掉本地选择，避免两份字幕抢着显示 */
 function pickCc(lan) {
   ccLan.value = lan
+  localKey.value = ''
+  ccOff.value = !lan
   ccMenu.value = false
+}
+
+/** 选本地字幕 */
+function pickLocal(key) {
+  localKey.value = key
+  ccLan.value = ''
+  ccOff.value = false
+  ccMenu.value = false
+}
+
+/** 该分P上挂着的本地字幕（存 IndexedDB，下次打开同一分P自动带出来） */
+async function loadLocalSubs(keep = true) {
+  if (!bvid.value || !cid.value) return
+  try {
+    localSubs.value = await listLocalSubs(bvid.value, cid.value)
+  } catch {
+    localSubs.value = []
+  }
+  if (!localSubs.value.length) {
+    localKey.value = ''
+    return
+  }
+  const still = localSubs.value.some((s) => s.key === localKey.value)
+  // 换分P/首次加载时：默认用第一份（除非用户已经点了「关闭字幕」）
+  if (!still) localKey.value = keep && !ccOff.value ? localSubs.value[0].key : ''
+}
+
+/** 从磁盘上的一个字幕文件加进来（选文件、拖进来都走这里） */
+async function addSubFromPath(path) {
+  try {
+    const file = await api.sys.readSubtitle(path)
+    const text = decodeSubtitleBytes(file.bytes)
+    const { format, items } = parseSubtitle(text, subExt(file.name))
+    if (!items.length) {
+      ui.toast(`${file.name}：没解析出字幕内容（支持 srt / vtt / ass）`)
+      return false
+    }
+    const row = await putLocalSub({
+      bvid: bvid.value,
+      cid: cid.value,
+      name: file.name,
+      format,
+      items
+    })
+    if (!row) {
+      ui.toast('字幕保存失败（这个分P还没准备好？）')
+      return false
+    }
+    await loadLocalSubs()
+    pickLocal(row.key)
+    ui.toast(`已加载字幕 ${file.name}（${items.length} 句）`)
+    return true
+  } catch (err) {
+    ui.toast((err && err.message) || '读字幕失败')
+    return false
+  }
+}
+
+async function pickSubtitleFile() {
+  try {
+    const paths = await api.sys.pickSubtitle()
+    for (const p of paths || []) await addSubFromPath(p)
+  } catch (err) {
+    ui.toast((err && err.message) || '选择字幕文件失败')
+  }
+}
+
+async function removeSub(s) {
+  await removeLocalSub(s.key)
+  if (localKey.value === s.key) localKey.value = ''
+  await loadLocalSubs()
+}
+
+/** 拖文件进窗口：preload 统一派发 bili:files-dropped，这里只认字幕扩展名 */
+async function onFilesDropped(e) {
+  const paths = ((e && e.detail && e.detail.paths) || []).filter((p) => isSubtitleFile(p))
+  for (const p of paths) await addSubFromPath(p)
+}
+
+async function patchSub(patch) {
+  try {
+    await settings.patch(patch)
+  } catch {
+    /* 设置落盘失败不影响当前播放 */
+  }
 }
 
 function scheduleHide() {
@@ -244,8 +385,15 @@ async function loadAll() {
     return
   }
 
+  // 初始分P的优先顺序：?p → ?cid（学习记录点进来带的是 cid）→ 上次看的那一 P → 第 1 P。
+  // 早期版本只看 ?p，导致从首页/学习记录点进一个多分P视频永远回到 P1：既认不出「上次看到哪一 P」，
+  // 也认不出「这条进度记录属于哪一 P」，续播于是永远从 P1 从头开始。
   const want = Number(route.query.p || 0)
-  pageIndex.value = want >= 1 && want <= pageList.value.length ? want - 1 : 0
+  const wantCid = String(route.query.cid || '')
+  const byP = want >= 1 && want <= pageList.value.length ? want - 1 : -1
+  const byCid = wantCid ? pageList.value.findIndex((x) => String(x.cid) === wantCid) : -1
+  const seen = learn.list.find((r) => r.bvid === id && r.page >= 1 && r.page <= pageList.value.length)
+  pageIndex.value = byP >= 0 ? byP : byCid >= 0 ? byCid : seen ? seen.page - 1 : 0
   // 必须先渲染出 <video> 再取流：video 元素在 v-else 分支里，loading 为 true 时不存在
   loading.value = false
   await nextTick()
@@ -382,6 +530,9 @@ async function startPlay() {
     })
     startTimers() // 幂等：切分P/换清晰度后保证计时器仍在跑
     applyRate()
+    // 本地字幕跟着分P走；开了「自动开启在线字幕」就顺手取一次（失败不打扰用户）
+    loadLocalSubs().catch(() => {})
+    if (settings.settings.subAuto) loadSubtitles().catch(() => {})
   } catch (err) {
     errorMsg.value = err.message || '播放失败'
     statusText.value = ''
@@ -401,6 +552,9 @@ function teardown() {
   statusText.value = ''
   ccLan.value = ''
   ccList.value = []
+  ccCid.value = ''
+  localSubs.value = []
+  localKey.value = ''
 }
 
 /* ── 学习记录 ─────────────────────────────────────────── */
@@ -680,11 +834,13 @@ onMounted(async () => {
   startTimers()
   window.addEventListener('keydown', onKey)
   window.addEventListener('pointerdown', onWinDown, true)
+  window.addEventListener('bili:files-dropped', onFilesDropped)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey)
   window.removeEventListener('pointerdown', onWinDown, true)
+  window.removeEventListener('bili:files-dropped', onFilesDropped)
   if (hideTimer) clearTimeout(hideTimer)
   flushProgress()
   teardown()
@@ -707,7 +863,7 @@ onBeforeUnmount(() => {
         <div class="player-stage" @dblclick="toggleFullscreen">
           <video ref="videoEl" playsinline preload="auto" @click="togglePlay" />
 
-          <div v-if="ccLan && activeCc" class="cc-line">{{ activeCc }}</div>
+          <div v-if="ccOn && activeCc" class="cc-line" :style="ccStyle">{{ activeCc }}</div>
 
           <div v-if="statusText && !isPlaying" class="player-msg">
             <span class="spinner" style="margin: 0 auto" />
@@ -760,21 +916,80 @@ onBeforeUnmount(() => {
                 <button class="btn ghost sm" title="字幕" @click.stop="openCcMenu()">
                   <Icon name="cc" :size="15" />
                 </button>
-                <div v-if="ccMenu" class="ctl-menu">
-                  <div class="mi" :class="{ on: !ccLan }" @click="pickCc('')">关闭字幕</div>
+                <div v-if="ccMenu" class="ctl-menu cc-menu">
+                  <div class="mi" :class="{ on: !ccOn }" @click="pickCc('')">关闭字幕</div>
+
+                  <div class="mhead">在线字幕</div>
                   <div v-if="ccLoading" class="mrow">字幕加载中…</div>
                   <template v-else-if="ccList.length">
                     <div
                       v-for="c in ccList"
                       :key="c.lan"
                       class="mi"
-                      :class="{ on: c.lan === ccLan }"
+                      :class="{ on: !ccOff && !localKey && c.lan === ccLan }"
                       @click="pickCc(c.lan)"
                     >
                       <span>{{ c.lanDoc }}</span><span class="k">{{ c.items.length }} 句</span>
                     </div>
                   </template>
                   <div v-else class="mrow">这个视频没有可用字幕</div>
+                  <div class="mi" :class="{ on: settings.settings.subAuto }" @click="patchSub({ subAuto: !settings.settings.subAuto })">
+                    <span>自动开启在线字幕</span>
+                    <span class="k">{{ settings.settings.subAuto ? '已开' : '关' }}</span>
+                  </div>
+
+                  <div class="mhead">本地字幕 · 也可以把文件拖进播放器</div>
+                  <div
+                    v-for="s in localSubs"
+                    :key="s.key"
+                    class="mi"
+                    :class="{ on: !ccOff && s.key === localKey }"
+                  >
+                    <span class="grow clamp-1" @click="pickLocal(s.key)">{{ s.name }}</span>
+                    <span class="k">{{ s.count }} 句</span>
+                    <button class="mi-x" title="删除这份字幕" @click.stop="removeSub(s)">✕</button>
+                  </div>
+                  <div v-if="!localSubs.length" class="mrow">这个分P还没加载本地字幕</div>
+                  <div class="mi" @click="pickSubtitleFile()">
+                    <span>选择字幕文件…</span><span class="k">srt / vtt / ass</span>
+                  </div>
+
+                  <div class="mhead">字幕显示</div>
+                  <div class="mrow sub-row">
+                    <span class="sublab">字号</span>
+                    <span class="chip-group">
+                      <button
+                        v-for="z in SUB_SIZES"
+                        :key="z.v"
+                        class="chip plain"
+                        :class="{ on: Number(settings.settings.subFontSize) === z.v }"
+                        @click="patchSub({ subFontSize: z.v })"
+                      >
+                        {{ z.label }}
+                      </button>
+                    </span>
+                  </div>
+                  <div class="mrow sub-row">
+                    <span class="sublab">背景</span>
+                    <span class="chip-group">
+                      <button class="chip plain" :class="{ on: settings.settings.subBg }" @click="patchSub({ subBg: true })">有</button>
+                      <button class="chip plain" :class="{ on: !settings.settings.subBg }" @click="patchSub({ subBg: false })">无</button>
+                    </span>
+                  </div>
+                  <div class="mrow sub-row">
+                    <span class="sublab">位置</span>
+                    <span class="chip-group">
+                      <button
+                        v-for="p in SUB_POS"
+                        :key="p.v"
+                        class="chip plain"
+                        :class="{ on: Number(settings.settings.subBottom) === p.v }"
+                        @click="patchSub({ subBottom: p.v })"
+                      >
+                        {{ p.label }}
+                      </button>
+                    </span>
+                  </div>
                 </div>
               </div>
               <button class="btn ghost sm" title="静音" @click="toggleMute">

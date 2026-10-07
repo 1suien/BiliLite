@@ -5,11 +5,14 @@
  * 比 protobuf 的 `x/v2/dm/web/seg.so` 好解析；失败时退回 `comment.bilibili.com/<cid>.xml`。
  */
 import { api, request, buildUrl, fixUrl } from './http.js'
+import { signParams } from './wbi.js'
 import { store } from '../store.js'
 
 const DM_LIST = 'https://api.bilibili.com/x/v1/dm/list.so'
 const DM_XML_FALLBACK = 'https://comment.bilibili.com'
 const DM_POST = 'https://api.bilibili.com/x/v2/dm/post'
+/** 字幕接口：优先 wbi 版（2024 年起不带签名会被 -403），失败再退回老接口 */
+const PLAYER_V2_WBI = 'https://api.bilibili.com/x/player/wbi/v2'
 const PLAYER_V2 = 'https://api.bilibili.com/x/player/v2'
 const ONLINE_TOTAL = 'https://api.bilibili.com/x/player/online/total'
 
@@ -89,10 +92,20 @@ export async function fetchOnlineTotal(bvid, cid) {
   }
 }
 
+/** 取 x/player/v2 的 data：先试带 wbi 签名的版本，失败再退回不签名的那条 */
+async function playerV2(bvid, cid) {
+  try {
+    const params = await signParams({ bvid, cid })
+    return await api(PLAYER_V2_WBI, { params })
+  } catch {
+    return await api(PLAYER_V2, { params: { bvid, cid } })
+  }
+}
+
 /** 字幕列表 + 内容（未登录时多数视频为空） */
 export async function fetchSubtitle(bvid, cid) {
   if (!bvid || !cid) return { list: [] }
-  const data = await api(PLAYER_V2, { params: { bvid, cid } })
+  const data = await playerV2(bvid, cid)
   const subs = (data && data.subtitle && data.subtitle.subtitles) || []
   const list = []
   for (const s of subs.slice(0, 5)) {

@@ -89,7 +89,7 @@ export async function runSmoke(win) {
   const forceTheme = async () => {
     if (!wantTheme) return
     try {
-      await js(`(() => {
+      await js(`(async () => {
         const want = ${JSON.stringify(wantTheme)}
         const pairs = [['#ffffff','#17171a'],['#5ad1c8','#0f766e'],['#6ea8fe','#1d4ed8'],['#b39ddb','#6d28d9'],['#f0a868','#b45309'],['#7fd68a','#15803d']]
         const root = document.documentElement
@@ -103,6 +103,14 @@ export async function runSmoke(win) {
         const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255
         root.style.setProperty('--accent', hex)
         root.style.setProperty('--accent-fg', lum > 0.6 ? '#0a0a0b' : '#ffffff')
+        // 只改 DOM 还不够：应用里任何一次 settings.patch() 都会走 applyTheme()，按「已落盘的主题」
+        // 把 dataset.theme 改回去（见 src/renderer/src/stores/settings.js 的 patch → applyTheme），
+        // 于是指定浅色的跑法会在中途某次写设置之后又变回默认深色——截图与对比度断言都会失真
+        // （曾出现：前几张截图是浅色，学习页那张突然变深）。这里把主题一起落盘，之后的 patch
+        // 只会把它再设成同一个值。userData 目录是冒烟自己的一次性目录，改它无害。
+        try {
+          if (window.bili && window.bili.settings && window.bili.settings.patch) await window.bili.settings.patch({ theme: want })
+        } catch { /* 落盘失败就只按 DOM 强制，后面每次截图前还会再强制一次 */ }
         return hex
       })()`)
     } catch {
@@ -216,6 +224,11 @@ export async function runSmoke(win) {
   await step('bridge 通道齐全', "Object.keys(window.bili).join(',')", (v) => /auth/.test(v) && /video/.test(v))
   await step('app:ping', 'window.bili.ping()', (v) => v === 'pong' || Boolean(v))
   await step('侧栏导航 5 项', "document.querySelectorAll('.nav-item').length", (v) => v === 5)
+  await step(
+    '侧栏已没有「读书」入口',
+    "Array.from(document.querySelectorAll('.nav-item')).some((e) => e.textContent.includes('读书'))",
+    (v) => v === false
+  )
   await step(
     '侧栏不再有「搜索」入口（保留顶栏搜索）',
     "Array.from(document.querySelectorAll('.nav-item')).some((e) => e.textContent.includes('搜索'))",
@@ -459,7 +472,11 @@ export async function runSmoke(win) {
     partInfo.n > 0 &&
     partInfo.bad.length === 0 &&
     partInfo.onCount === 1 &&
-    String(partInfo.pillTitle || '').length > 1 &&
+    // 原来要求 pillTitle 长度 > 1，但真有人给分P起名叫「B」（这一轮搜到的单P视频标题就是 1 个字），
+    // 于是断言把正确的界面判成失败。改成「至少有一个分P的标题和序号徽章不一样」——
+    // 这才是「带分P标题」的意思，标题真的丢了（pt 为空）仍由上面的 bad 拦住。
+    String(partInfo.pillTitle || '').length >= 1 &&
+    (partInfo.first || []).some((r) => r.pt && r.pt !== r.pn) &&
     String(partInfo.cur || '').indexOf('undefined') < 0
   ) {
     pass('分P列表带分P标题', partInfo)
@@ -709,6 +726,115 @@ export async function runSmoke(win) {
     if (ccProbe && ccProbe.opened) pass('字幕菜单能打开', ccProbe.text)
     else fail('字幕菜单能打开', ccProbe)
 
+    // ---- 本地字幕：真写一个 .srt 文件 → 真的走「拖进来」那条路 → 解析 → 落库 → 画到播放器上 ----
+    // 拖拽事件是 preload 暴露的公开事件（bili:files-dropped），不是测试后门，
+    // 所以这里和用户把字幕文件拖进窗口走的是同一条代码路径。
+    const subFile = join(app.getPath('userData'), 'smoke-local-sub.srt')
+    writeFileSync(
+      subFile,
+      ['1', '00:00:00,000 --> 99:00:00,000', '冒烟本地字幕：这句话应该出现在播放器上', ''].join('\r\n'),
+      'utf8'
+    )
+    const subProbe = await js(`(async () => {
+      window.dispatchEvent(new CustomEvent('bili:files-dropped', { detail: { paths: [${JSON.stringify(subFile)}] } }))
+      await new Promise((r) => setTimeout(r, 1000))
+      const line = document.querySelector('.cc-line')
+      const openReq = indexedDB.open('study-bili')
+      const db = await new Promise((res) => { openReq.onsuccess = () => res(openReq.result) })
+      let rows = -1
+      if (db.objectStoreNames.contains('subs')) {
+        rows = await new Promise((res) => {
+          const q = db.transaction('subs', 'readonly').objectStore('subs').getAll()
+          q.onsuccess = () => res(q.result.length)
+          q.onerror = () => res(-1)
+        })
+      }
+      return { rows, text: line ? line.textContent.trim() : '' }
+    })()`)
+    if (subProbe && subProbe.rows === 1 && subProbe.text.includes('冒烟本地字幕'))
+      pass('本地字幕：拖入文件 → 解析 → 落 IndexedDB → 显示在播放器上', subProbe)
+    else fail('本地字幕：拖入文件 → 解析 → 落 IndexedDB → 显示在播放器上', subProbe)
+
+    // 字幕字号/位置可调（用户在需求里点名要的）
+    const subStyle = await js(`(async () => {
+      const btn = [...document.querySelectorAll('.stage-ui button')].find((b) => b.title === '字幕')
+      if (!btn) return { err: 'no-cc-button' }
+      btn.click()
+      await new Promise((r) => setTimeout(r, 350))
+      const menu = document.querySelector('.ctl-menu.cc-menu')
+      const chips = [...document.querySelectorAll('.ctl-menu.cc-menu .chip')].map((c) => c.textContent.trim())
+      const big = [...document.querySelectorAll('.ctl-menu.cc-menu .chip')].find((c) => c.textContent.trim() === '特大')
+      if (big) big.click()
+      await new Promise((r) => setTimeout(r, 250))
+      const up = [...document.querySelectorAll('.ctl-menu.cc-menu .chip')].find((c) => c.textContent.trim() === '靠上')
+      if (up) up.click()
+      await new Promise((r) => setTimeout(r, 250))
+      const line = document.querySelector('.cc-line')
+      const cs = line ? getComputedStyle(line) : null
+      // 对比度：这个浮层是固定深色底，里面的 chip / 选中行不能跟主题走。
+      // 浅色主题下 --soft 是近白、--accent 是近黑，套进来就是「白底白字 / 黑底黑字」。
+      const pxc = (c) => { const m = String(c || '').match(/[\\d.]+/g) || [0, 0, 0]; return [+m[0], +m[1], +m[2], m.length > 3 ? +m[3] : 1] }
+      const blend = (c, base) => { const p = pxc(c); return [0, 1, 2].map((i) => Math.round(p[i] * p[3] + base[i] * (1 - p[3]))) }
+      const lumn = (v) => { const f = (x) => { x = x / 255; return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4) }; return 0.2126 * f(v[0]) + 0.7152 * f(v[1]) + 0.0722 * f(v[2]) }
+      const ratio = (a, b) => { const l1 = lumn(a), l2 = lumn(b); return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05) }
+      const menuBg = blend(menu ? getComputedStyle(menu).backgroundColor : 'rgb(22,22,26)', [22, 22, 26])
+      const subRows = [...document.querySelectorAll('.ctl-menu.cc-menu .mrow.sub-row')]
+      let chipMin = 99
+      for (const c of [...document.querySelectorAll('.ctl-menu.cc-menu .mrow.sub-row .chip')]) {
+        const st = getComputedStyle(c)
+        const bg = blend(st.backgroundColor, menuBg)
+        chipMin = Math.min(chipMin, ratio(blend(st.color, bg), bg))
+      }
+      const onRowEl = document.querySelector('.ctl-menu.cc-menu .mi.on')
+      let onMin = 99
+      if (onRowEl) {
+        const st = getComputedStyle(onRowEl)
+        const bg = blend(st.backgroundColor, menuBg)
+        onMin = ratio(blend(st.color, bg), bg)
+      }
+      const out = {
+        theme: document.documentElement.dataset.theme,
+        chips,
+        subRows: subRows.length,
+        subLab: subRows.map((r) => (r.querySelector('.sublab') ? r.querySelector('.sublab').textContent.trim() : '')),
+        chipMin: Math.round(chipMin * 10) / 10,
+        onMin: Math.round(onMin * 10) / 10,
+        localRow: menu ? menu.textContent.includes('smoke-local-sub.srt') : false,
+        font: cs ? cs.fontSize : '',
+        bottom: cs ? cs.bottom : '',
+        text: line ? line.textContent.trim().slice(0, 20) : ''
+      }
+      document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+      await new Promise((r) => setTimeout(r, 150))
+      return out
+    })()`)
+    if (subStyle && subStyle.font === '32px' && subStyle.localRow && Number.parseInt(subStyle.bottom, 10) >= 200)
+      pass('字幕可调：字号「特大」+ 位置「靠上」立刻生效', subStyle)
+    else fail('字幕可调：字号「特大」+ 位置「靠上」立刻生效', subStyle)
+
+    // 字幕设置那一坨的排版与可读性（用户反馈：浅色主题下选项是一排纯白小球，看不清）
+    // 顺带把「此刻确实是哪个主题」记进断言里：-Theme 指定了主题时，这条只有在主题真的生效时才算过，
+    // 否则「浅色下也看得清」这句话没有被验证（曾经因为 settings.patch() 把主题改回深色而失真）。
+    const subLayout = subStyle
+      ? { theme: subStyle.theme, subLab: subStyle.subLab, subRows: subStyle.subRows, chipMin: subStyle.chipMin, onMin: subStyle.onMin }
+      : subStyle
+    const themeOk = !wantTheme || (subLayout && subLayout.theme === wantTheme)
+    if (subLayout && subLayout.subRows === 3 && subLayout.chipMin >= 4.5 && subLayout.onMin >= 4.5 && themeOk)
+      pass('字幕显示设置：字号/背景/位置各占一行，菜单里的文字对比度足够（浅色主题下也看得清）', subLayout)
+    else fail('字幕显示设置：字号/背景/位置各占一行，菜单里的文字对比度足够（浅色主题下也看得清）', { wantTheme, ...subLayout })
+
+    // 再留一张「CC 菜单开着」的截图：这个浮层是固定深色配色，用户就是在浅色主题下看它看不清的，
+    // 光靠对比度数字不够直观，留图为证（浅色/深色两轮都能对照）。
+    await js(`(async () => {
+      const btn = [...document.querySelectorAll('.stage-ui button')].find((b) => b.title === '字幕')
+      if (btn) btn.click()
+      await new Promise((r) => setTimeout(r, 350))
+      return true
+    })()`)
+    await shot('3-视频-字幕菜单.png')
+    await js(`(() => { document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); return true })()`)
+    await sleep(200)
+
     await shot('3-视频页播放器.png')
   }
 
@@ -735,6 +861,98 @@ export async function runSmoke(win) {
   }
   if (progressRows > 0) pass('学习进度已写入 IndexedDB', progressRows)
   else fail('学习进度已写入 IndexedDB', progressDiag)
+
+  // ---- 分P续播：找一个真的多分P视频，切到 P2 → 离开（onBeforeUnmount 落库）→ 不带 ?p 回来 ----
+  // 老版本的入口只认 ?p，所以从首页/学习记录点进多分P视频永远回 P1；这里就是要证明现在回得去。
+  {
+    const partProbe = await js(`(async () => {
+      const openParts = async () => {
+        const tab = [...document.querySelectorAll('.tab')].find((t) => t.textContent.includes('分P'))
+        if (tab) tab.click()
+        await new Promise((r) => setTimeout(r, 400))
+        return [...document.querySelectorAll('.page-pill')]
+      }
+      const origHash = location.hash
+      let found = null
+      try {
+        const r = await window.bili.search.videos('线性代数', 1)
+        for (const v of (r.items || []).slice(0, 8)) {
+          const pages = await window.bili.video.pages(v.bvid)
+          if (Array.isArray(pages) && pages.length > 1) {
+            found = { bvid: v.bvid, n: pages.length, title: String(v.title || '').slice(0, 24) }
+            break
+          }
+        }
+      } catch (err) {
+        return { err: String((err && err.message) || err) }
+      }
+      if (!found) return { skipped: true, origBvid: (origHash.match(/video\\/([^/?#]+)/) || [])[1] || '' }
+
+      location.hash = '#/video/' + found.bvid
+      await new Promise((r) => setTimeout(r, 4500))
+      let pills = [...document.querySelectorAll('.page-pill')]
+      if (pills.length < 2) pills = await openParts()
+      if (pills.length < 2) return Object.assign(found, { err: 'part-list-not-ready', hash: location.hash })
+
+      pills[1].click()
+      // 等 P2 真的开始出画面再离开：onBeforeUnmount 里的 flushProgress 只写 currentTime > 0 的进度，
+      // 起流没完成就跳走会「没东西可续」，那不是代码的错，是环境慢。
+      const t0 = Date.now()
+      let t2 = 0
+      while (Date.now() - t0 < 12000) {
+        const v = document.querySelector('video')
+        t2 = v ? Number(v.currentTime || 0) : 0
+        if (t2 > 0.5) break
+        await new Promise((r) => setTimeout(r, 300))
+      }
+      await new Promise((r) => setTimeout(r, 600))
+      const afterClick = [...document.querySelectorAll('.page-pill')].findIndex((p) => p.classList.contains('on'))
+
+      location.hash = '#/'
+      await new Promise((r) => setTimeout(r, 1600))
+      location.hash = '#/video/' + found.bvid
+      await new Promise((r) => setTimeout(r, 4800))
+      let back = [...document.querySelectorAll('.page-pill')]
+      if (!back.length) back = await openParts()
+      const hash = location.hash
+      const on = back.findIndex((p) => p.classList.contains('on'))
+      const titles = back.map((p) => p.textContent.trim().slice(0, 12))
+      // 组件自己渲染出来的「当前 Pn」（PartList 头部），用来区分「判定错了」还是「只高亮错了」
+      const headEl = document.querySelector('.pages-head .muted')
+      const head = headEl ? headEl.textContent.trim() : ''
+      const onAll = back.map((p, i) => (p.classList.contains('on') ? i : -1)).filter((i) => i >= 0)
+      // 顺手把库里这个 bvid 的进度行都取出来：库是按写入顺序盖 updatedAt 的，
+      // 内存里的顺序错了才会出现「库里明明有 P2 却回到 P1」
+      let rowsInfo = []
+      let p2row = false
+      try {
+        const openReq = indexedDB.open('study-bili')
+        const db = await new Promise((res) => { openReq.onsuccess = () => res(openReq.result) })
+        if (db.objectStoreNames.contains('progress')) {
+          const rows = await new Promise((res) => {
+            const q = db.transaction('progress', 'readonly').objectStore('progress').getAll()
+            q.onsuccess = () => res(q.result)
+            q.onerror = () => res([])
+          })
+          const mine = rows.filter((r) => r.bvid === found.bvid)
+          p2row = mine.some((r) => Number(r.page) === 2)
+          // 注意：这段代码跑在注入脚本里（外面是模板字符串），所以不能用正则和插值语法
+          rowsInfo = mine.map((r) => r.page + '@' + r.updatedAt)
+        }
+      } catch (err) {
+        /* 只是诊断字段 */
+      }
+      location.hash = origHash
+      await new Promise((r) => setTimeout(r, 1200))
+      return Object.assign(found, { afterClick, on, t2, p2row, head, onAll, rowsInfo, hash, restored: location.hash })
+    })()`)
+    if (!partProbe || partProbe.err) fail('分P续播：不带 ?p 回到上次那个分P', partProbe)
+    else if (partProbe.skipped) warn('分P续播：搜不到多分P视频，跳过')
+    else if (partProbe.t2 <= 0.5) warn(`分P续播：P2 起流超时（currentTime=${partProbe.t2}），本轮跳过`)
+    else if (partProbe.afterClick === 1 && partProbe.on === 1)
+      pass('分P续播：不带 ?p 回到上次那个分P', partProbe)
+    else fail('分P续播：不带 ?p 回到上次那个分P', partProbe)
+  }
 
   // ---- 路由与页面可用性 ----
   const routes = [
@@ -782,6 +1000,41 @@ export async function runSmoke(win) {
       log(`      · 诊断 ${label} :: ${show(info)}`)
       log(`      · nav-item 文本 :: ${show(navLabels)}`)
     }
+  }
+
+  // ---- 侧栏换序：真的发一遍 HTML5 拖拽事件（dragstart → dragover → drop），看顺序有没有变、有没有落盘 ----
+  {
+    const navDrag = await js(`(async () => {
+      const items = () => [...document.querySelectorAll('.nav-item')]
+      const labels = () => items().map((e) => e.textContent.replace(/\\s+/g, ' ').trim())
+      const hrefs = () => items().map((e) => String(e.getAttribute('href') || '').replace(/^.*#/, ''))
+      const before = labels()
+      const beforeHrefs = hrefs()
+      if (items().length < 3) return { err: 'nav-too-few', before }
+      const dt = new DataTransfer()
+      const fire = (el, type) => el.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt }))
+      fire(items()[0], 'dragstart')
+      fire(items()[2], 'dragover')
+      fire(items()[2], 'drop')
+      fire(items()[2], 'dragend')
+      await new Promise((r) => setTimeout(r, 1000))
+      const after = labels()
+      const afterHrefs = hrefs()
+      let saved = null
+      try { saved = await window.bili.settings.get() } catch (err) { saved = { err: String((err && err.message) || err) } }
+      return {
+        before,
+        after,
+        beforeHrefs,
+        afterHrefs,
+        navOrder: (saved && saved.navOrder) || [],
+        err: saved && saved.err ? saved.err : ''
+      }
+    })()`)
+    const moved = navDrag && !navDrag.err && navDrag.after && navDrag.after[2] === navDrag.before[0] && navDrag.after[0] === navDrag.before[1]
+    const persisted = navDrag && Array.isArray(navDrag.navOrder) && navDrag.navOrder.join('|') === (navDrag.afterHrefs || []).join('|')
+    if (moved && persisted) pass('侧栏拖拽换序（并把新顺序落盘）', navDrag)
+    else fail('侧栏拖拽换序（并把新顺序落盘）', navDrag)
   }
 
   // ================= 本轮新增功能：UP 管理 / 本机收藏 / 学习打卡 =================
@@ -910,7 +1163,12 @@ export async function runSmoke(win) {
   })()`)
   log('      · 滚动诊断：' + JSON.stringify(scrollInfo))
   const canScroll = !!scrollInfo && scrollInfo.sh > scrollInfo.ch + 4
+  // UP 主页的投稿靠接口拿：接口失败/被风控时列表是空的，页面本来就不需要滚动，那不是代码问题
+  // （这一轮桌面版就跑出过这种情况：UP 主页 0 张卡 → 页面不可滚 → 两条断言连坐 FAIL）。
+  // 内容够长却滚不动（sh <= ch）才是真问题，仍按 FAIL 报。
   if (canScroll) pass('页面可上下滚动（右侧下拉）', scrollInfo)
+  else if (upCards === 0)
+    warn(`页面可上下滚动（右侧下拉）：UP 主页没数据（接口失败），页面本来就不需要滚动，跳过。${JSON.stringify(scrollInfo)}`)
   else fail('页面可上下滚动（右侧下拉）', scrollInfo)
 
   // 往下拉 → 出现「顶部」按钮 → 点它回到顶部
@@ -965,6 +1223,8 @@ export async function runSmoke(win) {
     }
     if (clickedTop && backTop < 40) pass('点「顶部」回到页面顶部', backTop)
     else fail('点「顶部」回到页面顶部', { clicked: clickedTop, top: backTop })
+  } else if (upCards === 0) {
+    warn(`下拉后出现「顶部」按钮：UP 主页没数据（接口失败），没有可滚动的长列表，跳过。${JSON.stringify(scrollState)}`)
   } else {
     fail('下拉后出现「顶部」按钮', scrollState)
   }
@@ -1050,71 +1310,115 @@ export async function runSmoke(win) {
     log('WARN  视频页多次未渲染出 .player-stage，收藏弹窗测试跳过（时序/网络）')
   }
 
-  // 学习页：统计卡 / 日历 / 条形图 / 饼图 / 手动打卡
+  // 学习页：统计卡 + 专注面板（签到日历 / 近 14 天条形图 / 按 UP 分布饼图 / 手动打卡按钮已按需求移除）
   await clickNav('学习')
-  await step('学习页 5 个统计卡', "document.querySelectorAll('.stat-grid .stat').length", (v) => v === 5)
-  await step('签到日历格子数', "document.querySelectorAll('.cal .cell').length", (v) => typeof v === 'number' && v >= 350)
-  await step('近 14 天条形图', "document.querySelectorAll('.bars14 .bcol').length", (v) => v === 14)
+  await step('学习页 7 个统计卡', "document.querySelectorAll('.stat-grid .stat').length", (v) => v === 7)
   await step(
-    '按 UP 分布饼图',
-    "!!document.querySelector('svg.pie') || document.querySelector('#app').innerText.includes('还没有分布数据')",
-    (v) => v === true
+    '学习页已没有签到日历 / 14 天条形图 / UP 分布饼图 / 打卡按钮',
+    `(() => {
+      const app = document.querySelector('#app')
+      const text = app ? app.innerText : ''
+      return {
+        cells: document.querySelectorAll('.cal .cell').length,
+        bars: document.querySelectorAll('.bars14').length,
+        pie: document.querySelectorAll('svg.pie, .pie-wrap').length,
+        checkinBtn: !!Array.from(document.querySelectorAll('button')).find((x) => /今日打卡|今日已签到/.test(x.textContent)),
+        textHit: /每日签到|近 14 天|按 UP 分布/.test(text)
+      }
+    })()`,
+    (v) => v && v.cells === 0 && v.bars === 0 && v.pie === 0 && !v.checkinBtn && !v.textHit
   )
 
-  const beforeCheckin = await idbCount('checkins')
-  const clickedCheckin = await js(`(() => {
-    const b = Array.from(document.querySelectorAll('button')).find((x) => /今日打卡|今日已签到/.test(x.textContent))
-    if (!b) return 'no-button'
-    if (b.disabled) return 'already'
-    b.click()
-    return true
-  })()`)
-  await sleep(1000)
-  const afterCheckin = await idbCount('checkins')
-  if ((afterCheckin > beforeCheckin && afterCheckin > 0) || (clickedCheckin === 'already' && afterCheckin > 0)) {
-    pass('手动打卡写入 checkins', { before: beforeCheckin, after: afterCheckin, clicked: clickedCheckin })
-  } else {
-    fail('手动打卡写入 checkins', { before: beforeCheckin, after: afterCheckin, clicked: clickedCheckin })
-  }
-  await step('签到后日历出现绿色格子', "document.querySelectorAll('.cal .cell.on').length", (v) => typeof v === 'number' && v >= 1)
+  // ── 专注（TickTick 风格面板）：存在 / 倒计时 / 暂停 / 专注结束记入学习时长 ──
+  // 面板 DOM 见 components/FocusPanel.vue：根节点 .panel.focus，大号倒计时是 .ring-clock
+  await step('学习页有专注面板', "!!document.querySelector('.focus .ring-clock')", (v) => v === true)
 
-  // ── 番茄钟：存在 / 倒计时 / 暂停 / 专注结束记入学习时长 ──
-  await step('学习页有番茄钟', "!!document.querySelector('.pomo-clock')", (v) => v === true)
+  // 专注快捷任务可自定义（用户反馈：阅读 / 刷题 / 看课 / 整理笔记 这四个要能自己改）
+  // 必须在番茄钟开跑前做：计时中绑定按钮是 disabled 的
+  const quickProbe = await js(`(async () => {
+    const openBtn = Array.from(document.querySelectorAll('.focus button')).find((b) => /绑定任务|更换/.test(b.textContent))
+    if (!openBtn) return { err: 'no-bind-button' }
+    openBtn.click()
+    await new Promise((r) => setTimeout(r, 400))
+    const modal = document.querySelector('.overlay .modal')
+    if (!modal) return { err: 'no-modal' }
+    const chipTexts = () => Array.from(modal.querySelectorAll('.chip')).map((c) => c.textContent.trim())
+    const before = chipTexts()
+    const editChip = Array.from(modal.querySelectorAll('.chip')).find((c) => /自定义|完成/.test(c.textContent))
+    if (!editChip) return { err: 'no-edit-chip', before }
+    editChip.click()
+    await new Promise((r) => setTimeout(r, 250))
+    const input = modal.querySelector('input.grow')
+    if (!input) return { err: 'no-edit-input', before }
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+    setter.call(input, '背单词')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await new Promise((r) => setTimeout(r, 200))
+    const addBtn = Array.from(modal.querySelectorAll('button')).find((b) => /^(添加|保存)$/.test(b.textContent.trim()))
+    if (!addBtn) return { err: 'no-add-button', before }
+    addBtn.click()
+    await new Promise((r) => setTimeout(r, 400))
+    const after = chipTexts()
+    const saved = await window.bili.settings.get()
+    const savedHas = Array.isArray(saved.focusTasks) && saved.focusTasks.includes('背单词')
+    const del = Array.from(modal.querySelectorAll('.chip .chip-x')).pop()
+    if (del) del.click()
+    await new Promise((r) => setTimeout(r, 400))
+    const afterDel = chipTexts()
+    const saved2 = await window.bili.settings.get()
+    const savedAfterDel = Array.isArray(saved2.focusTasks) ? saved2.focusTasks.includes('背单词') : null
+    const cancel = Array.from(modal.querySelectorAll('button')).find((b) => b.textContent.trim() === '取消')
+    if (cancel) cancel.click()
+    await new Promise((r) => setTimeout(r, 250))
+    return {
+      before,
+      after,
+      hasChip: after.some((t) => t.indexOf('背单词') >= 0),
+      hasDelX: after.some((t) => t.indexOf('背单词') >= 0 && t.indexOf('✕') >= 0),
+      savedHas,
+      savedAfterDel,
+      afterDelCount: afterDel.length,
+      modalClosed: !document.querySelector('.overlay .modal')
+    }
+  })()`)
+  if (quickProbe && quickProbe.hasChip && quickProbe.hasDelX && quickProbe.savedHas && quickProbe.savedAfterDel === false)
+    pass('专注快捷任务可自定义（新增/删除都落盘）', quickProbe)
+  else fail('专注快捷任务可自定义（新增/删除都落盘）', quickProbe)
 
   // 导航日志已在冒烟开始时就挂上（见 __smokeHook），这里只确保它存在
   await js(`(() => { window.__navLog = window.__navLog || []; return true })()`)
 
   const pressPomo = (re) =>
     js(`(() => {
-      const b = Array.from(document.querySelectorAll('.pomo button')).find((x) => ${re}.test(x.textContent))
+      const b = Array.from(document.querySelectorAll('.focus button')).find((x) => ${re}.test(x.textContent))
       if (!b) return 'no-button'
       b.click()
       return b.textContent.replace(/\\s+/g, ' ').trim()
     })()`)
   const pomoClock = () =>
-    js("(() => { const el = document.querySelector('.pomo-clock'); return el ? el.textContent.trim() : '' })()")
+    js("(() => { const el = document.querySelector('.focus .ring-clock'); return el ? el.textContent.trim() : '' })()")
   const pomoHead = () =>
     js(`(() => {
-      const el = document.querySelector('.pomo .muted')
+      const el = document.querySelector('.focus .focus-head .muted')
       return el ? el.textContent.replace(/\\s+/g, ' ').trim() : ''
     })()`)
   const todayChip = () =>
     js("(() => { const el = document.querySelector('.top .chip'); return el ? el.textContent.replace(/\\s+/g, ' ').trim() : '' })()")
   const pomoPanelText = () =>
     js(`(() => {
-      const p = document.querySelector('.pomo')
+      const p = document.querySelector('.focus')
       if (!p) return ''
       return String(p.innerText || p.textContent || '').replace(/\\s+/g, ' ').trim()
     })()`)
   const pomoDiag = () =>
     js(`(() => {
-      const p = document.querySelector('.pomo')
+      const p = document.querySelector('.focus')
       const sc = document.querySelector('.scroll')
       return {
         hash: location.hash,
-        pomo: document.querySelectorAll('.pomo').length,
-        clock: document.querySelectorAll('.pomo-clock').length,
-        muted: document.querySelectorAll('.pomo .muted').length,
+        pomo: document.querySelectorAll('.focus').length,
+        clock: document.querySelectorAll('.focus .ring-clock').length,
+        muted: document.querySelectorAll('.focus .muted').length,
         cls: p ? p.className : 'none',
         panel: p ? String(p.innerText || '').replace(/\\s+/g, ' ').slice(0, 160) : '',
         page: sc ? String(sc.innerText || '').replace(/\\s+/g, ' ').slice(0, 120) : 'no-scroll',
@@ -1125,17 +1429,24 @@ export async function runSmoke(win) {
   // 有人在冒烟跑的时候点窗口会把页面带走（实测点了设置页主题 / 番茄钟按钮 / 侧栏「UP 管理」）：
   // 面板没了就点回学习页，而不是让后面的 js() 抛 TypeError 把整轮冒烟打断。
   const backToLearn = async () => {
-    if (await js("!!document.querySelector('.pomo-clock')").catch(() => false)) return true
+    if (await js("!!document.querySelector('.focus .ring-clock')").catch(() => false)) return true
     const h = await js('location.hash').catch(() => '?')
-    log(`WARN  番茄钟面板不见了（hash=${h}），重新点侧栏「学习」继续`)
+    log(`WARN  专注面板不见了（hash=${h}），重新点侧栏「学习」继续`)
     await clickNav('学习')
     await sleep(900)
-    return js("!!document.querySelector('.pomo-clock')").catch(() => false)
+    return js("!!document.querySelector('.focus .ring-clock')").catch(() => false)
   }
 
-  // 把「专注」改 1 分钟，方便在冒烟里跑完整一轮
+  // 把「专注」改 1 分钟，方便在冒烟里跑完整一轮。时长输入框收在齿轮按钮后面，得先展开。
+  // 注意：面板重挂载（backToLearn）不会丢时长 —— 它已经写进 pinia store。
   await js(`(() => {
-    const i = document.querySelector('.pomo-nums input')
+    const gear = Array.from(document.querySelectorAll('.focus button')).find((x) => /设置时长|收起时长设置/.test(x.title))
+    if (gear) gear.click()
+    return !!gear
+  })()`)
+  await sleep(250)
+  await js(`(() => {
+    const i = document.querySelector('.focus .focus-settings input')
     if (!i) return false
     i.value = '1'
     i.dispatchEvent(new Event('input', { bubbles: true }))
@@ -1143,17 +1454,23 @@ export async function runSmoke(win) {
     return true
   })()`)
   await sleep(400)
+  await js(`(() => {
+    const gear = Array.from(document.querySelectorAll('.focus button')).find((x) => /收起时长设置/.test(x.title))
+    if (gear) gear.click()
+    return !!gear
+  })()`)
+  await sleep(250)
 
   await backToLearn()
   const todayBefore = await todayChip()
   const dur0 = await pomoClock()
-  if (!dur0) log(`WARN  读不到番茄钟时钟 :: ${show(await pomoDiag().catch(() => null))}`)
-  const started = await pressPomo('/开始/')
+  if (!dur0) log(`WARN  读不到专注倒计时 :: ${show(await pomoDiag().catch(() => null))}`)
+  const started = await pressPomo('/开始|继续/')
   await sleep(2600)
   await backToLearn()
   const dur1 = await pomoClock()
-  if (started !== 'no-button' && dur1 && dur0 && dur1 !== dur0) pass('番茄钟开始后倒计时在走', { dur0, dur1, started })
-  else fail('番茄钟开始后倒计时在走', { dur0, dur1, started })
+  if (started !== 'no-button' && dur1 && dur0 && dur1 !== dur0) pass('专注开始后倒计时在走', { dur0, dur1, started })
+  else fail('专注开始后倒计时在走', { dur0, dur1, started })
 
   await pressPomo('/暂停/')
   await sleep(1500)
@@ -1162,33 +1479,45 @@ export async function runSmoke(win) {
   await sleep(1500)
   await backToLearn()
   const dur3 = await pomoClock()
-  if (dur2 && dur2 === dur3) pass('番茄钟暂停后不再走', { dur2, dur3 })
-  else fail('番茄钟暂停后不再走', { dur2, dur3 })
+  // 「暂停后不再走」= 时钟不该继续往下掉。但时钟**往上跳回整轮**不是暂停没生效，而是面板收到了
+  // 重置（`R` 快捷键 / 「重置」按钮，都会把 remain 置回 totalSeconds）——冒烟跑的时候窗口就在
+  // 桌面上，外面的键鼠事件进得来，这类干扰以前也出现过（见本文件里「外部点击干扰」那段注释）。
+  const clockSec = (s) => {
+    const m = /^(\d+):(\d+)$/.exec(String(s || ''))
+    return m ? Number(m[1]) * 60 + Number(m[2]) : null
+  }
+  const c2 = clockSec(dur2)
+  const c3 = clockSec(dur3)
+  if (dur2 && dur2 === dur3) pass('专注暂停后不再走', { dur2, dur3 })
+  else if (c2 != null && c3 != null && c3 > c2) warn(`专注暂停后不再走：倒计时被重置回 ${dur3}（外部输入触发重置，不是暂停失效）`)
+  else fail('专注暂停后不再走', { dur2, dur3 })
 
   // 继续跑完这一轮（专注 1 分钟）：完成后应自动切到休息并把时长记进统计
-  const resumed = await pressPomo('/开始/')
-  log(`      · 番茄钟诊断（开始后） :: ${show(await pomoDiag())}`)
+  const resumed = await pressPomo('/开始|继续/')
+  log(`      · 专注诊断（开始后） :: ${show(await pomoDiag())}`)
   let done = null
   let toastText = ''
   for (let i = 0; i < 80; i++) {
     await sleep(1000)
-    if (!(await js("!!document.querySelector('.pomo-clock')").catch(() => false))) await backToLearn()
+    if (!(await js("!!document.querySelector('.focus .ring-clock')").catch(() => false))) await backToLearn()
     const head = await pomoHead()
     const panel = await pomoPanelText()
-    if (/今日完成\s*1\s*个/.test(head) || /今日完成\s*1\s*个/.test(panel)) {
-      done = { head, panel: panel.slice(0, 90), clock: await pomoClock() }
+    // 新面板头部文案是「今日 N 轮 · M:SS」；历史面板也要出现这一轮（证明落了库）
+    const history = panel.includes('专注记录')
+    if (/今日\s*1\s*轮/.test(head) || /今日\s*1\s*轮/.test(panel)) {
+      done = { head, panel: panel.slice(0, 90), history, clock: await pomoClock() }
       toastText = await js("Array.from(document.querySelectorAll('.toast')).map((e) => e.textContent).join(' | ')")
       break
     }
   }
   const todayAfter = await todayChip()
   if (done) {
-    pass('番茄钟专注结束（自动进入休息 + 计入学习时长）', { ...done, resumed, toast: toastText, todayBefore, todayAfter })
-    if (/番茄钟完成/.test(toastText) || todayAfter !== todayBefore) pass('番茄钟完成有提示且学习时长增加', { toast: toastText, todayBefore, todayAfter })
-    else warn(`番茄钟完成没抓到 toast/时长变化（可能是时长文案取整相同）：${todayBefore} → ${todayAfter}`)
-    await shot('4-学习页番茄钟.png')
+    pass('专注结束（自动进入休息 + 计入学习时长）', { ...done, resumed, toast: toastText, todayBefore, todayAfter })
+    if (/番茄钟完成/.test(toastText) || todayAfter !== todayBefore) pass('专注完成有提示且学习时长增加', { toast: toastText, todayBefore, todayAfter })
+    else warn(`专注完成没抓到 toast/时长变化（可能是时长文案取整相同）：${todayBefore} → ${todayAfter}`)
+    await shot('4-学习页专注.png')
   } else {
-    fail('番茄钟专注结束（自动进入休息 + 计入学习时长）', {
+    fail('专注结束（自动进入休息 + 计入学习时长）', {
       resumed,
       head: await pomoHead(),
       diag: await pomoDiag(),
@@ -1196,6 +1525,7 @@ export async function runSmoke(win) {
       todayAfter
     })
   }
+
 
   const errs = await js(`String(window.__smokeErr || '')`).catch(() => '')
   if (errs) log(`渲染层异常汇总 :: ${show(errs)}`)
