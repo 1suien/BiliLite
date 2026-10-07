@@ -11,6 +11,7 @@ import PageFloat from './components/PageFloat.vue'
 import Toasts from './components/Toasts.vue'
 import LoginModal from './components/LoginModal.vue'
 import ConfirmModal from './components/ConfirmModal.vue'
+import MiniPlayer from './components/MiniPlayer.vue'
 import BiliImage from './components/BiliImage.vue'
 import { fmtHours } from './utils/format'
 
@@ -231,6 +232,9 @@ onMounted(async () => {
     </main>
 
     <PageFloat />
+
+    <!-- 小窗播放：挂在最外层，切页也跟着（用户在卡片/视频页把它叫起来） -->
+    <MiniPlayer />
 
     <Toasts />
     <LoginModal />

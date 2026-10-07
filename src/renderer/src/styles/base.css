@@ -439,6 +439,34 @@ textarea {
   object-fit: cover;
   display: block;
 }
+/* 缩略图右上角「小窗播放」（B 站客户端同款位置）：hover 才亮出来。
+   注意用 opacity 而不是 display/visibility —— 用它们冒烟脚本点不到，
+   真人也得先 hover 才出来，位置和「时长」不打架。 */
+.vcard .thumb .mini {
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.14s, background 0.14s, transform 0.14s;
+}
+.vcard:hover .thumb .mini {
+  opacity: 1;
+}
+.vcard .thumb .mini:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  transform: scale(1.06);
+}
 .vcard .thumb .dur {
   position: absolute;
   right: 6px;
@@ -981,6 +1009,14 @@ html[data-theme='light'] .player-stage .progress .track i {
   gap: 8px;
   padding: 20px;
   z-index: 4;
+}
+/* 「视频正在小窗播放」这类带按钮的浮层：竖排、居中 */
+.player-msg-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
 }
 .progress {
   flex: 1;

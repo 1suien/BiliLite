@@ -23,26 +23,22 @@ const ui = useUiStore()
 // 计时进行中不让改：否则「本轮到底算几分钟」会前后不一致。
 const showSettings = ref(false)
 const focusInput = ref(pomo.focusMin)
-const shortInput = ref(pomo.shortMin)
-const longInput = ref(pomo.longMin)
+const breakInput = ref(pomo.breakMin)
 const DUR_RANGE = '1 ~ 180'
 const MODES = [
   { key: 'focus', label: '专注' },
-  { key: 'short', label: '短休息' },
-  { key: 'long', label: '长休息' }
+  { key: 'break', label: '休息' }
 ]
 
 function applyDurations() {
-  pomo.setDurations({ focusMin: focusInput.value, shortMin: shortInput.value, longMin: longInput.value })
+  pomo.setDurations({ focusMin: focusInput.value, breakMin: breakInput.value })
   focusInput.value = pomo.focusMin
-  shortInput.value = pomo.shortMin
-  longInput.value = pomo.longMin
+  breakInput.value = pomo.breakMin
 }
 function resetDurations() {
-  pomo.setDurations({ focusMin: 25, shortMin: 5, longMin: 15 })
+  pomo.setDurations({ focusMin: 25, breakMin: 5 })
   focusInput.value = pomo.focusMin
-  shortInput.value = pomo.shortMin
-  longInput.value = pomo.longMin
+  breakInput.value = pomo.breakMin
 }
 function toggleSettings() {
   if (pomo.running) {
@@ -253,11 +249,10 @@ async function finishRound() {
     <div v-if="showSettings" class="row focus-settings">
       <span class="muted" style="font-size: 11.5px">时长（分钟，{{ DUR_RANGE }}）</span>
       <label>专注 <input v-model.number="focusInput" class="input" type="number" min="1" max="180" @change="applyDurations" /></label>
-      <label>短休 <input v-model.number="shortInput" class="input" type="number" min="1" max="180" @change="applyDurations" /></label>
-      <label>长休 <input v-model.number="longInput" class="input" type="number" min="1" max="180" @change="applyDurations" /></label>
-      <button class="btn sm ghost" title="恢复 25 / 5 / 15" @click="resetDurations">恢复默认</button>
+      <label>休息 <input v-model.number="breakInput" class="input" type="number" min="1" max="180" @change="applyDurations" /></label>
+      <button class="btn sm ghost" title="恢复 25 / 5" @click="resetDurations">恢复默认</button>
       <span class="grow" />
-      <span class="muted" style="font-size: 11.5px">每 4 轮专注进入一次长休息</span>
+      <span class="muted" style="font-size: 11.5px">专注结束后自动进入休息，时长自己定</span>
     </div>
 
     <div class="focus-body">
@@ -283,7 +278,7 @@ async function finishRound() {
             {{ m.label }}
           </span>
           <span class="grow" />
-          <span class="muted mono" style="font-size: 11.5px">{{ pomo.focusMin }} / {{ pomo.shortMin }} / {{ pomo.longMin }} 分钟</span>
+          <span class="muted mono" style="font-size: 11.5px">{{ pomo.focusMin }} / {{ pomo.breakMin }} 分钟</span>
         </div>
 
         <div class="focus-bar"><i :style="{ width: Math.round(pomo.progress * 100) + '%' }" /></div>

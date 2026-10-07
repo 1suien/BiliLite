@@ -14,7 +14,8 @@ import { addFocusSession, allFocusSessions, clearFocusSessions, db, listFocusSes
    IndexedDB，用来出「今日 / 本周专注」统计和历史列表。            */
 
 const LS_KEY = 'study-bili-pomodoro'
-const DEFAULTS = { focusMin: 25, shortMin: 5, longMin: 15 }
+/** 只有两段：专注 / 休息（休息不分长短，时长自己定） */
+const DEFAULTS = { focusMin: 25, breakMin: 5 }
 /** 一轮专注少于这个秒数就不落库：误触开始/立刻跳过不应该污染统计 */
 const MIN_RECORD_SECONDS = 30
 
@@ -29,8 +30,8 @@ function loadPrefs() {
     return {
       day: raw.day || todayKey(),
       focusMin: num(raw.focusMin, DEFAULTS.focusMin),
-      shortMin: num(raw.shortMin, DEFAULTS.shortMin),
-      longMin: num(raw.longMin, DEFAULTS.longMin),
+      // 老版本存的是 shortMin/longMin：读旧的 shortMin 当休息时长，别让用户设置白丢
+      breakMin: num(raw.breakMin != null ? raw.breakMin : raw.shortMin, DEFAULTS.breakMin),
       lastTask: typeof raw.lastTask === 'string' ? raw.lastTask : null
     }
   } catch {
@@ -104,8 +105,7 @@ export const usePomodoroStore = defineStore('pomodoro', {
     return {
       day: p.day,
       focusMin: p.focusMin,
-      shortMin: p.shortMin,
-      longMin: p.longMin,
+      breakMin: p.breakMin,
       mode: 'focus',
       running: false,
       remain: p.focusMin * 60,
@@ -131,8 +131,7 @@ export const usePomodoroStore = defineStore('pomodoro', {
     }
   },
   getters: {
-    minutesOf: (s) =>
-      s.mode === 'focus' ? s.focusMin : s.mode === 'short' ? s.shortMin : s.longMin,
+    minutesOf: (s) => (s.mode === 'focus' ? s.focusMin : s.breakMin),
     totalSeconds() {
       return this.minutesOf * 60
     },
@@ -146,7 +145,7 @@ export const usePomodoroStore = defineStore('pomodoro', {
       const sec = s.remain % 60
       return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
     },
-    modeLabel: (s) => (s.mode === 'focus' ? '专注' : s.mode === 'short' ? '短休息' : '长休息'),
+    modeLabel: (s) => (s.mode === 'focus' ? '专注' : '休息'),
     /** 本轮实际已专注的秒数（计时中 = 已结算 + 正在跑的这段） */
     elapsedSeconds(s) {
       const live = s.running && s.runStart ? Math.floor((Date.now() - s.runStart) / 1000) : 0
@@ -235,8 +234,7 @@ export const usePomodoroStore = defineStore('pomodoro', {
           JSON.stringify({
             day: this.day,
             focusMin: this.focusMin,
-            shortMin: this.shortMin,
-            longMin: this.longMin,
+            breakMin: this.breakMin,
             lastTask: this.task ? this.task.name : ''
           })
         )
@@ -264,18 +262,17 @@ export const usePomodoroStore = defineStore('pomodoro', {
         return Number.isFinite(n) && n >= 1 && n <= 180 ? Math.round(n) : d
       }
       if (patch.focusMin != null) this.focusMin = num(patch.focusMin, this.focusMin)
-      if (patch.shortMin != null) this.shortMin = num(patch.shortMin, this.shortMin)
-      if (patch.longMin != null) this.longMin = num(patch.longMin, this.longMin)
+      if (patch.breakMin != null) this.breakMin = num(patch.breakMin, this.breakMin)
       this.persist()
       if (!this.running && !this.focusedSeconds) this.remain = this.totalSeconds
     },
     setMode(mode) {
-      if (!['focus', 'short', 'long'].includes(mode)) return
+      if (!['focus', 'break'].includes(mode)) return
       this.stopTick()
       this.accrue()
       this.running = false
       this.mode = mode
-      // 切到专注（以及新一轮）时清空计时，休息模式只换时长
+      // 切到专注（以及新一轮）时清空计时，休息只换时长
       if (mode === 'focus') {
         this.focusedSeconds = 0
         this.startedAt = 0
@@ -387,7 +384,8 @@ export const usePomodoroStore = defineStore('pomodoro', {
         notify('🍅 番茄钟完成', `已专注 ${minutes} 分钟，休息一下吧`)
         beep(2)
         this.running = false
-        this.mode = this.rounds % 4 === 0 ? 'long' : 'short'
+        // 不分长短休：专注完就进同一个「休息」，时长由用户设定
+        this.mode = 'break'
         // 休息自动开始，方便离开屏幕一会儿
         this.remain = this.totalSeconds
         this.start()

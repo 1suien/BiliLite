@@ -14,6 +14,7 @@ import { useUpsStore, DEFAULT_GROUP } from '../stores/ups'
 import { useSettingsStore } from '../stores/settings'
 import { useUiStore } from '../stores/ui'
 import { useAuthStore } from '../stores/auth'
+import { useMiniStore } from '../stores/mini'
 import { fmtCount, fmtDate, fmtDuration, parseDuration } from '../utils/format'
 import { qnLabel, sortQuality } from '../utils/quality'
 import { db, listLocalSubs, putLocalSub, removeLocalSub } from '../db'
@@ -27,6 +28,10 @@ const ups = useUpsStore()
 const settings = useSettingsStore()
 const ui = useUiStore()
 const auth = useAuthStore()
+const mini = useMiniStore()
+
+/** 这个小窗现在放的就是当前视频吗（决定按钮显示「小窗播放」还是「正在小窗播放」） */
+const miniHere = computed(() => mini.open && mini.bvid === bvid.value)
 
 const bvid = computed(() => String(route.params.bvid || ''))
 const videoEl = ref(null)
@@ -463,6 +468,13 @@ async function startPlay() {
   watchedTotal = 0
   autoChecked = false
 
+  // 这个视频已经在小窗里放了：本页别再拉一路（否则两个声音叠在一起）。
+  // 页面上会显示「视频正在小窗播放」+ 收回按钮。
+  if (mini.open && mini.bvid === bvid.value) {
+    statusText.value = ''
+    return
+  }
+
   // 冒烟靠它判断这一轮播的是在线流还是本地文件
   window.__playLog = { source: 'online', bvid: bvid.value, cid: String(cid.value) }
   let data = null
@@ -567,6 +579,39 @@ function teardown() {
   ccCid.value = ''
   localSubs.value = []
   localKey.value = ''
+}
+
+/* ── 小窗播放 ─────────────────────────────────────────── */
+/**
+ * 把当前分P扔进右下角的悬浮小窗（B 站客户端那种「小窗播放」）：
+ * 分P、清晰度、「已经看到哪儿」都带上，页面这路立刻让位 —— 同一路流不能两处同时拉。
+ */
+function popMini() {
+  const t = currentTime.value || 0
+  mini.play({
+    bvid: bvid.value,
+    cid: cid.value,
+    page: pageIndex.value + 1,
+    title: info.value.title || '',
+    upName: info.value.upName || '',
+    cover: info.value.cover || '',
+    duration: duration.value || 0,
+    qn: actualQuality.value || quality.value || 0,
+    startTime: t
+  })
+  teardown()
+  ui.toast('已缩到小窗播放，可以接着翻别的页面')
+}
+
+/** 从小窗收回本页：当前秒数写进 ?t=，startSeconds() 会优先用它接着播 */
+function pullBackMini() {
+  const t = Math.floor(mini.currentTime || 0)
+  const page = Number(mini.page) || pageIndex.value + 1
+  mini.close()
+  const query = { ...(page > 1 ? { p: String(page) } : {}), ...(t > 3 ? { t: String(t) } : {}) }
+  // 同一个 bvid 只换 query：路由参数没变、组件不会重挂，所以手动重新起播
+  router.replace({ name: 'video', params: { bvid: bvid.value }, query })
+  nextTick(() => startPlay())
 }
 
 /* ── 学习记录 ─────────────────────────────────────────── */
@@ -884,6 +929,13 @@ onBeforeUnmount(() => {
             <div>{{ statusText }}</div>
           </div>
 
+          <!-- 这一路已经在小窗里放了：本页不再拉第二路流，只提示 + 收回归位 -->
+          <div v-if="miniHere" class="player-msg player-msg-col">
+            <Icon name="pip" :size="28" />
+            <div>视频正在小窗播放</div>
+            <button class="btn sm" @click="pullBackMini">收回本页播放</button>
+          </div>
+
           <div class="stage-ui" :class="{ hide: !ctlVisible }">
             <div class="player-ctl">
               <button class="btn ghost sm" :title="isPlaying ? '暂停' : '播放'" @click="togglePlay">
@@ -1066,6 +1118,17 @@ onBeforeUnmount(() => {
             <Icon :name="inShelf ? 'check' : 'plus'" :size="14" /> {{ inShelf ? '已加入学习清单' : '加入学习清单' }}
           </button>
           <RouterLink to="/learn" class="btn sm ghost"><Icon name="book" :size="14" /> 学习面板</RouterLink>
+          <button
+            v-if="!miniHere"
+            class="btn sm"
+            title="小窗播放：视频缩到右下角的小窗里，接着翻别的页面"
+            @click="popMini"
+          >
+            <Icon name="pip" :size="14" /> 小窗播放
+          </button>
+          <button v-else class="btn sm primary" title="把视频收回本页继续播" @click="pullBackMini">
+            <Icon name="pip" :size="14" /> 正在小窗播放
+          </button>
         </div>
       </div>
 

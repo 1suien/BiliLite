@@ -1102,6 +1102,141 @@ export async function runSmoke(win) {
     }
   }
 
+  // ---- 小窗播放：卡片上的小窗按钮 → 悬浮小窗边看边翻页 → 关闭 ----
+  // 这一段的判断标准只有一个：小窗里那个 <video> 的 currentTime 在涨（说明真的在播，不是只弹了个壳）。
+  {
+    const miniProbe = `(() => {
+      const el = document.querySelector('.mini-player')
+      const v = document.querySelector('.mini-player .mp-video')
+      return {
+        open: !!el,
+        log: window.__miniLog || null,
+        t: v ? Number(v.currentTime) || 0 : 0,
+        paused: v ? !!v.paused : null,
+        err: (document.querySelector('.mini-player .mp-err') || {}).textContent || ''
+      }
+    })()`
+    try {
+      // 先回首页并等卡片出现（首页信息流要联网，超时不算失败）
+      await js(`(() => { location.hash = '#/'; return true })()`)
+      let hasBtn = false
+      for (let i = 0; i < 20; i++) {
+        await sleep(700)
+        hasBtn = await js(`!!document.querySelector('.vcard .mini')`)
+        if (hasBtn) break
+      }
+      if (!hasBtn) {
+        warn('小窗播放：首页没有可用卡片（信息流没加载出来？），跳过这一段')
+      } else {
+        const clicked = await js(`(() => {
+          const b = document.querySelector('.vcard .mini')
+          if (!b) return false
+          b.click()
+          return true
+        })()`)
+
+        let st = null
+        for (let i = 0; i < 34; i++) {
+          await sleep(800)
+          st = await js(miniProbe)
+          if (st && st.log && st.t > 0.5) break
+        }
+        const firstDiag = { clicked, ...(st || {}) }
+        if (clicked && st && st.open && st.log && st.log.source === 'mini' && st.t > 0.5)
+          pass('小窗播放：卡片按钮拉起小窗，且小窗里真的出画面', firstDiag)
+        else fail('小窗播放：卡片按钮拉起小窗，且小窗里真的出画面', firstDiag)
+        await shot('9-小窗播放.png')
+
+        // 切到别的页面：小窗跟着走、还在继续播（这正是「小窗播放」的意义）
+        const t1 = st ? st.t : 0
+        await js(`(() => { location.hash = '#/learn'; return true })()`)
+        await sleep(2600)
+        const st2 = await js(miniProbe)
+        const moved = { from: t1, ...(st2 || {}) }
+        if (st2 && st2.open && st2.t > t1 + 0.8) pass('小窗播放：切到别的页面后小窗继续播（进度还在涨）', moved)
+        else fail('小窗播放：切到别的页面后小窗继续播（进度还在涨）', moved)
+
+        // ② 视频页那枚「小窗播放」按钮：点完本页让位，显示「视频正在小窗播放」
+        // （先关掉卡片拉起来的小窗，避免两路抢同一个 store）
+        await js(`(() => {
+          const b = document.querySelector('.mini-player .mp-btn.danger')
+          if (b) b.click()
+          return !!b
+        })()`)
+        await sleep(700)
+        const closedAfterCard = await js(`!document.querySelector('.mini-player')`)
+        if (st.log && st.log.bvid) {
+          await js(`(() => { location.hash = ${JSON.stringify('#/video/' + st.log.bvid)}; return true })()`)
+          // 等这一页的播放器起来（网络慢就多等一会儿）
+          let pageT = 0
+          for (let i = 0; i < 26; i++) {
+            await sleep(800)
+            pageT = await js(`(() => { const v = document.querySelector('.player-stage video'); return v ? Number(v.currentTime) || 0 : 0 })()`)
+            if (pageT > 0.5) break
+          }
+          if (pageT > 0.5) {
+            const popped = await js(`(() => {
+              const b = Array.from(document.querySelectorAll('button')).find((x) => (x.textContent || '').indexOf('小窗播放') >= 0)
+              if (!b) return false
+              b.click()
+              return true
+            })()`)
+            await sleep(900)
+            let st3 = null
+            for (let i = 0; i < 26; i++) {
+              st3 = await js(miniProbe)
+              if (st3 && st3.log && st3.t > 0.3) break
+              await sleep(800)
+            }
+            const still = await js(`(() => {
+              const m = document.querySelector('.player-msg-col')
+              return m ? (m.textContent || '').trim() : ''
+            })()`)
+            const videoDiag = { popped, pageT, mini: st3, pageMsg: still }
+            if (popped && st3 && st3.open && (st3.t > 0.3 || (still && still.indexOf('小窗播放') >= 0)))
+              pass('小窗播放：视频页按钮把这一路交给小窗，本页显示「正在小窗播放」', videoDiag)
+            else fail('小窗播放：视频页按钮把这一路交给小窗，本页显示「正在小窗播放」', videoDiag)
+            // 收尾：点「收回本页播放」，确认小窗关掉、页面重新起播
+            const back = await js(`(() => {
+              const b = Array.from(document.querySelectorAll('.player-msg-col button')).find((x) => (x.textContent || '').indexOf('收回') >= 0)
+              if (!b) return false
+              b.click()
+              return true
+            })()`)
+            let pageBack = 0
+            for (let i = 0; i < 24; i++) {
+              await sleep(800)
+              pageBack = await js(`(() => { const v = document.querySelector('.player-stage video'); return v ? Number(v.currentTime) || 0 : 0 })()`)
+              if (pageBack > 0.5) break
+            }
+            const goneAfter = await js(`!document.querySelector('.mini-player')`)
+            const backDiag = { back, goneAfter, pageBack }
+            if (back && goneAfter && pageBack > 0.5)
+              pass('小窗播放：点「收回本页播放」后小窗关闭、本页接着播', backDiag)
+            else fail('小窗播放：点「收回本页播放」后小窗关闭、本页接着播', backDiag)
+          } else {
+            warn('小窗播放：视频页没能起播（网络风控？），视频页按钮那两条跳过')
+          }
+        } else {
+          warn('小窗播放：卡片那段没拿到 bvid，视频页按钮那两条跳过')
+        }
+        if (!closedAfterCard) warn('小窗播放：清理卡片拉起的小窗时它没关掉')
+        await js(`(() => {
+          const b = document.querySelector('.mini-player .mp-btn.danger')
+          if (b) b.click()
+          return !!b
+        })()`)
+      }
+    } catch (err) {
+      warn('小窗播放：这一段异常跳过 → ' + String((err && err.message) || err))
+      try {
+        await js(`(() => { const b = document.querySelector('.mini-player .mp-btn.danger'); if (b) b.click(); return true })()`)
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
   // ---- 路由与页面可用性 ----
   const routes = [
     ['搜索', '.page-head'],

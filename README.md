@@ -1,7 +1,7 @@
 # BiliLite
 
 学习专注型的 B 站桌面客户端（Windows / Electron）。参考 [BiliLite](https://github.com/ywmoyue/biliuwp-lite) 的功能取舍重新实现：
-保留**扫码登录、UP 管理、首页（只看关注 UP 更新）、搜索、视频播放（分 P / 画质 / DASH）、本机收藏 + B 站收藏夹、UP 主主页、学习记录 / 打卡 / 专注（番茄钟 + 任务绑定 + 专注记录）**，
+保留**扫码登录、UP 管理、首页（只看关注 UP 更新）、搜索、视频播放（分 P / 画质 / DASH / 小窗播放 / 本机文件）、本机收藏 + B 站收藏夹、UP 主主页、学习记录 / 打卡 / 专注（番茄钟 + 任务绑定 + 专注记录）**，
 界面走黑白极简 token 体系，不引入娱乐化的信息流。播放页右栏只留「清晰度 + 分P列表」（相关推荐只在下方 tab 里）。
 
 > 仅限个人学习用途。本项目不提供任何视频内容，只做本机客户端；登录凭证只加密保存在本机。
@@ -51,7 +51,7 @@ src/
       player/dash.js         DASH 播放核心（在线流用；本地视频走原生 <video>）
       utils/subtitle.js      字幕解析（SRT / VTT / ASS）+ 编码嗅探
       views/                 Home / UpManage / Search / Video / Fav / FavFolder / Up / Learn / Local / LocalPlayer / Settings
-      components/            Icon / BiliImage / VideoCard / Pager / DanmakuLayer / PageFloat / LoginModal / ConfirmModal / CollectModal / PartList
+      components/            Icon / BiliImage / VideoCard / Pager / DanmakuLayer / PageFloat / MiniPlayer / LoginModal / ConfirmModal / CollectModal / PartList
                              + FocusRing（专注圆环）/ FocusPanel（专注面板）/ SessionHistory（专注记录）…
 tools/
   run-smoke.ps1             本机冒烟运行脚本（构建 + 启动 Electron + 收报告，绕开 DSH 沙箱坑）
@@ -187,7 +187,7 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 按 UP 分布饼图 / 打卡按钮，`.cal .cell`、`.bars14`、`svg.pie`、`今日打卡` 文本四者都为 0）、专注面板（学习页有 `.focus .ring-clock`；点齿轮把「专注」
 改成 1 分钟后开始 → 倒计时前进；暂停 → 倒计时不动（这里只把「时钟继续往下掉」判失败：如果时钟**往上跳回整轮**，
 说明面板收到了重置——`R` 快捷键和「重置」按钮都会把 `remain` 置回 `totalSeconds`，冒烟跑的时候窗口就在桌面上，
-外面的键鼠事件进得来，这种情况按 WARN 记，见下文「无关干扰的识别」）；跑完一轮 → 自动进入短休息、头部变 `今日 1 轮`、toast「番茄钟完成」且
+外面的键鼠事件进得来，这种情况按 WARN 记，见下文「无关干扰的识别」）；跑完一轮 → 自动进入休息、头部变 `今日 1 轮`、toast「番茄钟完成」且
 顶栏「今日」时长增加）、UP 主页投稿列表（同一接口，含分页 `count`）、
 右侧悬浮操作组、页面确实可上下滚动（`.scroll` 的 `scrollHeight > clientHeight`）、下拉后出现「顶部」并点回顶部、
 「换一换」后页面重新渲染、切换页面自动回到顶部（先在长列表拉到 480/1224px，再进视频页 `scrollTop=0`）、
@@ -223,6 +223,10 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 `window.__playLog.source === 'local'`、`url` 是 `lmedia://local/<id>`、`video.currentTime > 0.3`
 （证明确实走自定义协议放起来了）→ 回到列表断言播放进度已写回本地库（`pos > 0`，即「续播」的地基）→
 最后真实点「移除」并在确认框里点确认，断言列表清空、**磁盘上的原文件还在**；跑完删掉夹具目录）、
+**小窗播放**（首页信息流卡片缩略图右上角的「小窗」按钮 → 悬浮小窗边看边翻页：点 `button.mini` 后断言
+`.mini-player` 出现、`window.__miniLog.source === 'mini'`、小窗里 `<video>.currentTime > 0.5`（真在播，不是只弹了个壳）→
+切到 `#/learn` 再等 2.6 秒，断言进度还在往前涨（这正是「小窗播放」的意义）→ 进视频页点「小窗播放」，断言这一路交给小窗、
+本页显示「视频正在小窗播放」→ 点「收回本页播放」，断言小窗关掉、本页 `currentTime` 重新涨起来；首页信息流没加载出来时整段软跳过）、
 读书模块已于 2026-10-07 按用户要求摘除（本机归档在 `backup\reader-module\`，那里有 `MANIFEST.txt`；
 ⚠ 读书模块从未进入过这个仓库（`backup/` 被 `.gitignore` 忽略），所以仓库里没有它的历史版本，要留副本得另存），
 所以断言总数从 139 降到 72：读书段 67 项、侧栏「读书」那 1 项删掉，新增「侧栏已没有读书入口」1 项；
@@ -232,7 +236,9 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 2026-10-07 那轮（缓存页按稿件分组 + 自定义缓存目录 + 登录态修复）把「缓存页列表」拆成「缓存页卡片」+
 「同一稿件分P归到一张卡片」两条，并新增 1 条「缓存文件夹显示默认位置且与主进程一致」，断言曾到 **80 项**；
 2026-10-07 又一轮按用户要求把整块离线缓存摘掉（源码归档在 `backup\cache-module\`，含 `MANIFEST.txt`），
-换成侧栏「本地」页播放本机视频文件：去掉缓存那 7 项、新增本地播放 4 项，**现在最多 77 项**
+换成侧栏「本地」页播放本机视频文件：去掉缓存那 7 项、新增本地播放 4 项；
+同一天再加「小窗播放」（卡片/视频页都能把视频丢进悬浮小窗，边看边翻页）又加 4 项，
+**现在最多 81 项**
 （`首页「继续学习」卡片不重复` 在首页没有继续学习卡时软跳过，只 log 不打 PASS/FAIL，所以那轮会显示 76，
 另有一条「切换页面自动回到顶部」在搜索页没滚起来时也只 `warn`）。
 
@@ -306,11 +312,32 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 > 4 条本地播放断言全绿（`duration 2.171`、走 `lmedia://local/…`、`currentTime 0.699`、进度 `pos 0.2576`、移除后 `fileStill true`）。
 > 第一次打包版冒烟撞上 CDN 抖动（`[dash] ranged try failed … signal is aborted` → `ranged unusable, 从 0 顺序拉`，
 > 使 `跳转后能继续播放` 的探针 30s 超时），换一轮重跑即全绿 —— 这条断言对网络很敏感，看到它单独失败先重跑一次再判断。
+>
+> 最近一轮是 **番茄钟休息合并 + 小窗播放**（2026-10-07 用户要求，见 m05156）：`pnpm build`、`tools\check-parsers.mjs`
+> （22 项）、`pnpm package`、`tools\check-package.mjs` 全部 exit 0；深色 `-SkipBuild -Tag mini1 -Theme dark -Shots` =
+> **81 PASS / 0 FAIL / 0 WARN**（`smoke-mini1-report.txt`、`shots-mini1/`），浅色 `-Tag mini1light` = **81 PASS / 0 FAIL / 0 WARN**
+> （`smoke-mini1light-report.txt`、`shots-mini1light/`）。小窗播放那 4 条断言的诊断值（深色那轮）：点首页卡片缩略图右上角的
+> 小窗按钮 → `{"clicked":true,"open":true,"log":{"source":"mini","bvid":"BV1MSHY6eEq9","cid":"42417522439","title":"你管这叫留守老人？","quality":64},"t":0.677559,"paused":false,"err":""}`
+> （截图 `shots-mini1/9-小窗播放.png`）；切到 `#/learn` 后进度仍在涨 `{"from":0.677559,"t":3.916459}`；
+> 视频页点「小窗播放」→ `{"popped":true,"pageT":60.732366,"mini":{…,"t":0.396605},"pageMsg":"视频正在小窗播放收回本页播放"}`；
+> 点「收回本页播放」→ `{"back":true,"goneAfter":true,"pageBack":60.841869}`。
+> 其中第三条深色那轮 `mini.t≈0.4`、浅色那轮是 `60.9` —— 同一份代码两种结果，差别在 CDN 这次给不给 Range：
+> 拿不到 Range 时播放器会走既有的 `[dash] ranged unusable, 从 0 顺序拉` 降级，`startTime` 就落不了地
+> （判断这类差异先看报告里的 `RCONSOLE [dash] …` 行，别急着改代码）。
+> 番茄钟那两条照旧通过（`专注结束（自动进入休息 + 计入学习时长）` 的诊断里 `clock":"05:00"`、面板文本是「休息」），
+> 断言总数从 77 项涨到 **81 项**。
+> 覆盖到桌面那份之后（asar 24,472,358 B，两侧 `app.asar` SHA256 一致 `7E352F6F…C445`、`BiliLite.exe` 188,766,720 B，
+> `tools\check-package.mjs --dir "C:\Users\zouyx\Desktop\BiliLite"` exit 0），对**用户实际启动的那个可执行文件**跑了打包版浅色冒烟：
+> 第一次 **79 PASS / 1 FAIL / 1 WARN**（`smoke-desk-mini1-report.txt`）——唯一那条失败是既有的
+> `分P续播：不带 ?p 回到上次那个分P`，诊断里 `head` 是空串（39 分P 的列表压根没渲染出来、`on:-1`），
+> 是拉 `video.pages` 慢了/被风控，不是这次改的东西；换一个干净目录重跑（`smoke-desk-mini2-report.txt`）就是
+> **81 PASS / 0 FAIL / 0 WARN**、`head":"共 39 P · 当前 P2"`、小窗 4 条也全绿
+> （`shots-desk-mini2/`）。所以这类「单独一条、诊断里列表为空」的失败，先重跑一次再判断。
 
 > **冒烟前先看构建结果**：`tools\run-smoke.ps1 -SkipBuild` 会拿旧的 `out/` 继续跑，跑出一份「看起来全绿但什么都没证明」的报告
 > （踩过：`vite build` 失败、报告却照样满绿）。**改完 `src/` 先看 `BUILD_EXIT`，再谈冒烟。**
-> 断言总数是 **77 项**。其中 `切换页面自动回到顶部` 在搜索页没滚起来时只记 WARN（深色那轮就是 76 PASS + 1 WARN），
-> `首页「继续学习」卡片不重复` 在首页没有继续学习卡时软跳过、只 log 不打 PASS/FAIL → 这两种情况下 PASS 计数会显示 76。
+> 断言总数是 **81 项**。其中 `切换页面自动回到顶部` 在搜索页没滚起来时只记 WARN（深色那轮就是 80 PASS + 1 WARN），
+> `首页「继续学习」卡片不重复` 在首页没有继续学习卡时软跳过、只 log 不打 PASS/FAIL → 这两种情况下 PASS 计数会显示 80。
 
 > 主题验收：设置 `STUDY_SMOKE_THEME=light`（或 `dark`）会让冒烟把主题强制成对应主题再跑一遍，
 > 每次截图前也会重新强制一次 —— `settings.init()` 是异步的，完成时会按落盘设置把主题刷回来，
@@ -538,6 +565,16 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
   实现见 `src/main/bili/danmaku.js` + `src/renderer/src/components/DanmakuLayer.vue` + IPC 通道
   `video:danmaku/online/sendDanmaku` + `.dm-*` 样式 —— 播放页不再挂载，要恢复只需在 `VideoView.vue` 里挂回组件与控制条。
   播放页仍保留视频信息行的「N 弹幕」统计 chip（那是投稿统计，不是控件）。
+- **小窗播放**（`stores/mini.js` + `components/MiniPlayer.vue`，挂在 `App.vue` 最外层所以切页也一直在）：
+  首页信息流/搜索结果的卡片缩略图右上角有一个 hover 才亮出来的小窗按钮（`.vcard .thumb .mini`，
+  用 `opacity` 控制是因为 `display:none` 连脚本都点不到），视频页信息行也有一枚「小窗播放」按钮；
+  点完视频进右下角的**应用内悬浮小窗**（不新开系统窗口）：可拖动（位置落 localStorage）、三档大小循环、
+  收起成标题栏一条、关闭、以及「回到视频页」。小窗自己复用视频页同一个 `DashPlayer`（在线 DASH 与本机
+  `lmedia://` 文件同一套逻辑），先播放/暂停/进度跳转/静音也在小窗底栏。
+  两个容易踩的点：①同一路流不能两处同时拉，所以视频页点「小窗播放」后会立刻 `teardown()`，反过来如果小窗里放的
+  正是当前视频，视频页 `startPlay()` 直接不取流、只显示「视频正在小窗播放」+「收回本页播放」；
+  ②「回到视频页」/「收回本页播放」都要把当前秒数写进 `?t=`，`startSeconds()` 优先读它，这样来回切不会跳回开头。
+  卡片只给 `bvid`（没有 cid），小窗自己用 `video.pages()` 补出 cid，清晰度回落到设置里的默认档。
 - **收藏**：本机收藏（文件夹管理、可离线）与 B 站账户收藏（需登录）双 tab。
 - **页面滚动与右侧悬浮操作**：内容区右侧是可拖动的滚动条（12px，`scrollbar-gutter: stable`），
   右下角常驻悬浮按钮组 —— 「换一换」把当前页面整个重新挂载、重新拉数据，「顶部」在往下拉过 200px 后出现、
@@ -555,10 +592,11 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
   变成没人用但保留未删；`checkins` 表仍由「播放满 5 分钟自动打卡」写入，供「连续签到」卡使用）。
   数据可导出 JSON（含专注记录）。
 - **专注**（学习页顶部卡片，`stores/pomodoro.js` + `components/FocusPanel.vue`）：TickTick 风格的
-  圆环进度 + 大号倒计时（环上刻度随剩余时间逐个点亮）。专注 / 短休息 / 长休息三种模式，可开始暂停、重置、结束本轮，
-  三个时长（默认 25/5/15 分钟）可改（点面板右上角齿轮展开，有「恢复默认」；**计时进行中不让改**，否则这一轮算几分钟会前后不一致）；
+  圆环进度 + 大号倒计时（环上刻度随剩余时间逐个点亮）。**只有专注 / 休息两种模式**（2026-10-07 用户要求把原来的
+  「短休息 / 长休息」合并成统一的「休息」），可开始暂停、重置、结束本轮，
+  两个时长（默认专注 25 分钟 / 休息 5 分钟）可改（点面板右上角齿轮展开，有「恢复默认」；**计时进行中不让改**，否则这一轮算几分钟会前后不一致）；
   倒计时按**结束时间戳**推算（只用 250ms 的 `setInterval`
-  刷新显示），挂机久了也不会走偏；一轮专注跑完自动进入休息（每 4 轮走长休息），Web Audio 抖一声 + 系统通知，
+  刷新显示），挂机久了也不会走偏；一轮专注跑完自动进入休息，Web Audio 抖一声 + 系统通知，
   并把这一轮的专注时长通过 `learn.addSeconds()` 记进当天学习时长（所以会体现在「今日」「本周专注」里）
   —— **落库的秒数和计入学习时长的秒数是同一个值**（用真实已专注的秒数，不是配置的分钟数），少于 30 秒则两边都不记。
   每轮开始前可以**绑定本轮专注目标**：从「学习清单」挑一个视频，或者手输任务名（另有阅读/刷题/看课/整理笔记快捷项），
