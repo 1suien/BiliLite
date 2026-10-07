@@ -420,7 +420,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="field" style="align-items: center; flex-wrap: wrap">
-          <label style="width: 68px">缓存文件夹</label>
+          <label style="flex: none; white-space: nowrap; margin-right: 4px">缓存文件夹</label>
           <span class="mono clamp-1 cdir" style="flex: 1; min-width: 160px; font-size: 12px" :title="dirInfo.current">
             {{ dirInfo.current || '（读取中…）' }}
           </span>
