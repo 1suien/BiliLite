@@ -587,7 +587,11 @@ function teardown() {
  * 分P、清晰度、「已经看到哪儿」都带上，页面这路立刻让位 —— 同一路流不能两处同时拉。
  */
 function popMini() {
-  const t = currentTime.value || 0
+  // 「看到哪儿」必须以 <video> 为准：暂停时 timeupdate 不触发，那个响应式值可能还停在 0，
+  // 结果点了小窗又从 0 秒重放（用户看到的就是「小窗不接着播」）。
+  const el = videoEl.value
+  const live = el && Number.isFinite(el.currentTime) && el.currentTime > 0 ? el.currentTime : 0
+  const t = live || currentTime.value || 0
   mini.play({
     bvid: bvid.value,
     cid: cid.value,

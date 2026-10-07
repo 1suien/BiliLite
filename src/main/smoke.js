@@ -1111,8 +1111,10 @@ export async function runSmoke(win) {
       return {
         open: !!el,
         log: window.__miniLog || null,
+        loads: Number(window.__miniLoads) || 0,
         t: v ? Number(v.currentTime) || 0 : 0,
         paused: v ? !!v.paused : null,
+        ended: v ? !!v.ended : null,
         err: (document.querySelector('.mini-player .mp-err') || {}).textContent || ''
       }
     })()`
@@ -1129,6 +1131,7 @@ export async function runSmoke(win) {
         warn('小窗播放：首页没有可用卡片（信息流没加载出来？），跳过这一段')
       } else {
         const clicked = await js(`(() => {
+          window.__miniLoads = 0
           const b = document.querySelector('.vcard .mini')
           if (!b) return false
           b.click()
@@ -1145,16 +1148,22 @@ export async function runSmoke(win) {
         if (clicked && st && st.open && st.log && st.log.source === 'mini' && st.t > 0.5)
           pass('小窗播放：卡片按钮拉起小窗，且小窗里真的出画面', firstDiag)
         else fail('小窗播放：卡片按钮拉起小窗，且小窗里真的出画面', firstDiag)
+        // 一次点击只允许取一路流：旧写法 open/seq 两个 watcher 会各跑一遍 reload()，
+        // 两次 load() 叠在一起把 MediaSource 顶掉，表现就是「放两秒停住、再点播放也没反应」
+        const loadDiag = { loads: st ? st.loads : null, t: st ? st.t : null, paused: st ? st.paused : null }
+        if (st && st.open && st.loads === 1) pass('小窗播放：一次「点小窗」只取一路流', loadDiag)
+        else fail('小窗播放：一次「点小窗」只取一路流', loadDiag)
         await shot('9-小窗播放.png')
 
-        // 切到别的页面：小窗跟着走、还在继续播（这正是「小窗播放」的意义）
+        // 切到别的页面：小窗跟着走、而且要一直播下去（放两秒就停 = 这段的核心 bug）
         const t1 = st ? st.t : 0
         await js(`(() => { location.hash = '#/learn'; return true })()`)
-        await sleep(2600)
+        await sleep(8600)
         const st2 = await js(miniProbe)
-        const moved = { from: t1, ...(st2 || {}) }
-        if (st2 && st2.open && st2.t > t1 + 0.8) pass('小窗播放：切到别的页面后小窗继续播（进度还在涨）', moved)
-        else fail('小窗播放：切到别的页面后小窗继续播（进度还在涨）', moved)
+        const moved = { from: t1, need: 5, ...(st2 || {}) }
+        const keptPlaying = st2 && st2.open && ((st2.t > t1 + 5 && st2.paused === false) || st2.ended === true)
+        if (keptPlaying) pass('小窗播放：切到别的页面后小窗继续播（8 秒后进度还在涨、没有被卡住）', moved)
+        else fail('小窗播放：切到别的页面后小窗继续播（8 秒后进度还在涨、没有被卡住）', moved)
 
         // ② 视频页那枚「小窗播放」按钮：点完本页让位，显示「视频正在小窗播放」
         // （先关掉卡片拉起来的小窗，避免两路抢同一个 store）
@@ -1193,9 +1202,12 @@ export async function runSmoke(win) {
               return m ? (m.textContent || '').trim() : ''
             })()`)
             const videoDiag = { popped, pageT, mini: st3, pageMsg: still }
-            if (popped && st3 && st3.open && (st3.t > 0.3 || (still && still.indexOf('小窗播放') >= 0)))
-              pass('小窗播放：视频页按钮把这一路交给小窗，本页显示「正在小窗播放」', videoDiag)
-            else fail('小窗播放：视频页按钮把这一路交给小窗，本页显示「正在小窗播放」', videoDiag)
+            // 位置也要真的交接过去：不读 store 里那个可能还停在 0 的响应式值，而是以 <video> 为准
+            // （暂停时 timeupdate 不触发，旧写法点了小窗会从头重放）
+            const handed = st3 && st3.log && Number(st3.log.startTime) >= pageT - 12
+            if (popped && st3 && st3.open && handed && (st3.t > 0.3 || (still && still.indexOf('小窗播放') >= 0)))
+              pass('小窗播放：视频页按钮把这一路交给小窗（含看到的时间点），本页显示「正在小窗播放」', videoDiag)
+            else fail('小窗播放：视频页按钮把这一路交给小窗（含看到的时间点），本页显示「正在小窗播放」', videoDiag)
             // 收尾：点「收回本页播放」，确认小窗关掉、页面重新起播
             const back = await js(`(() => {
               const b = Array.from(document.querySelectorAll('.player-msg-col button')).find((x) => (x.textContent || '').indexOf('收回') >= 0)

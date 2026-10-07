@@ -26,12 +26,20 @@ const router = useRouter()
 const rootEl = ref(null)
 const videoEl = ref(null)
 const dragging = ref(false)
-const READY = ref(false)
+/** 静音开关（响应式：图标要跟着变） */
+const muted = ref(false)
+/** 自动播放被浏览器拦下时置 true，提示文案换成「点一下播放」 */
+const blocked = ref(false)
 
 let player = null
 let gen = 0
-let muted = false
 let volume = 0.8
+/** 正在跑的那次取流：reload() 必须串行，两次 load() 叠在一起会把 MediaSource 顶掉 */
+let inflight = null
+/** 用户自己按的暂停：自动救援不能把它又拉起来 */
+let userPaused = false
+/** 一次取流最多自动救援几次（流断了就重建，别无限重试） */
+let autoTries = 0
 
 const size = computed(() => mini.size)
 
@@ -59,7 +67,18 @@ function place(x, y) {
   mini.moveTo(c.x, c.y)
 }
 
+/** 以 <video> 为准回写进度：暂停/缓冲时 timeupdate 不触发，store 里的秒数可能还停在旧值 */
+function syncTime() {
+  const v = videoEl.value
+  if (!v) return
+  const t = Number(v.currentTime)
+  if (!Number.isFinite(t) || t <= 0) return
+  const d = Number(v.duration)
+  mini.setProgress(t, Number.isFinite(d) && d > 0 ? d : mini.duration)
+}
+
 function teardown() {
+  syncTime()
   gen += 1
   if (player) {
     try {
@@ -70,11 +89,17 @@ function teardown() {
     player = null
   }
   mini.playing = false
+  blocked.value = false
 }
 
-async function reload() {
+/** 真正的取流流程（不要直接调它，走下面的 reload） */
+async function doReload() {
   if (!mini.open || !mini.bvid) return
   const myGen = ++gen
+  // 冒烟用：一次「点小窗」应该只取一路流（拆成两个 watcher 的旧写法这里会变 2）
+  window.__miniLoads = (Number(window.__miniLoads) || 0) + 1
+  autoTries = 0
+  userPaused = false
   mini.error = ''
   mini.status = '正在获取播放地址…'
   await nextTick()
@@ -115,7 +140,8 @@ async function reload() {
 
   volume = Number(settings.settings.playerVolume)
   if (!Number.isFinite(volume)) volume = 0.8
-  muted = false
+  muted.value = false
+  blocked.value = false
 
   if (!player) {
     player = new DashPlayer(videoEl.value, {
@@ -131,7 +157,17 @@ async function reload() {
       onState: (s) => {
         if (myGen !== gen) return
         mini.setState(s)
-        if (s === 'playing') mini.status = ''
+        if (s === 'playing') {
+          mini.status = ''
+          blocked.value = false
+        }
+        if (s === 'blocked') blocked.value = true
+        // 暂停/卡住时把真实秒数落一次，免得「回到视频页」拿着一个 0 秒回去
+        if (s === 'paused' || s === 'waiting' || s === 'blocked') syncTime()
+        // 没点过暂停却退回了暂停态 = 流被卡掉（DashPlayer 重建缓冲时会这样）。
+        // 没人管的话小窗就永远停在那一帧上，看着像「功能坏了」，所以自己救一次。
+        const v = videoEl.value
+        if (s === 'paused' && !userPaused && v && !v.ended) scheduleAutoResume()
       },
       onEnded: () => {
         if (myGen === gen) mini.status = '播放结束'
@@ -146,28 +182,106 @@ async function reload() {
     await player.load(data, {
       startTime: mini.startTime || 0,
       volume,
-      muted,
+      muted: muted.value,
       autoplay: true
     })
     if (myGen !== gen) return
     mini.status = ''
+    // 自动播放被拦（或者 play() 被新的 load 打断）时退回「静音先播」：
+    // 静音自动播放是被允许的，用户点右下角喇叭再开声音，总好过对着静止画面发愣。
+    if (videoEl.value && videoEl.value.paused) {
+      muted.value = true
+      player.setMuted(true)
+      try {
+        await player.play()
+      } catch {
+        /* ignore */
+      }
+      if (myGen === gen && videoEl.value && videoEl.value.paused) blocked.value = true
+    }
     // 冒烟用：证明小窗真的在拉流播放（和视频页的 window.__playLog 是同一套思路）
     window.__miniLog = {
       source: 'mini',
       bvid: mini.bvid,
       cid: String(cid),
       title: mini.title,
-      quality: data.quality || qn
+      quality: data.quality || qn,
+      muted: muted.value,
+      startTime: Number(mini.startTime) || 0,
+      loads: Number(window.__miniLoads) || 0
     }
   } catch (err) {
     if (myGen === gen) mini.setError(err.message || '播放失败')
   }
 }
 
+/** 取流入口：串行化，避免同一时刻两次 load() 把对方的 MediaSource 顶掉 */
+async function reload() {
+  if (!mini.open || !mini.bvid) return
+  if (inflight) {
+    try {
+      await inflight
+    } catch {
+      /* 上一次失败无所谓，下面重新来 */
+    }
+  }
+  const run = doReload()
+  inflight = run
+  try {
+    await run
+  } finally {
+    if (inflight === run) inflight = null
+  }
+}
+
+/** 播放按钮 / 点画面：先试恢复，叫不动就整条重取（卡住的媒体源只有重建才能救） */
+async function resume() {
+  const v = videoEl.value
+  if (!player || !v) {
+    await reload()
+    return
+  }
+  userPaused = false
+  player.wasPlaying = true
+  try {
+    await v.play()
+  } catch {
+    muted.value = true
+    player.setMuted(true)
+    try {
+      await v.play()
+    } catch {
+      await reload()
+      return
+    }
+  }
+  const t0 = v.currentTime
+  await new Promise((r) => setTimeout(r, 1200))
+  // 「叫了 play 但时间不动」= 源已经废了（缓冲区被顶掉/网络断了），重建重来
+  if (videoEl.value === v && v.paused && Math.abs(v.currentTime - t0) < 0.05) await reload()
+}
+
+/** 卡掉之后自己救一下（最多 autoTries 次），别让用户对着死画面点来点去 */
+function scheduleAutoResume() {
+  if (autoTries >= 3) return
+  autoTries += 1
+  setTimeout(() => {
+    if (!mini.open || userPaused) return
+    const v = videoEl.value
+    if (!v || !v.paused || v.ended) return
+    resume()
+  }, 1500)
+}
+
 function toggle() {
   if (!player || !videoEl.value) return
-  if (videoEl.value.paused) player.play()
-  else player.pause()
+  if (videoEl.value.paused) {
+    userPaused = false
+    resume()
+  } else {
+    userPaused = true
+    player.pause()
+  }
 }
 
 function onSeekClick(e) {
@@ -175,11 +289,18 @@ function onSeekClick(e) {
   const rect = e.currentTarget.getBoundingClientRect()
   const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width))
   player.seek(ratio * (mini.duration || 0))
+  if (videoEl.value && videoEl.value.paused) resume()
 }
 
 function toggleMute() {
-  muted = !muted
-  if (player) player.setMuted(muted)
+  muted.value = !muted.value
+  if (player) player.setMuted(muted.value)
+  // 视频页把音量拉到过 0：点「开声音」就该真的听得到，别放了个寂寞
+  if (!muted.value && (!Number.isFinite(volume) || volume <= 0.01)) {
+    volume = 0.8
+    if (player) player.setVolume(volume)
+  }
+  if (!muted.value && videoEl.value && videoEl.value.paused) resume()
 }
 
 function backToPage() {
@@ -243,16 +364,12 @@ onBeforeUnmount(() => {
   teardown()
 })
 
+/* ⚠ 这里必须是一个 watcher：play() 会同时改 open 和 seq，
+   拆成两个 watcher 的话同一次点击会跑两遍 reload() —— 两遍 load() 叠在一起，
+   后一遍会把前一遍的 MediaSource 顶掉，表现就是「放两秒停住、点播放也没反应」。 */
 watch(
-  () => mini.seq,
-  () => {
-    if (mini.open) reload()
-  }
-)
-
-watch(
-  () => mini.open,
-  (open) => {
+  [() => mini.open, () => mini.seq],
+  ([open]) => {
     if (open) reload()
     else teardown()
   }
@@ -295,11 +412,12 @@ watch(
         <div class="mp-err">{{ mini.error }}</div>
         <button class="btn sm" @click="reload">重试</button>
       </div>
-      <div v-else-if="!mini.playing" class="mp-overlay soft" @click="toggle">
+      <div v-else-if="!mini.playing" class="mp-overlay soft" @click="resume">
         <Icon name="play" :size="30" />
-        <span class="mp-tip">{{ mini.status || '点一下继续播放' }}</span>
+        <span class="mp-tip">{{ mini.status || (blocked ? '点了播放但被系统拦下，再点一下这里' : '点一下继续播放') }}</span>
       </div>
       <div v-else-if="mini.status" class="mp-status mono">{{ mini.status }}</div>
+      <div v-else-if="muted" class="mp-status mono">已静音播放，点右下角开声音</div>
     </div>
 
     <div v-show="!mini.minimized" class="mp-foot">

@@ -225,7 +225,10 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 最后真实点「移除」并在确认框里点确认，断言列表清空、**磁盘上的原文件还在**；跑完删掉夹具目录）、
 **小窗播放**（首页信息流卡片缩略图右上角的「小窗」按钮 → 悬浮小窗边看边翻页：点 `button.mini` 后断言
 `.mini-player` 出现、`window.__miniLog.source === 'mini'`、小窗里 `<video>.currentTime > 0.5`（真在播，不是只弹了个壳）→
-切到 `#/learn` 再等 2.6 秒，断言进度还在往前涨（这正是「小窗播放」的意义）→ 进视频页点「小窗播放」，断言这一路交给小窗、
+断言 `window.__miniLoads === 1`（**一次点击只准取一路流**；早先把它写成 open / seq 两个 watcher，同一次点击会各跑一遍
+`reload()`，两次 `load()` 叠在一起把 MediaSource 顶掉，表现就是「放两秒停住、再点播放也没反应」）→
+切到 `#/learn` 再等 8.6 秒，断言进度又涨了 5 秒以上且 `paused === false`（被卡住的话这条会挂）→ 进视频页点「小窗播放」，断言这一路交给小窗、
+**连「看到哪儿」也带过去了**（`window.__miniLog.startTime` 不小于点击时那一页的秒数减 12）、
 本页显示「视频正在小窗播放」→ 点「收回本页播放」，断言小窗关掉、本页 `currentTime` 重新涨起来；首页信息流没加载出来时整段软跳过）、
 读书模块已于 2026-10-07 按用户要求摘除（本机归档在 `backup\reader-module\`，那里有 `MANIFEST.txt`；
 ⚠ 读书模块从未进入过这个仓库（`backup/` 被 `.gitignore` 忽略），所以仓库里没有它的历史版本，要留副本得另存），
@@ -238,7 +241,7 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 2026-10-07 又一轮按用户要求把整块离线缓存摘掉（源码归档在 `backup\cache-module\`，含 `MANIFEST.txt`），
 换成侧栏「本地」页播放本机视频文件：去掉缓存那 7 项、新增本地播放 4 项；
 同一天再加「小窗播放」（卡片/视频页都能把视频丢进悬浮小窗，边看边翻页）又加 4 项，
-**现在最多 81 项**
+之后修「小窗放两秒就停住」时又加了 1 项（一次点击只取一路流），**现在最多 82 项**
 （`首页「继续学习」卡片不重复` 在首页没有继续学习卡时软跳过，只 log 不打 PASS/FAIL，所以那轮会显示 76，
 另有一条「切换页面自动回到顶部」在搜索页没滚起来时也只 `warn`）。
 
@@ -333,10 +336,32 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 > 是拉 `video.pages` 慢了/被风控，不是这次改的东西；换一个干净目录重跑（`smoke-desk-mini2-report.txt`）就是
 > **81 PASS / 0 FAIL / 0 WARN**、`head":"共 39 P · 当前 P2"`、小窗 4 条也全绿
 > （`shots-desk-mini2/`）。所以这类「单独一条、诊断里列表为空」的失败，先重跑一次再判断。
+>
+> 紧接一轮是**修「小窗放两秒就停住」**（用户反馈「小窗口功能不能用」，截图里小窗停在 `0:02 / 1:44`、
+> 画面盖着「点一下继续播放」）：`pnpm build`、`tools\check-parsers.mjs`（22 项）exit 0；深色 `-SkipBuild -Tag mini2 -Theme dark -Shots` =
+> **82 PASS / 0 FAIL / 2 WARN**（`smoke-mini2-report.txt`；两条 WARN 是既有的「专注面板不见了…重新点侧栏」软跳过，
+> 那一刻 hash 是 `#/`、`#/ups`，专注那些断言本身就全绿），浅色 `-Tag mini2light` = **82 PASS / 0 FAIL / 0 WARN**
+> （`smoke-mini2light-report.txt`）。新增那条断言的诊断：
+> `{"clicked":true,"open":true,"log":{"source":"mini","bvid":"BV1ndHf6xEsz","cid":"42509926719","title":"虽败犹荣","quality":64,"muted":false,"loads":1},"loads":1,"t":0.724358,"paused":false}`
+> —— `loads:1` 就是这次的核心（旧写法这里是 2）；8.6 秒后再看 `{"from":0.724358,"need":5,…,"t":9.39275,"paused":false}`（浅色 0.59 → 10.01），
+> 证明不会「放两秒停住」。视频页交接那条 `pageT 123.128122` → 收回来 `pageBack 123.479826`（`?t=` 续播生效）。
+> 断言总数从 81 项涨到 **82 项**。
+>
+> 同一轮还补了一个**位置交接**的坑：视频页点「小窗播放」偶尔会从头重放。原因是「看到哪儿」读的是那个只在
+> `onProgress` 里更新的响应式值，而视频暂停/缓冲时 `timeupdate` 不触发、它可能还停在 0。改成以
+> `<video>.currentTime` 为准（读不到才回落到那个值），小窗侧也加了 `syncTime()`（暂停/缓冲/拆流时把真实秒数落一次）。
+> 为此又跑了一轮 `-Tag mini3`（深色）/`-Tag mini3light`（浅色）= 两边都 **82 PASS / 0 FAIL / 0 WARN**
+> （316 / 320 行），交接那条改成「连时间点也带过去」并新增 `window.__miniLog.startTime` 诊断：
+> 深色 `pageT 128.188841` → `mini.startTime 128.190101`，浅色 `pageT 123.125566` → `mini.startTime 123.125566`；
+> 之后 `pnpm package` + `check-package` exit 0（asar 24,476,409 B），同步桌面后再跑打包版浅色冒烟
+> `-Tag desk-mini5` = **81 PASS / 0 FAIL / 1 WARN**（`smoke-desk-mini5-report.txt`；那条 WARN 是既有的
+> `切换页面自动回到顶部：搜索结果页没滚起来（before=0）` 软跳过）：`pageT 128.258924` → 小窗 `startTime 128.2598`、
+> 小窗当前 `t 128.554603`（**真的从 128 秒接着播，不再从 0 重放**），点「收回本页播放」后 `pageBack 128.246148`。
+> 桌面那份两侧 `app.asar` SHA256 一致 `37DB37DF…D582`（24,476,409 B）、`BiliLite.exe` 一致 `1A11B5B9…3320`。
 
 > **冒烟前先看构建结果**：`tools\run-smoke.ps1 -SkipBuild` 会拿旧的 `out/` 继续跑，跑出一份「看起来全绿但什么都没证明」的报告
 > （踩过：`vite build` 失败、报告却照样满绿）。**改完 `src/` 先看 `BUILD_EXIT`，再谈冒烟。**
-> 断言总数是 **81 项**。其中 `切换页面自动回到顶部` 在搜索页没滚起来时只记 WARN（深色那轮就是 80 PASS + 1 WARN），
+> 断言总数是 **82 项**。其中 `切换页面自动回到顶部` 在搜索页没滚起来时只记 WARN（深色那轮就是 80 PASS + 1 WARN），
 > `首页「继续学习」卡片不重复` 在首页没有继续学习卡时软跳过、只 log 不打 PASS/FAIL → 这两种情况下 PASS 计数会显示 80。
 
 > 主题验收：设置 `STUDY_SMOKE_THEME=light`（或 `dark`）会让冒烟把主题强制成对应主题再跑一遍，
@@ -570,11 +595,22 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
   用 `opacity` 控制是因为 `display:none` 连脚本都点不到），视频页信息行也有一枚「小窗播放」按钮；
   点完视频进右下角的**应用内悬浮小窗**（不新开系统窗口）：可拖动（位置落 localStorage）、三档大小循环、
   收起成标题栏一条、关闭、以及「回到视频页」。小窗自己复用视频页同一个 `DashPlayer`（在线 DASH 与本机
-  `lmedia://` 文件同一套逻辑），先播放/暂停/进度跳转/静音也在小窗底栏。
+  `lmedia://` 文件同一套逻辑），播放/暂停/进度跳转/静音也在小窗底栏。
   两个容易踩的点：①同一路流不能两处同时拉，所以视频页点「小窗播放」后会立刻 `teardown()`，反过来如果小窗里放的
   正是当前视频，视频页 `startPlay()` 直接不取流、只显示「视频正在小窗播放」+「收回本页播放」；
   ②「回到视频页」/「收回本页播放」都要把当前秒数写进 `?t=`，`startSeconds()` 优先读它，这样来回切不会跳回开头。
   卡片只给 `bvid`（没有 cid），小窗自己用 `video.pages()` 补出 cid，清晰度回落到设置里的默认档。
+  ⚠ **一个必须守住的规矩：一次「点小窗」只准跑一遍取流**。这里原本写成 `watch(() => mini.open)` +
+  `watch(() => mini.seq)` 两个 watcher，而 `mini.play()` 会同时改这两个值 → 同一次点击跑两遍 `reload()`，
+  两次 `load()` 叠在一起把对方的 `MediaSource` 顶掉，症状是**小窗放两秒就停住、画面盖着「点一下继续播放」、
+  再点也没反应**（用户就是这么反馈的：「小窗口功能不能用」）。现在合并成一个数组 watcher + 用 `inflight` 把
+  `reload()` 串行化，并在 `window.__miniLoads` 里留了计数，冒烟直接断言它是 1。
+  另外两条兜底（流真断了别让用户对着死画面）：没点过暂停却退回 `paused` 时自动救一次（最多 3 次，1.5 秒后
+  若时间还不动就整条重建）；自动播放被拦下时退回「静音先播」并在画面上写「已静音播放，点右下角开声音」，
+  点喇叭会把音量补回 0.8。
+  ③「看到哪儿」一定以 `<video>.currentTime` 为准去读（`popMini()` 里就是先读元素、读不到才回落到那个响应式值）：
+  元素暂停/缓冲时 `timeupdate` 不触发，一路只在 `onProgress` 里更新的值可能还停在 0，照它交接就会**点了小窗
+  从头重放**；小窗这边同理，`syncTime()` 会在暂停/缓冲/拆流时把真实秒数落一次，「回到视频页」才不会拿着 0 秒回去。
 - **收藏**：本机收藏（文件夹管理、可离线）与 B 站账户收藏（需登录）双 tab。
 - **页面滚动与右侧悬浮操作**：内容区右侧是可拖动的滚动条（12px，`scrollbar-gutter: stable`），
   右下角常驻悬浮按钮组 —— 「换一换」把当前页面整个重新挂载、重新拉数据，「顶部」在往下拉过 200px 后出现、
