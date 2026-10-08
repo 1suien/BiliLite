@@ -436,6 +436,9 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 > `90C3762388C715C8A56EE8A2C5EA5CC88492ED5C33C4D882E13C0D0FB0F1E814`）。
 > 旧的 `BiliLite Setup 0.1.0.exe`（85,018,862 B）已从 `release\` 与桌面删除；GitHub Release v0.2.8 的资产换成
 > `BiliLite-Setup-0.2.8.exe` + `BiliLite-0.2.8-win-x64.zip`，tag `v0.2.8` 也移到了同一个提交（`3f28f37`）。
+> 重建后桌面便携版跑了一次浅色打包冒烟：**85 PASS / 0 FAIL / 0 WARN**（`smoke-desk-ver1-report.txt`，325 行，
+> 截图 8 张在 `shots-desk-ver1/`），其中 `app:ping` 回报 `{"pong":…,"version":"0.2.8"}`——证明包里那条版本号
+> 真的是从 `package.json` 动态取的；小窗相关 8 条断言仍全绿（位置交接 `pageT 128.485563` → `mini.startTime 128.494368`）。
 
 > **冒烟前先看构建结果**：`tools\run-smoke.ps1 -SkipBuild` 会拿旧的 `out/` 继续跑，跑出一份「看起来全绿但什么都没证明」的报告
 > （踩过：`vite build` 失败、报告却照样满绿）。**改完 `src/` 先看 `BUILD_EXIT`，再谈冒烟。**
