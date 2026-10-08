@@ -72,7 +72,7 @@ pnpm run start        # 预览已构建产物
 
 ```powershell
 pnpm run package      # build + electron-builder --win --dir → release/win-unpacked/BiliLite.exe（免安装，直接跑）
-pnpm run dist         # 生成 NSIS 安装包 → release/BiliLite Setup 0.1.0.exe
+pnpm run dist         # 生成 NSIS 安装包（⚠ 输出目录必须放到工作区外，否则见下：会以 Exit code 2 失败）
 ```
 
 > ⚠ **`pnpm run dist` 的输出目录必须放在 DSH 工作区之外**。electron-builder 生成 NSIS 安装包时，
