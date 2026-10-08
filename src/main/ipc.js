@@ -51,7 +51,7 @@ async function readSubtitleFile(file) {
 }
 
 const handlers = {
-  'app:ping': wrap(async () => ({ pong: Date.now(), version: '0.1.0' })),
+  'app:ping': wrap(async () => ({ pong: Date.now(), version: app.getVersion() })),
 
   // ---- 认证 ----
   'auth:restore': wrap(async () => ({ user: await restore(), loggedIn: store.isLoggedIn() })),

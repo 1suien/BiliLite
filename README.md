@@ -80,7 +80,7 @@ pnpm run dist         # 生成 NSIS 安装包（⚠ 输出目录必须放到工�
 > 的 `execWine(installerPath, ...)`）；而**在工作区目录里启动的原生进程会在初始化阶段就失败**（见下文
 > 「不要在 DSH 工作区目录里启动」）。NSIS 的表现是弹出 `NSIS Error` →
 > `Error writing temporary file. Make sure your temp folder is valid.` 并以 `Exit code: 2` 结束，
-> 于是整个 `dist` 失败、`release\BiliLite Setup 0.1.0.exe` 只剩 ~188 KB 的半成品（`__uninstaller-*.exe` 也不会生成）。
+> 于是整个 `dist` 失败、`release\BiliLite Setup <版本>.exe` 只剩 ~188 KB 的半成品（`__uninstaller-*.exe` 也不会生成）。
 >
 > 2026-10-07 实测（同一份 36,739 B 的最小 NSIS 安装包，SHA256 相同，只换存放位置）：
 > 放工作区内子目录 `C:\Users\zouyx\Desktop\学习APP\sub\` → 必弹 `NSIS Error`；
@@ -90,11 +90,17 @@ pnpm run dist         # 生成 NSIS 安装包（⚠ 输出目录必须放到工�
 ```powershell
 pnpm run build
 pnpm exec electron-builder --win --publish never --config.directories.output=C:\Users\zouyx\bl-out
-# → C:\Users\zouyx\bl-out\BiliLite Setup 0.1.0.exe（85,018,862 B）+ .blockmap
+# → C:\Users\zouyx\bl-out\BiliLite Setup 0.2.8.exe（85,018,907 B）+ .blockmap（89,634 B）
 ```
 
+> 安装包文件名里的版本号来自 `package.json` 的 `version`（electron-builder 的 NSIS 默认命名
+> `${productName} Setup ${version}.exe`）。2026-10-07 之前 `version` 一直停在 `0.1.0`——尽管 git tag 已经到
+> `v0.2.8`——所以安装包叫 `BiliLite Setup 0.1.0.exe`。现在把 `version` 对齐到 **0.2.8**，于是安装包 /
+> `latest.yml` / 便携版 zip / `app:ping` 报的版本号全都一致了（`app:ping` 原来在 `src/main/ipc.js:54`
+> 硬编码 `'0.1.0'`，已改成 `app.getVersion()`，以后不会再和 `package.json` 脱节）。
+
 > 产物拷回 `release\` 存档没问题，但要**运行**它必须放在工作区外（例如桌面根目录
-> `%USERPROFILE%\Desktop\BiliLite Setup 0.1.0.exe`）。工作区内的那个安装包双击同样会弹 `NSIS Error`。
+> `%USERPROFILE%\Desktop\BiliLite Setup 0.2.8.exe`）。工作区内的那个安装包双击同样会弹 `NSIS Error`。
 
 > 打包还固化了一个坑：`build.npmRebuild: false`。本机没有 Python/MSVC，一旦有依赖带原生模块就会触发
 > `@electron/rebuild` 的 node-gyp 重编（`Error: Could not find any Python installation to use`，整包失败）；
@@ -108,7 +114,7 @@ pnpm exec electron-builder --win --publish never --config.directories.output=C:\
 | 桌面快捷方式「BiliLite」 | `%USERPROFILE%\Desktop\BiliLite.lnk` → `%LOCALAPPDATA%\Programs\BiliLite\BiliLite.exe` | 正常打开窗口「首页 · BiliLite」 |
 | 安装版 | `%LOCALAPPDATA%\Programs\BiliLite\BiliLite.exe` | 正常 |
 | 免安装便携版（已复制到桌面） | `%USERPROFILE%\Desktop\BiliLite\BiliLite.exe` | 正常，双击即可，无需任何参数 |
-| 安装包副本（已复制到桌面） | `%USERPROFILE%\Desktop\BiliLite Setup 0.1.0.exe` | 85,018,862 B，SHA256 `A3F18607BA87F35CF441C357EEED4029C1FB71D54A7630CD8E852529D0207B8B`（2026-10-07 v0.2.8 构建） |
+| 安装包副本（已复制到桌面） | `%USERPROFILE%\Desktop\BiliLite Setup 0.2.8.exe` | 85,018,907 B，SHA256 `FA8BB00D16AE7B20AF72DC17EA3909762639A12077731FF5366952193AC69132`（2026-10-07 v0.2.8 构建；`package.json` 的 `version` 已对齐 0.2.8） |
 
 > 桌面那份是**手动拷过去的免安装版**（不是 `%LOCALAPPDATA%\Programs` 下的安装版，本机没有那个目录），
 > 所以更新它要手动覆盖 —— 而且覆盖前必须先退出正在运行的 BiliLite，否则 `BiliLite.exe` 被占用，
