@@ -423,6 +423,20 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 > 位置交接 `pageT 127.018295` → `mini.startTime 127.018295`、小窗 `t 127.417944`。
 > 断言总数从 82 项涨到 **85 项**。
 
+> **安装包命名对齐版本号（2026-10-07，commit `3f28f37`）**：`package.json` 的 `version` 从 `0.1.0` 改成 `0.2.8`
+> （此前只有 git tag 到了 `v0.2.8`，所以 NSIS 产物一直叫 `BiliLite Setup 0.1.0.exe`），`src/main/ipc.js:54`
+> 的 `app:ping` 也从硬编码 `'0.1.0'` 改成 `app.getVersion()`。重建后
+> `C:\Users\zouyx\bl-out\BiliLite Setup 0.2.8.exe` = **85,018,907 B**、SHA256
+> `FA8BB00D16AE7B20AF72DC17EA3909762639A12077731FF5366952193AC69132`、`.blockmap` 89,634 B（`DIST_EXIT=0`，
+> asar 里确认写着 `"version": "0.2.8"`）；`bl-out\win-unpacked` / `release\win-unpacked` / 桌面便携版三处
+> `resources\app.asar` 都是 24,487,714 B、SHA256 `FAD3BCC770F3D0B06BD9D975D42B53E1A6737518FBBD07384E826F8DB5FF1E7D`，
+> `BiliLite.exe` SHA256 `B6CDA8A2C700E834F530088754E799CAF02D10F6B561244ED0793D545B5327DD`；
+> `tools\check-package.mjs` 对 `bl-out\win-unpacked` 和桌面便携版都 exit 0（986 个文件 / 23.4 MB）；
+> 便携版 zip 重打成 `release\BiliLite-0.2.8-win-x64.zip`（120,434,323 B，SHA256
+> `90C3762388C715C8A56EE8A2C5EA5CC88492ED5C33C4D882E13C0D0FB0F1E814`）。
+> 旧的 `BiliLite Setup 0.1.0.exe`（85,018,862 B）已从 `release\` 与桌面删除；GitHub Release v0.2.8 的资产换成
+> `BiliLite-Setup-0.2.8.exe` + `BiliLite-0.2.8-win-x64.zip`，tag `v0.2.8` 也移到了同一个提交（`3f28f37`）。
+
 > **冒烟前先看构建结果**：`tools\run-smoke.ps1 -SkipBuild` 会拿旧的 `out/` 继续跑，跑出一份「看起来全绿但什么都没证明」的报告
 > （踩过：`vite build` 失败、报告却照样满绿）。**改完 `src/` 先看 `BUILD_EXIT`，再谈冒烟。**
 > 而且 `BUILD_EXIT=0` 只说明构建成功，**不说明改动进了 bundle**：查「小窗按钮点不动」时最有用的一步是
