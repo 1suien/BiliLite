@@ -75,14 +75,26 @@ pnpm run package      # build + electron-builder --win --dir → release/win-unp
 pnpm run dist         # 生成 NSIS 安装包 → release/BiliLite Setup 0.1.0.exe
 ```
 
-> 本机 `%TEMP%` 不可写，`pnpm run dist` 需要先把 `TEMP`/`TMP` 指到工作区内可写目录，否则
-> electron-builder 在生成卸载器阶段会以 `Exit code: 2` 失败：
+> ⚠ **`pnpm run dist` 的输出目录必须放在 DSH 工作区之外**。electron-builder 生成 NSIS 安装包时，
+> 会先把一个「卸载器」安装包写进输出目录、再把它运行一次（`app-builder-lib/out/targets/nsis/NsisTarget.js:347`
+> 的 `execWine(installerPath, ...)`）；而**在工作区目录里启动的原生进程会在初始化阶段就失败**（见下文
+> 「不要在 DSH 工作区目录里启动」）。NSIS 的表现是弹出 `NSIS Error` →
+> `Error writing temporary file. Make sure your temp folder is valid.` 并以 `Exit code: 2` 结束，
+> 于是整个 `dist` 失败、`release\BiliLite Setup 0.1.0.exe` 只剩 ~188 KB 的半成品（`__uninstaller-*.exe` 也不会生成）。
+>
+> 2026-10-07 实测（同一份 36,739 B 的最小 NSIS 安装包，SHA256 相同，只换存放位置）：
+> 放工作区内子目录 `C:\Users\zouyx\Desktop\学习APP\sub\` → 必弹 `NSIS Error`；
+> 放工作区外的 `C:\ascii-dir\` 或**中文目录** `C:\Users\zouyx\测试目录\` → 都正常运行。
+> 所以和路径编码、`%TEMP%` 是否可写都无关，只和「是否在工作区内」有关。做法是把输出目录指到工作区外：
 
 ```powershell
-New-Item -ItemType Directory -Force -Path .\tmp-temp | Out-Null
-$env:TEMP = "$PWD\tmp-temp"; $env:TMP = "$PWD\tmp-temp"
-pnpm run dist
+pnpm run build
+pnpm exec electron-builder --win --publish never --config.directories.output=C:\Users\zouyx\bl-out
+# → C:\Users\zouyx\bl-out\BiliLite Setup 0.1.0.exe（85,018,862 B）+ .blockmap
 ```
+
+> 产物拷回 `release\` 存档没问题，但要**运行**它必须放在工作区外（例如桌面根目录
+> `%USERPROFILE%\Desktop\BiliLite Setup 0.1.0.exe`）。工作区内的那个安装包双击同样会弹 `NSIS Error`。
 
 > 打包还固化了一个坑：`build.npmRebuild: false`。本机没有 Python/MSVC，一旦有依赖带原生模块就会触发
 > `@electron/rebuild` 的 node-gyp 重编（`Error: Could not find any Python installation to use`，整包失败）；
@@ -96,7 +108,7 @@ pnpm run dist
 | 桌面快捷方式「BiliLite」 | `%USERPROFILE%\Desktop\BiliLite.lnk` → `%LOCALAPPDATA%\Programs\BiliLite\BiliLite.exe` | 正常打开窗口「首页 · BiliLite」 |
 | 安装版 | `%LOCALAPPDATA%\Programs\BiliLite\BiliLite.exe` | 正常 |
 | 免安装便携版（已复制到桌面） | `%USERPROFILE%\Desktop\BiliLite\BiliLite.exe` | 正常，双击即可，无需任何参数 |
-| 安装包副本（已复制到桌面） | `%USERPROFILE%\Desktop\BiliLite-Setup-0.1.0.exe` | `Start-Process -ArgumentList '/S'` → ExitCode 0 |
+| 安装包副本（已复制到桌面） | `%USERPROFILE%\Desktop\BiliLite Setup 0.1.0.exe` | 85,018,862 B，SHA256 `A3F18607BA87F35CF441C357EEED4029C1FB71D54A7630CD8E852529D0207B8B`（2026-10-07 v0.2.8 构建） |
 
 > 桌面那份是**手动拷过去的免安装版**（不是 `%LOCALAPPDATA%\Programs` 下的安装版，本机没有那个目录），
 > 所以更新它要手动覆盖 —— 而且覆盖前必须先退出正在运行的 BiliLite，否则 `BiliLite.exe` 被占用，
