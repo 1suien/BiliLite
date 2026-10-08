@@ -58,7 +58,13 @@ const ICONS = {
   bookmark: '<path d="M6 3.5h12v17.4l-6-4.3-6 4.3z"/>',
   bookmarkOn: '<path d="M6 3.5h12v17.4l-6-4.3-6 4.3z" fill="currentColor"/>',
   sun: '<circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2.2M12 19.2v2.2M4.4 4.4l1.6 1.6M18 18l1.6 1.6M2.6 12h2.2M19.2 12h2.2M4.4 19.6 6 18M18 6l1.6-1.6"/>',
-  moon: '<path d="M20.5 14.6A8.6 8.6 0 0 1 9.4 3.5a8.8 8.8 0 1 0 11.1 11.1z"/>'
+  moon: '<path d="M20.5 14.6A8.6 8.6 0 0 1 9.4 3.5a8.8 8.8 0 1 0 11.1 11.1z"/>',
+  bell: '<path d="M18 8.6a6 6 0 1 0-12 0c0 5.4-2 6.9-2 6.9h16s-2-1.5-2-6.9z"/><path d="M13.7 19.4a2 2 0 0 1-3.4 0"/>',
+  calendar:
+    '<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 9.6h17M8.2 3.2v3.6M15.8 3.2v3.6"/><path d="M8 13.4h.01M12 13.4h.01M16 13.4h.01M8 17h.01M12 17h.01"/>',
+  target:
+    '<circle cx="12" cy="12" r="8.6"/><circle cx="12" cy="12" r="4.6"/><circle cx="12" cy="12" r="1.1" fill="currentColor"/>',
+  archive: '<rect x="3" y="4" width="18" height="4.4" rx="1.4"/><path d="M4.6 8.4V19a1.6 1.6 0 0 0 1.6 1.6h11.6A1.6 1.6 0 0 0 19.4 19V8.4"/><path d="M9.8 12.2h4.4"/>'
 }
 </script>
 

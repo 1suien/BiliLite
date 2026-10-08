@@ -164,6 +164,13 @@ if (!gotLock) {
   })
 
   app.whenReady().then(() => {
+    // Windows 上要给进程一个 AppUserModelID，习惯打卡的「到点提醒」走系统通知时
+    // 才会以 BiliLite 自己的身份出现（否则通知可能被系统丢掉或显示成 electron.app.*）
+    try {
+      app.setAppUserModelId('com.bililite.desktop')
+    } catch (err) {
+      console.warn('[app] setAppUserModelId 失败：', err && err.message)
+    }
     store.load()
     installNetworkHooks()
     installLocalProtocol()

@@ -6,6 +6,7 @@ const VideoView = () => import('./views/VideoView.vue')
 const FavView = () => import('./views/FavView.vue')
 const FavFolderView = () => import('./views/FavFolderView.vue')
 const LearnView = () => import('./views/LearnView.vue')
+const HabitView = () => import('./views/HabitView.vue')
 const LocalView = () => import('./views/LocalView.vue')
 const LocalPlayerView = () => import('./views/LocalPlayerView.vue')
 const UpManageView = () => import('./views/UpManageView.vue')
@@ -21,6 +22,7 @@ const router = createRouter({
     { path: '/fav', name: 'fav', component: FavView, meta: { title: '收藏' } },
     { path: '/fav/:mediaId', name: 'fav-folder', component: FavFolderView, meta: { title: '收藏夹' } },
     { path: '/learn', name: 'learn', component: LearnView, meta: { title: '学习' } },
+    { path: '/habit', name: 'habit', component: HabitView, meta: { title: '习惯' } },
     { path: '/local', name: 'local', component: LocalView, meta: { title: '本地' } },
     { path: '/local/:id', name: 'local-player', component: LocalPlayerView, meta: { title: '播放' } },
     { path: '/ups', name: 'ups', component: UpManageView, meta: { title: 'UP 管理' } },

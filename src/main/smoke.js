@@ -281,7 +281,7 @@ export async function runSmoke(win) {
   await step('bridge 已注入', 'typeof window.bili', (v) => v === 'object')
   await step('bridge 通道齐全', "Object.keys(window.bili).join(',')", (v) => /auth/.test(v) && /video/.test(v))
   await step('app:ping', 'window.bili.ping()', (v) => v === 'pong' || Boolean(v))
-  await step('侧栏导航 6 项', "document.querySelectorAll('.nav-item').length", (v) => v === 6)
+  await step('侧栏导航 7 项', "document.querySelectorAll('.nav-item').length", (v) => v === 7)
   await step(
     '侧栏已没有「读书」入口',
     "Array.from(document.querySelectorAll('.nav-item')).some((e) => e.textContent.includes('读书'))",
@@ -1464,6 +1464,7 @@ export async function runSmoke(win) {
     ['搜索', '.page-head'],
     ['收藏', '.page-head'],
     ['学习', '.stat-grid'],
+    ['习惯', '.habit-page'],
     ['本地', '.page-head'],
     ['设置', '.panel'],
     ['首页', '.grid, .page-head']
@@ -1814,6 +1815,245 @@ export async function runSmoke(win) {
     if (!closed) log('      · 收藏弹窗可能已自动关闭（收藏成功后会自动关）')
   } else {
     log('WARN  视频页多次未渲染出 .player-stage，收藏弹窗测试跳过（时序/网络）')
+  }
+
+  // ---- 习惯打卡：新建习惯 → 今天打卡 / 月历补打取消 / 连续天数 → 归档恢复 → 打卡日志 → 到点提醒 → 学习页卡片 ----
+  // 页面（views/HabitView.vue）自己挂了三个钩子：__habitProbe() 读状态、__habitRemindCheck(hhmm, day) 干检查、
+  // __habitRemindAt(hhmm, day) 真跑一次提醒。日期都从主进程传进去，免得跨时区/跨天跑偏。
+  {
+    const dayKeyOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const todayKey = dayKeyOf(new Date())
+    const yDate = new Date()
+    yDate.setDate(yDate.getDate() - 1)
+    const yesterdayKey = dayKeyOf(yDate)
+    const nameA = '冒烟习惯A'
+    const nameB = '冒烟习惯B'
+    try {
+      await js(`(() => { location.hash = '#/habit'; return true })()`)
+      await sleep(1200)
+      const probe0 = await js(`(() => (window.__habitProbe ? window.__habitProbe() : null))()`)
+      if (!probe0) {
+        warn('习惯打卡：习惯页没挂上探针（.__habitProbe），这一段跳过')
+      } else {
+        await js(`(() => (window.__habitRemindReset ? window.__habitRemindReset() : null))()`)
+
+        // 走真实界面新建习惯：点「新建习惯」→ 填名字/目标天数/提醒时间 → 保存
+        const createHabit = (name, target, remindAt, remindOn) =>
+          js(`(async () => {
+            try {
+              const openBtn = Array.from(document.querySelectorAll('.habit-page button')).find((b) => /新建习惯/.test(b.textContent))
+              if (!openBtn) return { err: '找不到「新建习惯」按钮' }
+              openBtn.click()
+              await new Promise((r) => setTimeout(r, 300))
+              const modal = document.querySelector('.overlay .modal')
+              if (!modal) return { err: '新建弹窗没出来' }
+              const set = (sel, val, isCheck) => {
+                const el = modal.querySelector(sel)
+                if (!el) return false
+                const proto = window.HTMLInputElement.prototype
+                const desc = Object.getOwnPropertyDescriptor(proto, isCheck ? 'checked' : 'value')
+                desc.set.call(el, val)
+                el.dispatchEvent(new Event('input', { bubbles: true }))
+                el.dispatchEvent(new Event('change', { bubbles: true }))
+                return true
+              }
+              const okName = set('input[name="name"]', ${JSON.stringify(name)})
+              const okTarget = set('input[name="targetDays"]', ${JSON.stringify(String(target))})
+              const okTime = set('input[name="remindAt"]', ${JSON.stringify(remindAt)})
+              const okOn = set('input[name="remindOn"]', ${JSON.stringify(remindOn)}, true)
+              const save = modal.querySelector('button[name="save"]')
+              if (!save) return { err: '找不到保存按钮' }
+              save.click()
+              await new Promise((r) => setTimeout(r, 600))
+              return { okName, okTarget, okTime, okOn, stillOpen: !!document.querySelector('.overlay .modal') }
+            } catch (err) {
+              return { err: String((err && err.message) || err) }
+            }
+          })()`)
+
+        const madeA = await createHabit(nameA, 100, '07:30', true)
+        const madeB = await createHabit(nameB, 3, '08:00', false)
+        let hp = null
+        for (let i = 0; i < 12; i++) {
+          hp = await js(`(() => (window.__habitProbe ? window.__habitProbe() : null))()`)
+          if (hp && hp.habits.length === 2) break
+          await sleep(400)
+        }
+        const madeDiag = { madeA, madeB, probe: hp && { counts: hp.counts, habits: hp.habits } }
+        const okMade =
+          hp &&
+          hp.habits.length === 2 &&
+          hp.habits.some((h) => h.name === nameA && h.targetDays === 100 && h.remindAt === '07:30' && h.remindOn) &&
+          hp.habits.some((h) => h.name === nameB && h.targetDays === 3)
+        if (okMade) pass('习惯打卡：新建习惯（名字 / 目标天数 / 到点提醒都存下来了）', madeDiag)
+        else fail('习惯打卡：新建习惯（名字 / 目标天数 / 到点提醒都存下来了）', madeDiag)
+        await shot('10-习惯打卡.png')
+
+        // 选中 B 并打卡今天（点真实按钮：行上的「打卡」）
+        const pickRow = (name) =>
+          js(`(() => {
+            const row = Array.from(document.querySelectorAll('.habit-page .hb-row')).find((r) => r.textContent.includes(${JSON.stringify(name)}))
+            if (!row) return { err: '找不到习惯行' }
+            row.click()
+            const btn = row.querySelector('button')
+            if (!btn) return { err: '找不到打卡按钮' }
+            btn.click()
+            return { clicked: true }
+          })()`)
+        await js(`(() => {
+          const row = Array.from(document.querySelectorAll('.habit-page .hb-row')).find((r) => r.textContent.includes(${JSON.stringify(nameB)}))
+          if (row) row.click()
+          return true
+        })()`)
+        await sleep(300)
+        const checkB = await pickRow(nameB)
+        let hp2 = null
+        for (let i = 0; i < 12; i++) {
+          hp2 = await js(`(() => (window.__habitProbe ? window.__habitProbe() : null))()`)
+          const b = hp2 && hp2.habits.find((h) => h.name === nameB)
+          if (b && b.todayDone && b.total === 1) break
+          await sleep(400)
+        }
+        const bStat = hp2 && hp2.habits.find((h) => h.name === nameB)
+        const checkDiag = { checkB, stat: bStat, today: hp2 && hp2.today }
+        if (bStat && bStat.todayDone && bStat.total === 1 && bStat.streak === 1 && bStat.monthDone === 1 && bStat.monthRate > 0)
+          pass('习惯打卡：今天打卡后 累计/连续/月打卡/月完成率 一起更新', checkDiag)
+        else fail('习惯打卡：今天打卡后 累计/连续/月打卡/月完成率 一起更新', checkDiag)
+
+        // 月历上点「昨天」补打 → 连续变 2；再点一次取消 → 回到 1（未来的日子点不动）
+        const clickCell = (day) =>
+          js(`(() => {
+            const c = Array.from(document.querySelectorAll('.habit-page .hb-cell')).find((x) => x.title === ${JSON.stringify(day)})
+            if (!c) return false
+            c.click()
+            return true
+          })()`)
+        const cellY = await clickCell(yesterdayKey)
+        let hp3 = null
+        for (let i = 0; i < 12; i++) {
+          hp3 = await js(`(() => (window.__habitProbe ? window.__habitProbe() : null))()`)
+          const b = hp3 && hp3.habits.find((h) => h.name === nameB)
+          if (b && b.streak === 2) break
+          await sleep(400)
+        }
+        const bAfterAdd = hp3 && hp3.habits.find((h) => h.name === nameB)
+        const cellY2 = await clickCell(yesterdayKey)
+        let hp4 = null
+        for (let i = 0; i < 12; i++) {
+          hp4 = await js(`(() => (window.__habitProbe ? window.__habitProbe() : null))()`)
+          const b = hp4 && hp4.habits.find((h) => h.name === nameB)
+          if (b && b.streak === 1 && b.total === 1) break
+          await sleep(400)
+        }
+        const bAfterDel = hp4 && hp4.habits.find((h) => h.name === nameB)
+        const cellDiag = { yesterdayKey, cellY, added: bAfterAdd, cellY2, removed: bAfterDel, future: hp4 && hp4.calendar }
+        if (cellY && bAfterAdd && bAfterAdd.total === 2 && bAfterAdd.streak === 2 && cellY2 && bAfterDel && bAfterDel.total === 1 && bAfterDel.streak === 1)
+          pass('习惯打卡：月历点日期能补打（昨天+今天=连续 2 天），再点一次取消', cellDiag)
+        else fail('习惯打卡：月历点日期能补打（昨天+今天=连续 2 天），再点一次取消', cellDiag)
+
+        // 归档 A：从「坚持中」消失、进「已归档」；再恢复
+        const clickBtnText = (sel, re) =>
+          js(`(() => {
+            const b = Array.from(document.querySelectorAll(${JSON.stringify(sel)})).find((x) => ${re}.test(x.textContent))
+            if (!b) return false
+            b.click()
+            return true
+          })()`)
+        await js(`(() => {
+          const row = Array.from(document.querySelectorAll('.habit-page .hb-row')).find((r) => r.textContent.includes(${JSON.stringify(nameA)}))
+          if (row) row.click()
+          return true
+        })()`)
+        await sleep(300)
+        const arch = await clickBtnText('.habit-page .hb-detail button', /归档/)
+        await sleep(800)
+        const tabArch = await clickBtnText('.habit-page .hb-tabs .tab', /已归档/)
+        await sleep(600)
+        let hp5 = null
+        for (let i = 0; i < 8; i++) {
+          hp5 = await js(`(() => (window.__habitProbe ? window.__habitProbe() : null))()`)
+          if (hp5 && hp5.tab === 'archived' && hp5.counts.archived === 1) break
+          await sleep(300)
+        }
+        const restore = await clickBtnText('.habit-page .hb-detail button', /恢复/)
+        await sleep(800)
+        const tabActive = await clickBtnText('.habit-page .hb-tabs .tab', /坚持中/)
+        let hp6 = null
+        for (let i = 0; i < 8; i++) {
+          hp6 = await js(`(() => (window.__habitProbe ? window.__habitProbe() : null))()`)
+          if (hp6 && hp6.counts.active === 2 && hp6.counts.archived === 0) break
+          await sleep(300)
+        }
+        const archDiag = { arch, tabArch, afterArchive: hp5 && hp5.counts, restore, tabActive, afterRestore: hp6 && hp6.counts }
+        if (arch && hp5 && hp5.counts.archived === 1 && restore && hp6 && hp6.counts.active === 2 && hp6.counts.archived === 0)
+          pass('习惯打卡：归档后进「已归档」不再提醒，恢复后回到「坚持中」', archDiag)
+        else fail('习惯打卡：归档后进「已归档」不再提醒，恢复后回到「坚持中」', archDiag)
+
+        // 打卡日志按日期分组
+        const logsDiag = hp6 && { todayKey, groups: hp6.logGroups }
+        if (hp6 && hp6.logGroups.some((g) => g.date === todayKey && g.names.includes(nameB)))
+          pass('习惯打卡：打卡日志按日期列出（今天 → 冒烟习惯B）', logsDiag)
+        else fail('习惯打卡：打卡日志按日期列出（今天 → 冒烟习惯B）', logsDiag)
+
+        // 到点提醒：没到点不提醒；到点提醒一次；同一天第二次不再提醒；已打卡的不提醒
+        // 先把 App 起的 30 秒自动巡检停掉、并把 localStorage 里的「今天已提醒」清空 ——
+        // 否则真实时钟一过 07:30，后台巡检就会先把习惯 A 标成「今天提醒过」，这几条断言会随机挂。
+        await js(`(() => {
+          if (window.__habitRemindStop) window.__habitRemindStop()
+          if (window.__habitRemindReset) window.__habitRemindReset()
+          return true
+        })()`)
+        const rEarly = await js(`window.__habitRemindCheck('06:00', ${JSON.stringify(todayKey)})`)
+        const rDue = await js(`window.__habitRemindCheck('23:59', ${JSON.stringify(todayKey)})`)
+        // 真跑提醒是异步的（要发通知），渲染层把结果写进 window.__habitRemindResult，这里轮询取
+        const waitRemind = async () => {
+          for (let i = 0; i < 16; i++) {
+            const r = await js(`window.__habitRemindResult || null`)
+            if (r) return r
+            await sleep(250)
+          }
+          return null
+        }
+        await js(`window.__habitRemindAt('23:59', ${JSON.stringify(todayKey)})`)
+        const rFire = await waitRemind()
+        await js(`window.__habitRemindAt('23:59', ${JSON.stringify(todayKey)})`)
+        const rAgain = await waitRemind()
+        const dueOf = (r) => (r && Array.isArray(r.due) ? r.due : null)
+        const remindDiag = { rEarly, rDue, rFire, rAgain }
+        const earlyOk = !!dueOf(rEarly) && dueOf(rEarly).length === 0
+        const dueOk = !!dueOf(rDue) && dueOf(rDue).includes(nameA) && !dueOf(rDue).includes(nameB)
+        const fireOk = !!(rFire && rFire.notified === 1 && dueOf(rFire) && dueOf(rFire).includes(nameA))
+        const onceOk = !!(dueOf(rAgain) && dueOf(rAgain).length === 0 && rAgain.notified === 0)
+        if (earlyOk && dueOk && fireOk && onceOk)
+          pass('习惯打卡：到点提醒（未到点不提醒 / 已打卡不提醒 / 同一天只提醒一次）', remindDiag)
+        else fail('习惯打卡：到点提醒（未到点不提醒 / 已打卡不提醒 / 同一天只提醒一次）', remindDiag)
+
+        // 学习页的习惯卡片：点一下直接打卡
+        await clickNav('学习')
+        await sleep(900)
+        const homeBefore = await js(`(() => {
+          const box = document.querySelector('.habit-home')
+          return box ? { n: (box.querySelector('.hb-home-n') || {}).textContent || '', chips: box.querySelectorAll('.hb-home-chip').length } : null
+        })()`)
+        const chipClick = await js(`(() => {
+          const chip = Array.from(document.querySelectorAll('.habit-home .hb-home-chip')).find((c) => c.textContent.includes(${JSON.stringify(nameA)}))
+          if (!chip) return false
+          chip.click()
+          return true
+        })()`)
+        await sleep(900)
+        const homeAfter = await js(`(() => {
+          const box = document.querySelector('.habit-home')
+          return box ? { n: (box.querySelector('.hb-home-n') || {}).textContent || '', chips: box.querySelectorAll('.hb-home-chip').length } : null
+        })()`)
+        const homeDiag = { homeBefore, chipClick, homeAfter }
+        if (homeBefore && homeBefore.chips === 2 && /1\s*\/\s*2/.test(homeBefore.n) && chipClick && homeAfter && /2\s*\/\s*2/.test(homeAfter.n))
+          pass('习惯打卡：学习页的习惯卡片能直接打卡（今日 1/2 → 2/2）', homeDiag)
+        else fail('习惯打卡：学习页的习惯卡片能直接打卡（今日 1/2 → 2/2）', homeDiag)
+      }
+    } catch (err) {
+      warn('习惯打卡：这一段异常跳过 → ' + String((err && err.message) || err))
+    }
   }
 
   // 学习页：统计卡 + 专注面板（签到日历 / 近 14 天条形图 / 按 UP 分布饼图 / 手动打卡按钮已按需求移除）

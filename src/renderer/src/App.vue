@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import { useSettingsStore } from './stores/settings'
 import { useLearnStore } from './stores/learn'
+import { useHabitsStore } from './stores/habits'
 import { useUpsStore } from './stores/ups'
 import { useUiStore } from './stores/ui'
 import Icon from './components/Icon.vue'
@@ -20,6 +21,7 @@ const router = useRouter()
 const auth = useAuthStore()
 const settings = useSettingsStore()
 const learn = useLearnStore()
+const habits = useHabitsStore()
 const ups = useUpsStore()
 const ui = useUiStore()
 
@@ -48,6 +50,7 @@ const DEFAULT_NAV = [
   { to: '/ups', icon: 'users', label: 'UP 管理' },
   { to: '/fav', icon: 'star', label: '收藏' },
   { to: '/learn', icon: 'book', label: '学习' },
+  { to: '/habit', icon: 'check', label: '习惯' },
   { to: '/local', icon: 'film', label: '本地' },
   { to: '/settings', icon: 'settings', label: '设置' }
 ]
@@ -135,6 +138,13 @@ onMounted(async () => {
     await ups.init()
   } catch (err) {
     console.warn('[ups] 本机 UP 名单初始化失败：', err && err.message)
+  }
+  // 习惯打卡：把习惯读进内存，并开始「到点提醒」巡检（30 秒一次，主窗口 backgroundThrottling:false）
+  try {
+    await habits.init()
+    habits.startReminders()
+  } catch (err) {
+    console.warn('[habit] 习惯数据初始化失败：', err && err.message)
   }
   window.addEventListener('keydown', (e) => {
     if (e.key === '/' && !/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName)) {

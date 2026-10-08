@@ -1,7 +1,7 @@
 # BiliLite
 
 学习专注型的 B 站桌面客户端（Windows / Electron）。参考 [BiliLite](https://github.com/ywmoyue/biliuwp-lite) 的功能取舍重新实现：
-保留**扫码登录、UP 管理、首页（只看关注 UP 更新）、搜索、视频播放（分 P / 画质 / DASH / 小窗播放 / 本机文件）、本机收藏 + B 站收藏夹、UP 主主页、学习记录 / 打卡 / 专注（番茄钟 + 任务绑定 + 专注记录）**，
+保留**扫码登录、UP 管理、首页（只看关注 UP 更新）、搜索、视频播放（分 P / 画质 / DASH / 小窗播放 / 本机文件）、本机收藏 + B 站收藏夹、UP 主主页、学习记录 / 专注（番茄钟 + 任务绑定 + 专注记录）、习惯打卡（每个习惯的月历补打、连续与目标天数、月完成率、打卡日志、归档、到点提醒）**，
 界面走黑白极简 token 体系，不引入娱乐化的信息流。播放页右栏只留「清晰度 + 分P列表」（相关推荐只在下方 tab 里）。
 
 > 仅限个人学习用途。本项目不提供任何视频内容，只做本机客户端；登录凭证只加密保存在本机。
@@ -41,18 +41,20 @@ src/
                             `worker-src 'self' blob:` 是当年 pdf.js 的 Blob worker 要的 —— 读书模块摘除后
                             已无人使用，留着不影响安全，渲染层现在没有任何 `new Worker`）
     src/
-      router.js  App.vue     布局（侧栏 6 项 + 顶栏搜索；侧栏不再放搜索入口）
+      router.js  App.vue     布局（侧栏 7 项 + 顶栏搜索；侧栏不再放搜索入口）
       api/index.js           window.bili 门面
       db/index.js            Dexie：progress / daily / notes / shelf / ups / collect / checkins / upTime
                              + v4 追加 focus（每轮专注一行：day / startedAt / seconds / completed / task）
                              + v5 追加 subs（本地字幕，key = `bvid:cid:文件名`）
                              + v6 追加 locals（本地视频：只存 路径 / 名字 / 大小 / 时长 / 封面 / 播放进度）
-      stores/                ui / settings / auth / learn / ups / collect / pomodoro
+                             + v7 追加 habits（习惯定义：名字 / 目标天数 / 提醒时间 / 归档）+ habitLogs（打卡记录，
+                               key = `习惯id:日期`，不打卡就删行）
+      stores/                ui / settings / auth / learn / ups / collect / pomodoro / habits（习惯 + 打卡 + 到点提醒）
       player/dash.js         DASH 播放核心（在线流用；本地视频走原生 <video>）
       utils/subtitle.js      字幕解析（SRT / VTT / ASS）+ 编码嗅探
-      views/                 Home / UpManage / Search / Video / Fav / FavFolder / Up / Learn / Local / LocalPlayer / Settings
+      views/                 Home / UpManage / Search / Video / Fav / FavFolder / Up / Learn / Habit / Local / LocalPlayer / Settings
       components/            Icon / BiliImage / VideoCard / Pager / DanmakuLayer / PageFloat / MiniPlayer / LoginModal / ConfirmModal / CollectModal / PartList
-                             + FocusRing（专注圆环）/ FocusPanel（专注面板）/ SessionHistory（专注记录）…
+                             + FocusRing（专注圆环）/ FocusPanel（专注面板）/ SessionHistory（专注记录）/ HabitHome（学习页上的习惯卡）…
 tools/
   run-smoke.ps1             本机冒烟运行脚本（构建 + 启动 Electron + 收报告，绕开 DSH 沙箱坑）
   check-parsers.mjs         不启动 Electron，直接跑字幕解析 + 登录态分类（22 项断言，改 src/renderer/src/utils/subtitle.js 或 src/main/bili/nav-classify.js 后先跑它）
@@ -90,17 +92,18 @@ pnpm run dist         # 生成 NSIS 安装包（⚠ 输出目录必须放到工�
 ```powershell
 pnpm run build
 pnpm exec electron-builder --win --publish never --config.directories.output=C:\Users\zouyx\bl-out
-# → C:\Users\zouyx\bl-out\BiliLite Setup 0.2.8.exe（85,018,907 B）+ .blockmap（89,634 B）
+# → C:\Users\zouyx\bl-out\BiliLite Setup 0.2.9.exe（85,034,326 B）+ .blockmap（89,757 B）
 ```
 
 > 安装包文件名里的版本号来自 `package.json` 的 `version`（electron-builder 的 NSIS 默认命名
 > `${productName} Setup ${version}.exe`）。2026-10-07 之前 `version` 一直停在 `0.1.0`——尽管 git tag 已经到
-> `v0.2.8`——所以安装包叫 `BiliLite Setup 0.1.0.exe`。现在把 `version` 对齐到 **0.2.8**，于是安装包 /
+> `v0.2.8`——所以安装包叫 `BiliLite Setup 0.1.0.exe`。现在把 `version` 对齐到 **0.2.8**
+> （2026-10-08 做习惯打卡模块时又跟着抬到 **0.2.9**），于是安装包 /
 > `latest.yml` / 便携版 zip / `app:ping` 报的版本号全都一致了（`app:ping` 原来在 `src/main/ipc.js:54`
 > 硬编码 `'0.1.0'`，已改成 `app.getVersion()`，以后不会再和 `package.json` 脱节）。
 
 > 产物拷回 `release\` 存档没问题，但要**运行**它必须放在工作区外（例如桌面根目录
-> `%USERPROFILE%\Desktop\BiliLite Setup 0.2.8.exe`）。工作区内的那个安装包双击同样会弹 `NSIS Error`。
+> `%USERPROFILE%\Desktop\BiliLite Setup 0.2.9.exe`）。工作区内的那个安装包双击同样会弹 `NSIS Error`。
 
 > 打包还固化了一个坑：`build.npmRebuild: false`。本机没有 Python/MSVC，一旦有依赖带原生模块就会触发
 > `@electron/rebuild` 的 node-gyp 重编（`Error: Could not find any Python installation to use`，整包失败）；
@@ -114,7 +117,7 @@ pnpm exec electron-builder --win --publish never --config.directories.output=C:\
 | 桌面快捷方式「BiliLite」 | `%USERPROFILE%\Desktop\BiliLite.lnk` → `%LOCALAPPDATA%\Programs\BiliLite\BiliLite.exe` | 正常打开窗口「首页 · BiliLite」 |
 | 安装版 | `%LOCALAPPDATA%\Programs\BiliLite\BiliLite.exe` | 正常 |
 | 免安装便携版（已复制到桌面） | `%USERPROFILE%\Desktop\BiliLite\BiliLite.exe` | 正常，双击即可，无需任何参数 |
-| 安装包副本（已复制到桌面） | `%USERPROFILE%\Desktop\BiliLite Setup 0.2.8.exe` | 85,018,907 B，SHA256 `FA8BB00D16AE7B20AF72DC17EA3909762639A12077731FF5366952193AC69132`（2026-10-07 v0.2.8 构建；`package.json` 的 `version` 已对齐 0.2.8） |
+| 安装包副本（已复制到桌面） | `%USERPROFILE%\Desktop\BiliLite Setup 0.2.9.exe` | 85,034,326 B，SHA256 `E53FF9F85D06E988B9618F2FA31B6479775CF365DDB0302E11E06185BDE8A758`（2026-10-08 v0.2.9 构建；`package.json` 的 `version` 已对齐 0.2.9） |
 
 > 桌面那份是**手动拷过去的免安装版**（不是 `%LOCALAPPDATA%\Programs` 下的安装版，本机没有那个目录），
 > 所以更新它要手动覆盖 —— 而且覆盖前必须先退出正在运行的 BiliLite，否则 `BiliLite.exe` 被占用，
@@ -128,10 +131,34 @@ pnpm exec electron-builder --win --publish never --config.directories.output=C:\
 > 因为 `userData` 固定成 `%APPDATA%\study-bili`，覆盖二进制不会丢学习记录/登录态/设置。2026-10-07 用这种方式
 > 更新过很多轮，最近几轮是：含读书模块的版本（旧 asar 备份在 `backup\app-asar-prereader.asar`，23.2 MB）→
 > 修好字幕菜单/专注快捷任务 → **摘掉读书模块**（asar 从 59.3 MB / 1871 个文件降到 23.3 MB / 982 个文件）→
-> 离线缓存（v0.2.2）→ 缓存分组 + 自定义缓存目录（v0.2.3 / v0.2.4）→ **摘掉缓存 + 新增本地播放**（asar 24,444,321 B）。
+> 离线缓存（v0.2.2）→ 缓存分组 + 自定义缓存目录（v0.2.3 / v0.2.4）→ **摘掉缓存 + 新增本地播放**（asar 24,444,321 B）
+> → 小窗播放几轮修复（v0.2.6 / v0.2.7 / v0.2.8）→ **新增习惯打卡**（v0.2.9，asar 24,554,340 B）。
 > 每次覆盖后都用 `tools\check-package.mjs --dir "$env:USERPROFILE\Desktop\BiliLite"` 校验，并对桌面那份跑打包版冒烟。
 > ⚠ `robocopy` 偶尔会报 `exit=11`/「FAILED 1」：那是 `BiliLite.exe` 被残留进程占着没覆盖上（asar 已经同步成功），
 > 确认 `Get-Process BiliLite` 为空后再跑一次，`exit=3` 就是好了；记得用哈希核对两侧 `BiliLite.exe` 一致。
+
+> ⚠ **打包版冒烟必须带绝对路径的 `--user-data-dir`**（2026-10-08 踩到，值得记一笔）。`Start-Process BiliLite.exe`
+> 时只设了 `STUDY_USER_DATA=tmp-ud-desktop`（**相对路径**）、又没传 `--user-data-dir`：`src/main/index.js:18-33`
+> 里 `app.setPath('userData', <相对路径>)` 抛错被 catch 掉，而 `else` 分支（固定到 `%APPDATA%\study-bili`）
+> 因为进了 `if` 而**根本不会执行**，于是 Electron 退回 Chromium 默认目录 `%APPDATA%\bililite` 新建了一个
+> profile。上一轮冒烟写进去的假数据（`冒烟习惯A` / `冒烟习惯B`、`smoke-local-sub.srt`、`tmp-local-fixture`）
+> 就留在那儿，下一轮打包版冒烟读到脏数据：`probe.counts.active:4`、`{"homeBefore":{"n":"1/4"}}`、
+> `本地字幕 rows:2` —— 6 条断言假失败（`app:ping` 报 `version:0.2.9` 说明代码其实没问题）。
+> 正确写法（`STUDY_USER_DATA` 与 `--user-data-dir` 都给**绝对路径**）：
+>
+> ```powershell
+> $ud = 'C:\Users\zouyx\Desktop\学习APP\tmp-ud-desk'
+> $env:STUDY_USER_DATA = $ud
+> Start-Process -FilePath "$env:USERPROFILE\Desktop\BiliLite\BiliLite.exe" `
+>   -ArgumentList '--no-sandbox','--disable-gpu',"--user-data-dir=$ud"
+> ```
+>
+> 判断有没有污染真实目录：看 `%APPDATA%\study-bili`（用户真实数据，leveldb ≈ 2.9 MB）与 `%APPDATA%\bililite`
+> （Chromium 默认目录）里 `IndexedDB\file__0.indexeddb.leveldb\000003.log` 的修改时间和内容 ——
+> `[System.Text.Encoding]::Unicode.GetString([IO.File]::ReadAllBytes($f))` 里搜「冒烟习惯」即可。
+> 用户自己的应用固定用 `%APPDATA%\study-bili`（本轮运行时它的 leveldb 被应用进程独占、内容里没有这些字符串），
+> 误建出来的 `%APPDATA%\bililite` 已整个删除，真实数据没被污染。开发版不用管这条：`tools\run-smoke.ps1`
+> 传的 `$ud` 本来就是绝对路径。
 
 > 数据目录仍是 `%APPDATA%\study-bili`（改名前后不变，学习记录/登录态/设置都在里面）：
 > `src/main/index.js` 在启动时显式 `app.setPath('userData', join(app.getPath('appData'), 'study-bili'))`，
@@ -174,7 +201,7 @@ node 'C:\Users\zouyx\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\pnpm\bin
 
 ## 验证
 
-主进程内置端到端冒烟测试（真实窗口里跑完整闭环：桥接 → 接口 → 播放起流/推进 → 落库 → 6 个路由 → 分P续播/侧栏换序/本地字幕/本地视频播放），
+主进程内置端到端冒烟测试（真实窗口里跑完整闭环：桥接 → 接口 → 播放起流/推进 → 落库 → 7 个路由 → 分P续播/侧栏换序/本地字幕/本地视频播放/小窗播放/习惯打卡），
 报告写到 `$env:STUDY_SMOKE_OUT`，退出码为失败项数。
 
 本机（DSH 沙箱）直接跑用脚本，它会自己处理 `ELECTRON_RUN_AS_NODE`、node 路径、沙箱参数与 userData：
@@ -198,9 +225,9 @@ $env:STUDY_SMOKE_SHOT = "$PWD\shots"   # 可选：顺手把真实界面截图存
 Get-Content smoke-pkg-report.txt -Encoding UTF8
 ```
 
-断言项：bridge 注入/通道齐全/`app:ping`、侧栏 6 项（且已没有「读书」入口）、侧栏不再有「搜索」入口（搜索只保留顶栏）、主题令牌、`home.feed`、`search.videos`、`video.view`、
+断言项：bridge 注入/通道齐全/`app:ping`、侧栏 7 项（且已没有「读书」入口）、侧栏不再有「搜索」入口（搜索只保留顶栏）、主题令牌、`home.feed`、`search.videos`、`video.view`、
 `video.playurl`（DASH 轨道）、视频页渲染、`<video>` 起流（`readyState=4`）、点播放后 `currentTime` 前进、
-学习进度写入 IndexedDB、顶栏搜索跳转、侧栏 6 个路由真实点击可达，以及本机 UP 名单（写入/渲染/首页只显示名单）、
+学习进度写入 IndexedDB、顶栏搜索跳转、侧栏 7 个路由真实点击可达，以及本机 UP 名单（写入/渲染/首页只显示名单）、
 `up.latest`（匿名可拉取，失败才软跳过）、本机收藏写入、学习页 7 卡（并且已经**没有**签到日历 / 近 14 天条形图 /
 按 UP 分布饼图 / 打卡按钮，`.cal .cell`、`.bars14`、`svg.pie`、`今日打卡` 文本四者都为 0）、专注面板（学习页有 `.focus .ring-clock`；点齿轮把「专注」
 改成 1 分钟后开始 → 倒计时前进；暂停 → 倒计时不动（这里只把「时钟继续往下掉」判失败：如果时钟**往上跳回整轮**，
@@ -260,6 +287,15 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 把返回的 handler 丢掉。正确写法是 `tap($event, () => …)`（必须把事件显式传进去），
 `window.__tapLog` / DOM 探针（`Symbol(_vei)` 才是 Vue 3.5 装监听器的地方，字符串 `el._vei` 永远是空的）就是为查这个加的，
 首页信息流没加载出来时整段软跳过）、
+**习惯打卡**（往一次性 userData 里从真实界面建两个习惯：点「新建习惯」→ 用原生 setter 填
+`input[name=name|targetDays|remindAt]` + 勾 `input[name=remindOn]` → 点 `button[name=save]`；`冒烟习惯A`（目标 100、
+提醒 07:30、开提醒、今天不打）与 `冒烟习惯B`（目标 3、提醒 08:00、不开提醒、今天打）→ 7 条断言：①新建后习惯真的落库
+（名字/目标/提醒时间都对；截图 `10-习惯打卡.png`）②在「今天」按一次打卡，`累计 / 连续 / 本月打卡 / 月完成率` 四个数一起更新
+③月历里点**昨天**那一格补打 → 连续变 2，再点一次 → 回到 1（补打与取消走同一格）④归档 → 切到「已归档」tab 能看到，
+恢复 → 回到「坚持中」⑤打卡日志按日期分组（今天那行是 `冒烟习惯B`）⑥到点提醒：`06:00` 不提醒、`23:59` 提醒 `冒烟习惯A`
+且**已经打过卡的 `冒烟习惯B` 不在名单里**、同一时间再查一次 `due / notified` 都是 0（同一天只提醒一次）
+⑦学习页那张「今日习惯」卡片先显示 `1/2`，点一下 `冒烟习惯A` 的 chip 变 `2/2` —— 卡片用 `.habit-home`，标题写「今日习惯」、
+也刻意不进 `.stat-grid`，免得和学习页那两条「7 个统计卡 / 已经没有签到日历」的断言打架）、
 读书模块已于 2026-10-07 按用户要求摘除（本机归档在 `backup\reader-module\`，那里有 `MANIFEST.txt`；
 ⚠ 读书模块从未进入过这个仓库（`backup/` 被 `.gitignore` 忽略），所以仓库里没有它的历史版本，要留副本得另存），
 所以断言总数从 139 降到 72：读书段 67 项、侧栏「读书」那 1 项删掉，新增「侧栏已没有读书入口」1 项；
@@ -273,7 +309,10 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 同一天再加「小窗播放」（卡片/视频页都能把视频丢进悬浮小窗，边看边翻页）又加 4 项，
 之后修「小窗放两秒就停住」时又加了 1 项（一次点击只取一路流），
 再修「画圈部分点击不生效」（标题栏按钮被拖动逻辑吞掉 click + `tap()` 内联语句写法）时又加了 3 项
-（暂停时真实鼠标点「换大小 / 收起·展开 / 关闭」），**现在最多 85 项**
+（暂停时真实鼠标点「换大小 / 收起·展开 / 关闭」），
+2026-10-08 按用户要求新增「习惯打卡」模块（月历补打 / 统计卡 / 打卡日志 / 归档 / 到点提醒）又加 7 项
+（外加侧栏路由真实点击那一条从 6 条变 7 条），
+**现在最多 93 项**
 （`首页「继续学习」卡片不重复` 在首页没有继续学习卡时软跳过，只 log 不打 PASS/FAIL，所以那轮会显示 76，
 另有一条「切换页面自动回到顶部」在搜索页没滚起来时也只 `warn`）。
 
@@ -440,6 +479,44 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 > 截图 8 张在 `shots-desk-ver1/`），其中 `app:ping` 回报 `{"pong":…,"version":"0.2.8"}`——证明包里那条版本号
 > 真的是从 `package.json` 动态取的；小窗相关 8 条断言仍全绿（位置交接 `pageT 128.485563` → `mini.startTime 128.494368`）。
 
+> **习惯打卡模块（2026-10-08，按用户要求新增）**：侧栏多一项「习惯」+ 学习页多一张「今日习惯」卡片，
+> 新增 `src/renderer/src/stores/habits.js`、`src/renderer/src/views/HabitView.vue`、
+> `src/renderer/src/components/HabitHome.vue`，改 `src/renderer/src/db/index.js`（`db.version(7)` 加
+> `habits` / `habitLogs` 两张表 + 一组 `listHabits/putHabit/removeHabit/setHabitLog/…`）、`router.js`（`/habit`）、
+> `App.vue`、`Icon.vue`（bell/calendar/target/archive）、`LearnView.vue`（导出 JSON 带上习惯）、
+> `src/main/index.js`（`app.setAppUserModelId`）。
+> 深色 `smoke-habit3-report.txt`（337 行）/ 浅色 `smoke-habit3light-report.txt`（336 行）各
+> **93 PASS / 0 FAIL / 0 WARN / 0 渲染层异常**，截图 9 张在 `shots-habit3/`、`shots-habit3light/`
+> （`10-习惯打卡.png` 215364 B）。7 条新断言两种主题下数值完全一致：
+> 新建 `{"madeA":{"okName":true,"okTarget":true,"okTime":true,"okOn":true,"stillOpen":false},"counts":{"active":2,"archived":0,"logs":0}}`；
+> 今天打卡后 `"total":1,"streak":1,"best":1,"monthDone":1,"monthRate":0.125,"todayDone":true`、`today {"done":1,"total":2}`；
+> 月历点昨天 `{"yesterdayKey":"2026-10-07","cellY":true,"added":{…"total":2,"streak":2,"monthRate":0.25},"removed":{…"total":1,"streak":1}}`；
+> 归档/恢复 `{"afterArchive":{"active":1,"archived":1,"logs":1},"afterRestore":{"active":2,"archived":0,"logs":1}}`；
+> 打卡日志 `{"groups":[{"date":"2026-10-08","names":["冒烟习惯B"]}]}`；
+> 到点提醒 `{"rEarly":{…"at":"06:00","due":[]},"rDue":{…"due":["冒烟习惯A"]},"rFire":{…"notified":1,"pushed":true},"rAgain":{…"due":[],"notified":0,"pushed":false}}`
+> （`pushed:true` = Windows 系统通知真的弹出去了）；学习页卡片 `{"homeBefore":{"n":"1/2"},"homeAfter":{"n":"2/2"}}`。
+> 断言总数从 85 项涨到 **93 项**（+7 习惯 +1 侧栏路由）。
+> 构建 `BUILD_EXIT=0`（`HabitView-H1YaJ-uG.js 24.58 kB`、`index-Dw08pOfq.js 633.59 kB`、
+> `mpegts-DiO5dx3R.js 397.30 kB`、`VideoView-DxuW_SIl.js 71.35 kB`、`LearnView-BqlDHcLG.js 65.21 kB`），
+> `check-parsers.mjs` 22 项 exit 0；`version` 从 0.2.8 抬到 **0.2.9**（tag / 安装包名 / `app:ping` 一起对齐）。
+> 冻结版复验（2026-10-08 15:07，`-Tag habit4` / `habit4light`）：深色 **93 PASS / 0 FAIL / 0 WARN**
+> （`smoke-habit4-report.txt`，315 行）、浅色 **92 PASS / 0 FAIL / 1 WARN**（`smoke-habit4light-report.txt`，320 行，
+> WARN 仍是「搜索页没滚起来」那条软跳过），8 条习惯断言两种主题下都绿。
+> 打包 + 同步：`electron-builder --win --dir` = `PKG_EXIT=0`、`--win` = `DIST_EXIT=0` →
+> `C:\Users\zouyx\bl-out\BiliLite Setup 0.2.9.exe` = **85,034,326 B**、SHA256
+> `E53FF9F85D06E988B9618F2FA31B6479775CF365DDB0302E11E06185BDE8A758`、`.blockmap` 89,757 B；
+> `bl-out\win-unpacked` / `release\win-unpacked` / 桌面便携版三处 `resources\app.asar` 一致 **24,554,340 B**、
+> SHA256 `F547FF6BA7F9AC9BF9C880471089D9B571A4CEE5D889D3721605174A8ECB0C1C`，`BiliLite.exe` SHA256
+> `FEAE9C52A704CB5620AC78ACB590017E43C88B66BF79933E74A09D1F30014081`，三处 `tools\check-package.mjs` 都 exit 0；
+> 便携版 zip `release\BiliLite-0.2.9-win-x64.zip` = **120,448,466 B**、SHA256
+> `B27E439F0B60D735EE1256B44B800E6936668D2089B2EEDBE8013857439316CF`。
+> 打包版冒烟（桌面便携版、浅色、**带绝对路径 `--user-data-dir`**）= **93 PASS / 0 FAIL / 0 WARN**
+> （`smoke-desk-habit3-report.txt`，348 行，截图 9 张在 `shots-desk-habit3/`），`app:ping` 回报
+> `{"pong":…,"version":"0.2.9"}`，7 条习惯断言 + 小窗位置交接（`pageT 80.041402`）在真机上也全绿。
+> 上一轮打包版冒烟因为没带 `--user-data-dir`，把假数据写进了 Chromium 默认目录 `%APPDATA%\bililite`
+> （教训见上文「打包版冒烟必须带绝对路径 `--user-data-dir`」）；那份误建的 profile 已整个删除，
+> 用户真实数据目录 `%APPDATA%\study-bili` 没被污染（其中的 leveldb 里搜不到「冒烟习惯」字样）。
+
 > **冒烟前先看构建结果**：`tools\run-smoke.ps1 -SkipBuild` 会拿旧的 `out/` 继续跑，跑出一份「看起来全绿但什么都没证明」的报告
 > （踩过：`vite build` 失败、报告却照样满绿）。**改完 `src/` 先看 `BUILD_EXIT`，再谈冒烟。**
 > 而且 `BUILD_EXIT=0` 只说明构建成功，**不说明改动进了 bundle**：查「小窗按钮点不动」时最有用的一步是
@@ -449,8 +526,9 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 > 直接 `0xC0000005` 退出、`tools\probe-input.cjs` 连一行输出都写不出来还把 pwsh 挂住（GUI 子进程占住管道，
 > `Start-Process` 那条也救不回来）。要看「某个事件到底有没有派发 / 处理函数有没有进」，
 > 写成冒烟里的 `window.__tapLog` 埋点 + DOM 探针（`Symbol(_vei)`）最快。
-> 断言总数是 **85 项**。其中 `切换页面自动回到顶部` 在搜索页没滚起来时只记 WARN（深色那轮就是 80 PASS + 1 WARN），
-> `首页「继续学习」卡片不重复` 在首页没有继续学习卡时软跳过、只 log 不打 PASS/FAIL → 这两种情况下 PASS 计数会显示 80。
+> 断言总数是 **93 项**。其中 `切换页面自动回到顶部` 在搜索页没滚起来时只记 WARN
+> （2026-10-08 冻结版复验：浅色那轮 92 PASS + 1 WARN、深色那轮 93 PASS / 0 WARN），
+> `首页「继续学习」卡片不重复` 在首页没有继续学习卡时软跳过、只 log 不打 PASS/FAIL → 这两种情况下 PASS 计数会显示 92。
 
 > 主题验收：设置 `STUDY_SMOKE_THEME=light`（或 `dark`）会让冒烟把主题强制成对应主题再跑一遍，
 > 每次截图前也会重新强制一次 —— `settings.init()` 是异步的，完成时会按落盘设置把主题刷回来，
@@ -735,6 +813,23 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
   + 历史列表（可单条删除/清空）」，
   今日轮数直接由 `focus` 表算出（删记录后数字自动对齐）。只有三个时长与上次的任务名持久化在
   localStorage（`study-bili-pomodoro`），计时状态本身不落盘。
+- **习惯打卡**（侧栏「习惯」页，`views/HabitView.vue` + `stores/habits.js` + Dexie **v7** 的 `habits` / `habitLogs` 表）：
+  左栏是习惯列表（**坚持中 / 已归档** 两个 tab），每行开头一个表情、右边 7 个圆点表示最近 7 天打没打，
+  末列是 `累计/目标`（例如 `30/100`，目标达成后数字高亮）；右栏是选中习惯的详情 —— 四格统计
+  **月打卡 / 总打卡 / 月完成率 / 当前连续** + 目标进度条，下面依次是**月历**（周一起始，点任意一格补打或取消，
+  未来的日子点不动）与**打卡日志**（按日期倒序分组，一行里列出当天打了哪些习惯）。
+  新建 / 编辑共用同一个弹窗：名字、目标天数（1~9999，默认 100）、提醒时间（`type=time`）、是否开提醒；
+  「归档」只是给 `archived` 打上时间戳（切到「已归档」tab 能看到，可随时恢复），删除会连打卡记录一起删。
+  两个口径值得记一下：**月完成率 = 本月已打卡天数 ÷ 本月已过天数**（不是 ÷ 整月，否则月初永远只有个位数百分比）；
+  **当前连续**从今天往回数，今天还没打但从昨天起连着也算（不至于一觉醒来连续就断了）。
+  **到点提醒**：store 每 30 秒查一次「坚持中 + 开了提醒 + 提醒时间已过 + 今天还没打 + 今天没提醒过」，
+  命中就发系统通知（`Notification`，与番茄钟同一套写法；`src/main/index.js` 里补了
+  `app.setAppUserModelId('com.bililite.desktop')` 让 Windows 通知显示成 BiliLite 而不是 electron.app）+ 应用内 toast，
+  同一天同一个习惯只提醒一次（当天已提醒过的记在 localStorage `study-bili-habit-remind`）。
+  学习页顶部那张「今日习惯」卡片（`components/HabitHome.vue`）显示 `已打/总数`，点一下就地打卡，不用切页。
+  这个模块刻意把类名都写成 `hb-` 前缀、也不往 `.stat-grid` 里塞东西：学习页有两条老断言在盯
+  「7 个统计卡」和「已经没有签到日历（`.cal .cell` / `.bars14` / `svg.pie` / `今日打卡` 文本都为 0）」，
+  卡片标题因此叫「今日习惯」而不是「今日打卡」。
 - **读书模块（已按要求摘除）**：2026-10-07 用户要求「去除读书项目」，整个模块（书架页 / 阅读页 / PDF 阅读器 /
   自研 ZIP+XML+EPUB+TXT 解析层 / `pdfjs-dist` 依赖）已从应用里移除，源码与恢复方法归档在本机的
   `backup\reader-module\`（那里有 `MANIFEST.txt`，列了归档清单和重新接线要改的 11 处）；

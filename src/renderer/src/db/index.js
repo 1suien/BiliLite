@@ -16,6 +16,8 @@ import { todayKey } from '../utils/format'
  *   upTime    : 按 UP 累计的学习时长，key = mid 或 UP 名
  *   subs      : 本地字幕文件解析结果，key = `${bvid}:${cid}:${name}`
  *   focus     : 番茄钟/专注记录，每完成（或跳过）一轮写一行
+ *   habits    : 习惯打卡的习惯定义（名字 / 目标天数 / 提醒时间 / 是否归档）
+ *   habitLogs : 每个习惯每天的打卡记录，key = `${habitId}:${date}`
  *
  * 注意：v3 声明的 books / bookmarks / highlights（原读书模块）**故意保留不删**。
  * 删表要走一次 Dexie 迁移，一旦表名清单写错就可能动到用户真实的 progress / daily / checkins
@@ -123,6 +125,33 @@ db.version(6).stores({
   focus: '++id, day, startedAt, task',
   subs: 'key, bvid, cid, at',
   locals: 'id, path, addedAt, playedAt'
+})
+
+// v7：习惯打卡。
+//   habits    : 一个习惯一行（名字 / 目标天数 / 提醒时间 / 是否归档）
+//   habitLogs : 打过的每一天一行，key = `${habitId}:${date}`（同一天同一习惯天然只有一行）
+// 打卡记录不存「连续多少天」，连续/累计/完成率都是渲染时按记录算出来的 —— 免得改一下
+// 历史就出现算错的历史值。
+db.version(7).stores({
+  progress: 'key, bvid, updatedAt, completed',
+  daily: 'date',
+  marks: '++id, bvid, cid, sec',
+  notes: '++id, bvid, cid, at',
+  shelf: 'bvid, at',
+  ups: 'mid, group, addedAt',
+  upgroups: 'name, at',
+  collect: '++id, bvid, folder, at',
+  collectfolders: 'name, at',
+  checkins: 'date, at',
+  upTime: 'key, mid, name',
+  books: 'id, addedAt, lastReadAt, format',
+  bookmarks: '++id, bookId, chapterIndex, at',
+  highlights: '++id, bookId, chapterIndex, at',
+  focus: '++id, day, startedAt, task',
+  subs: 'key, bvid, cid, at',
+  locals: 'id, path, addedAt, playedAt',
+  habits: '++id, name, archived, createdAt',
+  habitLogs: 'key, habitId, date'
 })
 
 export async function getProgress(bvid, cid) {
@@ -344,6 +373,129 @@ export async function removeLocal(id) {
     await db.locals.delete(String(id || ''))
   } catch (err) {
     console.warn('[local] 本地视频删除失败：', err && err.message)
+  }
+}
+
+// ---------------- 习惯打卡 ----------------
+//
+// habits    : { id, name, targetDays, remindAt, remindOn, note, archived, createdAt }
+//   targetDays 目标天数（累计打卡多少天算养成）；remindAt 'HH:MM'；remindOn 是否开提醒；
+//   archived 0=坚持中、>0 是归档时间戳（归档的习惯不提醒、不进「今日」统计，但记录都留着）
+// habitLogs : { key, habitId, date, at, note }，key = `${habitId}:${date}`
+
+const HABIT_DAY_RE = /^\d{4}-\d{2}-\d{2}$/
+
+/** 全部习惯：坚持中的在前，各自按创建时间 */
+export async function listHabits() {
+  try {
+    const rows = await db.habits.toArray()
+    return rows.sort(
+      (a, b) => (Number(a.archived) || 0 ? 1 : 0) - (Number(b.archived) || 0 ? 1 : 0) || (a.createdAt || 0) - (b.createdAt || 0)
+    )
+  } catch (err) {
+    console.warn('[habit] 习惯读取失败：', err && err.message)
+    return []
+  }
+}
+
+export async function getHabit(id) {
+  try {
+    return (await db.habits.get(Number(id) || 0)) || null
+  } catch (err) {
+    console.warn('[habit] 习惯读取失败：', err && err.message)
+    return null
+  }
+}
+
+/** 新建/更新一个习惯（只覆盖传进来的字段；名字为空直接拒绝） */
+export async function putHabit(rec = {}) {
+  const id = Number(rec.id) || 0
+  const old = id ? (await db.habits.get(id)) || {} : {}
+  const row = {
+    ...old,
+    name: String(rec.name !== undefined ? rec.name : old.name || '').trim(),
+    targetDays: Math.max(1, Math.min(9999, Number(rec.targetDays !== undefined ? rec.targetDays : old.targetDays) || 100)),
+    remindAt: /^\d{2}:\d{2}$/.test(String(rec.remindAt !== undefined ? rec.remindAt : old.remindAt || ''))
+      ? String(rec.remindAt !== undefined ? rec.remindAt : old.remindAt)
+      : '',
+    remindOn: Boolean(rec.remindOn !== undefined ? rec.remindOn : old.remindOn),
+    note: String(rec.note !== undefined ? rec.note : old.note || ''),
+    archived: Number(rec.archived !== undefined ? rec.archived : old.archived) || 0,
+    createdAt: Number(old.createdAt) || Number(rec.createdAt) || Date.now()
+  }
+  if (!row.name) return null
+  try {
+    if (id) {
+      await db.habits.put({ ...row, id })
+      return { ...row, id }
+    }
+    const newId = await db.habits.add(row)
+    return { ...row, id: newId }
+  } catch (err) {
+    console.warn('[habit] 习惯保存失败：', err && err.message)
+    return null
+  }
+}
+
+/** 删习惯连它的打卡记录一起删（不然日志里会留下找不到习惯的孤儿行） */
+export async function removeHabit(id) {
+  const hid = Number(id) || 0
+  if (!hid) return 0
+  try {
+    const n = await db.habitLogs.where('habitId').equals(hid).delete()
+    await db.habits.delete(hid)
+    return n
+  } catch (err) {
+    console.warn('[habit] 习惯删除失败：', err && err.message)
+    return 0
+  }
+}
+
+/** 打卡记录：可只取一段时间（date 是 'YYYY-MM-DD'，字符串比较就是按天比较） */
+export async function listHabitLogs({ from = '', to = '', habitId = 0 } = {}) {
+  try {
+    let rows
+    if (from || to) {
+      rows = await db.habitLogs.where('date').between(from || '0000-00-00', to || '9999-99-99', true, true).toArray()
+    } else {
+      rows = await db.habitLogs.toArray()
+    }
+    const hid = Number(habitId) || 0
+    return hid ? rows.filter((r) => Number(r.habitId) === hid) : rows
+  } catch (err) {
+    console.warn('[habit] 打卡记录读取失败：', err && err.message)
+    return []
+  }
+}
+
+/** 打卡 / 取消打卡（幂等：同一天同一习惯只可能有一行） */
+export async function setHabitLog(habitId, date, on, note = '') {
+  const hid = Number(habitId) || 0
+  const day = String(date || '').slice(0, 10)
+  if (!hid || !HABIT_DAY_RE.test(day)) return null
+  const key = `${hid}:${day}`
+  try {
+    if (!on) {
+      await db.habitLogs.delete(key)
+      return null
+    }
+    const old = (await db.habitLogs.get(key)) || {}
+    const row = { ...old, key, habitId: hid, date: day, at: Number(old.at) || Date.now(), note: String(note || old.note || '') }
+    await db.habitLogs.put(row)
+    return row
+  } catch (err) {
+    console.warn('[habit] 打卡写入失败：', err && err.message)
+    return null
+  }
+}
+
+/** 清空所有习惯与记录（习惯页自己的「清空」用，不动学习数据） */
+export async function clearHabits() {
+  try {
+    await db.habitLogs.clear()
+    await db.habits.clear()
+  } catch (err) {
+    console.warn('[habit] 习惯数据清空失败：', err && err.message)
   }
 }
 

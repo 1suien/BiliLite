@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import BiliImage from '../components/BiliImage.vue'
 import EmptyBlock from '../components/EmptyBlock.vue'
 import FocusPanel from '../components/FocusPanel.vue'
+import HabitHome from '../components/HabitHome.vue'
 import SessionHistory from '../components/SessionHistory.vue'
 import Icon from '../components/Icon.vue'
 import { useLearnStore } from '../stores/learn'
@@ -69,14 +70,16 @@ async function clearAll() {
 async function exportJson() {
   try {
     const { db } = await import('../db')
-    const [progress, dailyRows, notes, shelfRows, checkins, upTime, focusRows] = await Promise.all([
+    const [progress, dailyRows, notes, shelfRows, checkins, upTime, focusRows, habitRows, habitLogRows] = await Promise.all([
       db.progress.toArray(),
       db.daily.toArray(),
       db.notes.toArray(),
       db.shelf.toArray(),
       db.checkins.toArray(),
       db.upTime.toArray(),
-      db.focus.toArray()
+      db.focus.toArray(),
+      db.habits.toArray(),
+      db.habitLogs.toArray()
     ])
     const payload = {
       app: 'study-bili',
@@ -87,7 +90,9 @@ async function exportJson() {
       shelf: shelfRows,
       checkins,
       upTime,
-      focus: focusRows
+      focus: focusRows,
+      habits: habitRows,
+      habitLogs: habitLogRows
     }
     await navigator.clipboard.writeText(JSON.stringify(payload, null, 2))
     ui.ok('学习数据已复制到剪贴板')
@@ -125,6 +130,9 @@ onMounted(async () => {
         <div class="v">{{ s.value }}</div>
       </div>
     </div>
+
+    <!-- 习惯打卡：今天的习惯，点一下就能打卡（详情在侧栏「习惯」页） -->
+    <HabitHome />
 
     <!-- 专注（TickTick 风格：圆环 + 大号倒计时 + 任务绑定） -->
     <FocusPanel />
