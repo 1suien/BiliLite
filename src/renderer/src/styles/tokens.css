@@ -23,6 +23,9 @@ html[data-theme='dark'] {
   --brand: #4aa8ff;
   --brand-soft: rgba(74, 168, 255, 0.16);
   --brand-line: rgba(74, 168, 255, 0.38);
+  /* 品牌色实心底上该用什么颜色写字。深色主题的品牌色都是浅色系（#4aa8ff…），
+     配白字只有 2.1:1，得用近黑；浅色主题的品牌色是深色系，配白字。 */
+  --brand-fg: #06121f;
   --ring: rgba(74, 168, 255, 0.45);
   --link: #8ec7ff;
   --danger: #ff6b6b;
@@ -56,6 +59,7 @@ html[data-theme='light'] {
   --brand: #0f6fd1;
   --brand-soft: rgba(15, 111, 209, 0.1);
   --brand-line: rgba(15, 111, 209, 0.3);
+  --brand-fg: #ffffff;
   --ring: rgba(15, 111, 209, 0.38);
   --link: #1d6fd6;
   --danger: #d93a3a;

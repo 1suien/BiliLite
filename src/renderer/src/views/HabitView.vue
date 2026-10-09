@@ -169,8 +169,9 @@ onBeforeUnmount(() => {
   <div class="habit-page">
     <div class="page-head">
       <h1>习惯打卡</h1>
-      <div class="row" style="gap: 8px">
-        <span class="muted hb-today">今天 {{ habits.todayDone }}/{{ habits.activeHabits.length }}</span>
+      <span class="muted hb-today">今天 {{ habits.todayDone }}/{{ habits.activeHabits.length }}</span>
+      <div class="grow" />
+      <div class="row" style="gap: 8px; flex: none">
         <button class="btn sm" title="清空所有习惯与记录" @click="habits.clearAll()">
           <Icon name="trash" :size="14" /> 清空
         </button>
@@ -378,6 +379,7 @@ onBeforeUnmount(() => {
   padding: 4px 8px 0;
 }
 .hb-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -389,9 +391,20 @@ onBeforeUnmount(() => {
 .hb-row:hover {
   background: var(--card-hover);
 }
+/* 当前选中的习惯：品牌淡底 + 左侧色条，和侧栏「当前页」、收藏夹选中用同一套语言 */
 .hb-row.on {
-  background: var(--soft);
-  border-color: var(--line-strong);
+  background: var(--brand-soft);
+  border-color: transparent;
+}
+.hb-row.on::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--brand);
 }
 .hb-row.off .hb-name {
   color: var(--t3);

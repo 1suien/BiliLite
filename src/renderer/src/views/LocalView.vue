@@ -315,8 +315,8 @@ onMounted(() => {
           <button class="btn sm" :disabled="row.missing" @click="play(row)">
             <Icon name="play" :size="13" /> {{ row.pos > 3 ? '继续播放' : '播放' }}
           </button>
-          <button class="btn sm ghost" title="在资源管理器里定位" @click="reveal(row)"><Icon name="external" :size="13" /></button>
-          <button class="btn sm ghost" title="从列表移除（不删文件）" @click="del(row)"><Icon name="trash" :size="13" /></button>
+          <button class="btn sm ghost" title="在资源管理器里定位" aria-label="在资源管理器里定位" @click="reveal(row)"><Icon name="external" :size="13" /></button>
+          <button class="btn sm ghost" title="从列表移除（不删文件）" aria-label="从列表移除" @click="del(row)"><Icon name="trash" :size="13" /></button>
         </div>
       </div>
     </div>
@@ -326,6 +326,14 @@ onMounted(() => {
 <style scoped>
 .lrow {
   align-items: center;
+  padding: 10px 8px;
+}
+/* 一长串视频之间给条细线，扫读时不会串行 */
+.lrow + .lrow {
+  border-top: 1px solid var(--line);
+}
+.lrow:hover {
+  background: var(--soft);
 }
 .lrow.miss .thumb {
   opacity: 0.45;
@@ -337,7 +345,10 @@ onMounted(() => {
   height: 74px;
   border-radius: 8px;
   overflow: hidden;
-  background: var(--bg-soft, #eceff3);
+  /* 原来写的是 var(--bg-soft, #eceff3) —— 这个变量全项目根本不存在，
+     于是深色主题下缩略图的占位底色一直是浅灰 #eceff3。 */
+  background: var(--soft);
+  border: 1px solid var(--line);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -363,12 +374,12 @@ onMounted(() => {
   background: rgba(0, 0, 0, 0.62);
 }
 .lrow .info .t {
-  font-size: 13.5px;
+  font-size: 14px;
 }
 .lrow .info .d {
   font-size: 12px;
   color: var(--t3);
-  margin-top: 3px;
+  margin-top: 4px;
 }
 .clamp-1 {
   overflow: hidden;
@@ -379,12 +390,14 @@ onMounted(() => {
   height: 4px;
   border-radius: 999px;
   background: var(--line-strong);
-  margin-top: 7px;
+  margin-top: 8px;
+  /* 不封顶的话进度条会一路拉到右侧按钮边上，看着像一条分隔线而不是进度 */
+  max-width: 360px;
   overflow: hidden;
 }
 .pbar i {
   display: block;
   height: 100%;
-  background: var(--accent);
+  background: var(--brand);
 }
 </style>

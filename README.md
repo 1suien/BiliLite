@@ -678,6 +678,42 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 > `.main` 跟着变成内容高度（实测 2354px / 窗口 717px），再被 `body{overflow:hidden}` 裁掉 —— 表现就是
 > 「页面下拉不动、右侧没有滚动条」。现在行高锁死为容器高度，`.scroll` 内部滚动正常。
 
+> 全站 UI 优化（2026-10-09，`Icon.vue` + `base.css` + 9 个 view/组件）：
+> 上一轮只打磨了播放页，这一轮把首页 / 搜索 / UP 管理 / 收藏 / 学习 / 习惯 / 本地 / 设置与应用外壳一起过了一遍。
+> 最大的一个问题不在配色而在**布局**：`components/Icon.vue` 的 `.icon` 是 `display: block`，
+> 而 `base.css` 的 `.btn` **没有写 display**（Chrome 下 `<button>` 计算成 `block`），于是**每一个「图标 + 文字」的按钮
+> 都被折成两行**，高度从 ~28px 涨到 43px —— 顶栏「剧场模式」、搜索页「搜索」、习惯页「新建习惯」、本地页「继续播放」、
+> 播放页四个操作按钮、侧栏「扫码登录」全都中招，整站看着又胖又散。修法是把 `.icon` 改成
+> `display: inline-block; vertical-align: -0.145em`（在 flex/grid 容器里会被 blockify，等价于原行为），
+> 同时把 `.btn` 明确写成 `inline-flex + align-items:center + gap:6px`，纵向内边距对齐 `.input` 的 8px。
+> 顺带定了一套信号色规则：`--accent`（深色白 / 浅色近黑）只表示「主要操作、开关选中」，
+> `--brand`（深色 `#4aa8ff` / 浅色 `#0f6fd1`）统一表示「定位与进度」—— 侧栏当前页、分P 选中、进度条、页码、
+> tab 下划线、焦点环、统计卡图标。品牌色上要写字的场合（`.pager button.on`、`.chip.cur`）新增 `--brand-fg`
+> （深色 `#06121f` / 浅色 `#fff`，按 0.45 亮度阈值算），避免浅色主题下在 `#0f6fd1` 上写白字只有 2.1:1 对比度。
+> 其余按页记：**设置**页的 `.field` 从 flex 改成两列网格（132px + 1fr）—— 原来 `<p class="hint">` 会被当成
+> flex 的**第三列**跑到行尾，现在 `grid-column: 2` 落到控件下方；网格子项默认双向拉伸，所以又补了
+> `.field > .btn, .field > .chip, .field > input[type='range'] { justify-self: start }`，否则「已开启」胶囊
+> 会被抻满整列（这条正是在复验截图里发现、当场修掉的）。**强调色输入框**原来显示的是预设键名 `mono`，
+> 现在按主题解出真实 hex、只收 `#rrggbb`；色板按钮 26→30px、选中态改成品牌环 + 对钩（原来的
+> `box-shadow: 0 0 0 3px var(--soft-hover)` 在深色面板上根本看不见）；「关于」里写死的 `BiliLite v0.1.0`
+> 改成走 `app:ping` 拿真实版本（当前 0.2.9）；滑杆补了 `input[type='range'] { accent-color: var(--brand) }`
+> （之前是 Chrome 默认蓝，和主题完全不搭）。**本地**页缩略图的占位底色写的是 `var(--bg-soft, #eceff3)`，
+> 而这个变量**全项目不存在**，深色主题下一直用着浅灰 —— 改成 `var(--soft)`；进度条由纯白 `--accent` 改
+> `--brand` 并封顶 360px（不封顶会拉成一条贯穿整行的分隔线），行与行之间补分隔线。**收藏**页文件夹选中态
+> 原来是 `--accent` 边框 + `--soft` 背景（深色下几乎看不出选的是哪个），改成品牌淡底 + 3px 左色条，
+> 跟侧栏导航一致；`.icon-btn` 22→26px；「新建文件夹」的裸 `+` 按钮改成和输入框等高的图标按钮。
+> **习惯**页把「清空 / 新建习惯」从标题右边挪到页头右侧（原来折行把页头撑高、和 h1 错位），选中行加品牌淡底
+> + 左色条；打卡圆点的绿色**有意保留**（「完成」是语义色，不该跟着品牌色走）。**学习**页 7 张统计卡原来是
+> 「6 + 1」孤行（`minmax(148px)` 在 1031px 内容区只放得下 6 列），改成 `minmax(132px)` 正好排满一行。
+> **首页**「继续学习」卡片第三行一直是空的（学习记录里没有 `reason`，卡片底部留一大块白），
+> 现在用 `已看 N%` 补上；`VideoCard` 里那个无条件的前导 `·` 也改成只在有 UP 名时才渲染。
+>
+> 验证：`pnpm run build` 通过；CDP 逐页截图，深色 11 页 + 浅色 11 页 + 「添加 UP」弹窗，逐张目视确认。
+> 顺带踩到一个截图坑：`Page.captureScreenshot` 报 `-32000 Unable to capture screenshot` 然后挂死，
+> 根因是 **Electron 窗口被最小化了**（`IsWindowVisible=true` 但 `IsIconic=true`，`GetWindowRect` 返回
+> `-16000,-16000`），`ShowWindow(hwnd, 9)` + `SetForegroundWindow` 之后立刻恢复；巡览脚本也补了
+> CDP 请求超时 + 截图三次重试，超时只跳过该页，不再让整轮挂在某一张图上。
+
 ## 功能与数据
 
 - **登录**：B 站二维码扫码（`qrcode` 渲染），凭证经 Electron `safeStorage`（DPAPI）加密后存于 `userData/study-bili.json`。

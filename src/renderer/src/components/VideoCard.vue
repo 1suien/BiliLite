@@ -58,7 +58,9 @@ function openUp(e) {
       <div class="title clamp-2">{{ item.title }}</div>
       <div class="sub">
         <span v-if="showUp && item.upName" class="up" @click="openUp">{{ item.upName }}</span>
-        <span v-if="item.reason" class="muted clamp-1">· {{ item.reason }}</span>
+        <span v-if="item.reason" class="muted clamp-1">
+          <template v-if="showUp && item.upName">· </template>{{ item.reason }}
+        </span>
         <span v-else-if="item.play != null" class="muted">{{ fmtCount(item.play) }} 播放</span>
       </div>
     </div>

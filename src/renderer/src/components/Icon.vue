@@ -87,6 +87,10 @@ const ICONS = {
 <style scoped>
 .icon {
   flex: none;
-  display: block;
+  /* 不能是 display:block：图标后面经常直接跟一段文字（「⤓ 导入关注」「▶ 播放」…），
+     块级 svg 会把文字挤到下一行，按钮就变成「图标一行、文字一行」的两行高块。
+     inline-block + 负的 vertical-align 让它在纯文本流里也能跟字面基线对齐。 */
+  display: inline-block;
+  vertical-align: -0.145em;
 }
 </style>

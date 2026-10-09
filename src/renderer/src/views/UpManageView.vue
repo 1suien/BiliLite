@@ -377,14 +377,20 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 9px;
+  padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   cursor: pointer;
+  transition: border-color 0.13s, background 0.13s;
 }
+.cand:hover {
+  background: var(--card-hover);
+}
+/* 选中候选用品牌色描边 + 淡底 —— 跟侧栏/收藏夹的「当前项」保持一致，
+   原来只有一层 border 变白的弱提示。 */
 .cand.on {
-  border-color: var(--accent);
-  background: var(--soft);
+  border-color: var(--brand-line);
+  background: var(--brand-soft);
 }
 .glist {
   display: flex;

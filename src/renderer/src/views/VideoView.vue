@@ -1229,7 +1229,7 @@ onBeforeUnmount(() => {
             v-for="q in qualities"
             :key="q"
             class="chip"
-            :class="{ cur: q === curQuality, lock: isLocked(q) }"
+            :class="{ on: q === curQuality, cur: q === curQuality, lock: isLocked(q) }"
             :title="isLocked(q) ? '未登录时选不了这一档，点「扫码登录」解锁' : qnLabel(q)"
             @click="selectQuality(q)"
           >

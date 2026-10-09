@@ -117,7 +117,9 @@ onMounted(async () => {
         <div class="fd-head">文件夹</div>
         <div class="row">
           <input v-model="newFolder" class="input" placeholder="新建文件夹" @keyup.enter="createFolder" />
-          <button class="btn sm" title="新建文件夹" @click="createFolder"><Icon name="plus" :size="14" /></button>
+          <button class="btn fav-add" title="新建文件夹" aria-label="新建文件夹" @click="createFolder">
+            <Icon name="plus" :size="15" />
+          </button>
         </div>
         <div
           v-for="f in collect.folderList"
@@ -241,34 +243,56 @@ onMounted(async () => {
 .fd-head {
   font-size: 12.5px;
   color: var(--t3);
+  padding: 0 2px 2px;
 }
 .fold {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
+  padding: 9px 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 13px;
-  transition: border-color 0.13s, background 0.13s;
+  transition: border-color 0.13s, background 0.13s, color 0.13s;
 }
 .fold:hover {
   background: var(--card-hover);
 }
+/* 选中的文件夹：品牌底色 + 左侧色条 + 图标染色 —— 跟侧栏「当前页」用同一套语言。
+   原来只有 border-color: var(--accent)（纯白）+ 一层更亮的深灰，白底/深底都看不出来。 */
 .fold.on {
-  border-color: var(--accent);
-  background: var(--soft);
+  border-color: transparent;
+  background: var(--brand-soft);
+  color: var(--t1);
+  font-weight: 600;
+}
+.fold.on::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--brand);
+}
+.fold.on .icon {
+  color: var(--brand);
 }
 .fold .n {
   font-size: 11.5px;
   color: var(--t3);
 }
+.fold.on .n {
+  color: var(--brand);
+}
 .icon-btn {
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -278,6 +302,11 @@ onMounted(async () => {
 .icon-btn:hover {
   background: var(--soft-hover);
   color: var(--danger);
+}
+/* 「+」按钮和左边的输入框等高：用 .btn 的默认纵向内边距（8px），别用 .btn.sm 的 4px */
+.fav-add {
+  flex: none;
+  padding: 8px 11px;
 }
 .vcard {
   position: relative;

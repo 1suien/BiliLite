@@ -146,10 +146,17 @@ textarea {
   border-radius: 0 3px 3px 0;
   background: var(--brand);
 }
+/* 当前页的图标也染成品牌色：光靠一层淡底纹还是不够「一眼看到我在哪」 */
+.nav-item.router-link-active .icon {
+  color: var(--brand);
+}
 .nav-item .badge {
   margin-left: auto;
   font-size: 12px;
   color: var(--t3);
+}
+.nav-item.router-link-active .badge {
+  color: var(--brand);
 }
 
 /* 侧栏拖拽换序（App.vue）：被拖起来的那项变淡，落点位置给一条高亮，避免「拖了半天不知道会插到哪」 */
@@ -239,9 +246,12 @@ textarea {
 
 .page-head {
   display: flex;
-  align-items: flex-end;
-  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   margin-bottom: 16px;
+  /* 标题栏跟顶栏底边拉开一点，页头不会显得贴在天花板上 */
+  min-height: 34px;
 }
 .page-head h1 {
   font-size: 19px;
@@ -275,20 +285,37 @@ textarea {
 .input::placeholder {
   color: var(--t3);
 }
+/* 滑杆：不写 accent-color 的话 Chrome 会用自带的系统蓝，跟主题里的信号色完全不是一回事 */
+input[type='range'] {
+  accent-color: var(--brand);
+  cursor: pointer;
+}
 
+/* 按钮一律是 flex 容器：图标（<svg>）和文字要待在同一行里垂直居中。
+   如果这里不写 display，<button> 在 Chrome 下是块级，svg 又是块级元素，
+   「图标 + 文字」就会被折成两行 —— 全站 40 多个按钮会集体变高一倍。 */
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   background: var(--soft);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  padding: 7px 13px;
+  /* 纵向 8px 与 .input 一致，两者并排时高度才对得上 */
+  padding: 8px 14px;
   cursor: pointer;
   color: var(--t1);
   white-space: nowrap;
-  transition: background 0.13s, border-color 0.13s, opacity 0.13s;
+  transition: background 0.13s, border-color 0.13s, opacity 0.13s, transform 0.08s;
 }
 .btn:hover:not(:disabled) {
   background: var(--soft-hover);
   border-color: var(--line-strong);
+}
+/* 按下时轻微下沉一点点，点击才有「按到了」的手感 */
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
 }
 .btn:disabled {
   opacity: 0.45;
@@ -307,7 +334,7 @@ textarea {
   background: transparent;
 }
 .btn.sm {
-  padding: 4px 9px;
+  padding: 4px 10px;
   font-size: 12px;
   min-height: var(--tap);
 }
@@ -328,7 +355,7 @@ textarea {
   font-size: 12px;
   cursor: pointer;
   user-select: none;
-  min-height: 26px;
+  min-height: 28px;
 }
 .chip.on {
   background: var(--accent);
@@ -359,11 +386,8 @@ textarea {
 .chip.cur {
   background: var(--brand);
   border-color: var(--brand);
-  color: #ffffff;
+  color: var(--brand-fg);
   font-weight: 600;
-}
-html[data-theme='dark'] .chip.cur {
-  color: #06121f;
 }
 /* 选了也不会生效的档位（例如未登录时的 1080P） */
 .chip.lock {
@@ -414,10 +438,14 @@ html[data-theme='dark'] .chip.cur {
   padding: 16px;
 }
 
+/* 设置页那种「标签 — 控件 — 说明」的行：用两列网格。
+   原来用 flex，说明文字会被当成第三列挤到整行的最右边（离它描述的控件很远）；
+   网格里把 .hint 显式钉在第二列，它才会老老实实待在控件下面。 */
 .field {
-  display: flex;
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
+  gap: 6px 12px;
   padding: 12px 0;
   border-bottom: 1px solid var(--line);
 }
@@ -429,6 +457,13 @@ html[data-theme='dark'] .chip.cur {
   flex: none;
   color: var(--t2);
 }
+/* 网格子项默认横竖都拉伸：裸放在 .field 里的按钮 / 胶囊 / 滑杆会被抻满整列。
+   这几个可点控件保持自身宽度、靠左站。 */
+.field > .btn,
+.field > .chip,
+.field > input[type='range'] {
+  justify-self: start;
+}
 .field .ctrl {
   flex: 1;
   min-width: 0;
@@ -437,6 +472,12 @@ html[data-theme='dark'] .chip.cur {
   color: var(--t3);
   font-size: 12px;
   margin-top: 4px;
+}
+/* 说明文字如果是 .field 的直接子元素：占满第二列（也就是自动换到下一行），
+   并且和上面的控件左对齐 —— 靠网格自动放置它只会掉进第一列、贴着标签。 */
+.field > .hint {
+  grid-column: 2;
+  margin-top: 0;
 }
 
 .muted {
@@ -555,7 +596,7 @@ html[data-theme='dark'] .chip.cur {
 .vcard .thumb .watch i {
   display: block;
   height: 100%;
-  background: var(--accent);
+  background: var(--brand);
 }
 .vcard .meta {
   padding: 9px 10px 11px;
@@ -691,9 +732,9 @@ html[data-theme='dark'] .chip.cur {
   color: var(--t2);
 }
 .pager button.on {
-  background: var(--accent);
-  color: var(--accent-fg);
-  border-color: var(--accent);
+  background: var(--brand);
+  color: var(--brand-fg);
+  border-color: var(--brand);
   font-weight: 600;
 }
 .pager button:disabled {
@@ -718,6 +759,9 @@ html[data-theme='dark'] .chip.cur {
   box-shadow: var(--shadow);
   width: 380px;
   max-width: calc(100vw - 40px);
+  /* 窗口矮的时候（例如笔记本 1366×768）弹层不能顶出屏幕：内部滚动 */
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
   padding: 22px;
   display: flex;
   flex-direction: column;
@@ -1130,13 +1174,15 @@ html[data-theme='light'] .player-stage .progress .track i {
 }
 .tab.on {
   color: var(--t1);
-  border-bottom-color: var(--accent);
+  border-bottom-color: var(--brand);
   font-weight: 600;
 }
 
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  /* 148px 时 1031px 的内容区只放得下 6 列，7 张统计卡就会「6 + 1」，
+     第二行孤零零一张很难看；132px 正好排满 7 列。 */
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
   gap: 12px;
 }
 .stat {
@@ -1148,6 +1194,10 @@ html[data-theme='light'] .player-stage .progress .track i {
 .stat .k {
   font-size: 11.5px;
   color: var(--t3);
+}
+/* 卡片左上角的小图标染品牌色，一屏 7 张统计卡才有节奏感而不是一坨灰字 */
+.stat .k .icon {
+  color: var(--brand);
 }
 .stat .v {
   font-size: 21px;

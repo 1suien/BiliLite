@@ -14,6 +14,7 @@ const auth = useAuthStore()
 const learn = useLearnStore()
 
 const busy = ref(false)
+const version = ref('')
 
 const ACCENTS = Object.keys(ACCENT_PRESETS).map((k) => ({ key: k, ...ACCENT_PRESETS[k] }))
 
@@ -23,6 +24,36 @@ const qualityOptions = computed(() =>
 
 function swatchColor(a) {
   return settings.settings.theme === 'light' ? a.light : a.dark
+}
+
+/** 色板圆点里那个对钩用什么颜色：跟色块本身的明暗反着来 */
+function swatchInk(a) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(swatchColor(a))
+  if (!m) return '#ffffff'
+  const n = parseInt(m[1], 16)
+  const lum = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255
+  return lum > 0.6 ? '#0a0a0b' : '#ffffff'
+}
+
+/** 当前强调色真正生效的色值。选了预设就换算成 hex ——
+    输入框里显示 "mono" 这种内部键名，用户根本不知道自己选的是什么颜色。 */
+const accentHex = computed(() => {
+  const a = String(settings.settings.accent || 'mono')
+  if (/^#[0-9a-f]{6}$/i.test(a)) return a.toLowerCase()
+  const p = ACCENT_PRESETS[a] || ACCENT_PRESETS.mono
+  return settings.settings.theme === 'light' ? p.light : p.dark
+})
+const accentIsCustom = computed(() => /^#[0-9a-f]{6}$/i.test(String(settings.settings.accent || '')))
+
+/** 手填色值：只收 6 位 hex，填错了退回当前值并提示，不要静默写进去一个坏值 */
+function applyAccentHex(e) {
+  const v = String(e.target.value || '').trim()
+  if (!/^#[0-9a-f]{6}$/i.test(v)) {
+    e.target.value = accentHex.value
+    ui.err('请填 6 位十六进制色值，例如 #7fd68a')
+    return
+  }
+  settings.patch({ accent: v.toLowerCase() })
 }
 
 function setTheme(t) {
@@ -107,6 +138,13 @@ function resetAll() {
 onMounted(() => {
   settings.init()
   learn.init().catch(() => {})
+  // 「关于」里的版本号从主进程取，别再手写死（之前写死成 0.1.0，实际早就 0.2.x 了）
+  api
+    .ping()
+    .then((p) => {
+      if (p && p.version) version.value = String(p.version)
+    })
+    .catch(() => {})
 })
 </script>
 
@@ -124,10 +162,10 @@ onMounted(() => {
         <label>主题</label>
         <div class="row" style="gap: 8px">
           <button class="chip" :class="{ on: settings.settings.theme === 'dark' }" @click="setTheme('dark')">
-            <Icon name="monitor" :size="13" /> 深色
+            <Icon name="moon" :size="13" /> 深色
           </button>
           <button class="chip" :class="{ on: settings.settings.theme === 'light' }" @click="setTheme('light')">
-            <Icon name="zap" :size="13" /> 浅色
+            <Icon name="sun" :size="13" /> 浅色
           </button>
         </div>
       </div>
@@ -139,18 +177,24 @@ onMounted(() => {
             :key="a.key"
             class="swatch"
             :class="{ on: settings.settings.accent === a.key }"
-            :style="{ background: swatchColor(a) }"
-            :title="a.label"
+            :style="{ background: swatchColor(a), color: swatchInk(a) }"
+            :title="a.label + ' · ' + swatchColor(a)"
+            :aria-label="a.label"
             @click="settings.patch({ accent: a.key })"
-          />
+          >
+            <Icon v-if="settings.settings.accent === a.key" name="check" :size="15" />
+          </button>
           <input
-            class="input mono"
-            style="width: 120px"
-            :value="settings.settings.accent"
-            @change="settings.patch({ accent: $event.target.value.trim() })"
+            class="input mono accent-hex"
+            :class="{ custom: accentIsCustom }"
+            :value="accentHex"
+            :title="accentIsCustom ? '自定义色值' : '当前预设：' + settings.settings.accent"
+            placeholder="#rrggbb"
+            aria-label="自定义强调色"
+            @change="applyAccentHex"
           />
         </div>
-        <p class="hint">可以点色板，也可以直接填 6 位十六进制色值（如 #7fd68a）。</p>
+        <p class="hint">点色板换预设；也可以直接填 6 位十六进制色值（如 #7fd68a）改成自定义色。</p>
       </div>
     </section>
 
@@ -256,8 +300,12 @@ onMounted(() => {
     <!-- 关于 -->
     <section class="panel">
       <h2 class="sec">关于</h2>
+      <p class="about-line">
+        <b>BiliLite</b>
+        <span class="ver mono">v{{ version || '—' }}</span>
+        <span class="muted">· Electron + Vue 3 · 本地优先</span>
+      </p>
       <p class="hint" style="line-height: 1.8">
-        BiliLite v0.1.0 · Electron + Vue 3 · 本地优先。<br />
         界面与交互参考开源项目
         <a href="#" @click.prevent="api.sys.openExternal('https://github.com/ywmoyue/biliuwp-lite').catch(() => {})">biliuwp-lite / BiliLite</a>
         的「学习专注」思路重新实现。<br />
@@ -269,24 +317,61 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* 小节标题左边加一条品牌色小竖条：四个 section 一眼能扫出来，也和侧栏当前页的色条呼应 */
 .sec {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 13px;
   letter-spacing: 0.04em;
-  text-transform: uppercase;
   color: var(--t2);
   margin-bottom: 14px;
 }
+.sec::before {
+  content: '';
+  width: 3px;
+  height: 13px;
+  border-radius: 2px;
+  background: var(--brand);
+}
 .swatch {
-  width: 26px;
-  height: 26px;
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   border: 2px solid var(--line-strong);
   cursor: pointer;
   padding: 0;
+  transition: transform 0.1s, box-shadow 0.13s, border-color 0.13s;
 }
+.swatch:hover {
+  transform: scale(1.06);
+}
+/* 选中态：先一圈卡片底色当「缝」、再一圈品牌色。
+   原来只有一层 --soft-hover（#232429）打在深色面板上几乎看不见。 */
 .swatch.on {
-  box-shadow: 0 0 0 3px var(--soft-hover);
-  border-color: var(--t1);
+  border-color: transparent;
+  box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--brand);
+}
+.accent-hex {
+  width: 118px;
+  font-size: 12px;
+}
+.accent-hex.custom {
+  border-color: var(--brand-line);
+  color: var(--brand);
+}
+.about-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+.about-line .ver {
+  font-size: 12px;
+  color: var(--t3);
 }
 .hint {
   font-size: 12px;

@@ -37,6 +37,23 @@ function readableFg(hex) {
   return lum > 0.6 ? '#0a0a0b' : '#ffffff'
 }
 
+/**
+ * 品牌色实心底（选中态胶囊、当前页码）上该用什么颜色的字。
+ * 阈值比 readableFg 低：品牌色是一块「实心填充」，字要比按钮上的强调色更耐受一点；
+ * 0.45 这档刚好让深色主题的 #4aa8ff 落到近黑字（白字只有 2.1:1）、
+ * 浅色主题的 #0f6fd1 落到白字。
+ */
+function brandFg(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim())
+  if (!m) return '#06121f'
+  const n = parseInt(m[1], 16)
+  const r = (n >> 16) & 255
+  const g = (n >> 8) & 255
+  const b = n & 255
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+  return lum > 0.45 ? '#06121f' : '#ffffff'
+}
+
 /** #rrggbb → rgba(r, g, b, a)：给 --brand 派生浅底 / 描边 / 焦点环 */
 function hexToRgba(hex, alpha) {
   const m = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim())
@@ -98,6 +115,7 @@ export const useSettingsStore = defineStore('settings', {
       style.setProperty('--brand', brand)
       style.setProperty('--brand-soft', hexToRgba(brand, theme === 'light' ? 0.1 : 0.16))
       style.setProperty('--brand-line', hexToRgba(brand, theme === 'light' ? 0.3 : 0.38))
+      style.setProperty('--brand-fg', brandFg(brand))
       style.setProperty('--ring', hexToRgba(brand, theme === 'light' ? 0.38 : 0.45))
     },
     async init() {

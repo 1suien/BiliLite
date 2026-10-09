@@ -26,10 +26,16 @@ const continueList = computed(() =>
   learn.listByVideo
     .filter((r) => r.seconds > 5 && !r.completed)
     .slice(0, 6)
-    .map((r) => ({
-      ...r,
-      progress: r.duration ? Math.min(1, r.seconds / r.duration) : 0
-    }))
+    .map((r) => {
+      const progress = r.duration ? Math.min(1, r.seconds / r.duration) : 0
+      return {
+        ...r,
+        progress,
+        // 卡片第三行：没有 UP 名的时候用「已看 N%」补上，
+        // 否则这一行是空的、卡片底部会留一大块白。
+        reason: r.reason || `已看 ${Math.round(progress * 100)}%`
+      }
+    })
 )
 
 /** UP 投稿去重：多个 UP 转载同一稿件时首页只出现一张卡 */
