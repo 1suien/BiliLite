@@ -1,6 +1,6 @@
 {
   "name": "bililite",
-  "version": "0.2.9",
+  "version": "0.3.0",
   "description": "学习专注型 B 站桌面客户端（Windows / Electron，仅个人学习用途）",
   "main": "./out/main/index.js",
   "author": "zyx9083",

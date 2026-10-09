@@ -714,6 +714,20 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 > `-16000,-16000`），`ShowWindow(hwnd, 9)` + `SetForegroundWindow` 之后立刻恢复；巡览脚本也补了
 > CDP 请求超时 + 截图三次重试，超时只跳过该页，不再让整轮挂在某一张图上。
 
+> v0.3.0 发版（2026-10-09）：版本号 `0.2.9 → 0.3.0`，把上面这一轮全站 UI 优化正式发成 Release。
+> 打包命令是 `electron-vite build` + `electron-builder --win nsis zip`，**输出目录必须在工作区外**
+> （`--config.directories.output=C:\Users\zouyx\bl-out`，否则 NSIS 报 `Error writing temporary file` 退出 2），
+> 产物 `BiliLite Setup 0.3.0.exe`（85,040,177 B）与 `BiliLite-0.3.0-win.zip`（116,341,277 B）。
+> `.npmrc` 里配了 npmmirror 的 `electron_builder_binaries_mirror`，NSIS / winCodeSign 工具链走镜像下载。
+> 注意 `electron-builder` 的依赖都装在 **`node_modules/.pnpm/`** 下（`app-builder-lib`、`app-builder-bin`、
+> `@electron/asar`、`7zip-bin`、`dmg-builder` 都在），别因为 `node_modules\<包名>` 顶层没有软链就以为没装、
+> 转头去手写 asar 打包脚本。
+>
+> 验证：`C:\Users\zouyx\bl-out\win-unpacked\BiliLite.exe` 跑端到端冒烟 **93/93 全过**（FAIL 0 / WARN 0）。
+> 另外记一条事实以免以后再被绕进去：**应用根本没有接 `electron-updater`**（`src/` 里搜不到 `autoUpdater` /
+> `checkForUpdates` / `quitAndInstall`，依赖里也没有 `electron-updater`），所以 `resources\app-update.yml`
+> 只是个没被读取的残留文件，Release 里有没有 `latest.yml` 都不影响运行，**不存在「自动更新会覆盖本地改动」这回事**。
+
 ## 功能与数据
 
 - **登录**：B 站二维码扫码（`qrcode` 渲染），凭证经 Electron `safeStorage`（DPAPI）加密后存于 `userData/study-bili.json`。
