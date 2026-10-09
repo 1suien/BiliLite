@@ -18,6 +18,12 @@ html[data-theme='dark'] {
 
   --accent: #ffffff;
   --accent-fg: #0a0a0b;
+  /* 品牌色：只用于「当前位置 / 进度 / 焦点」这一类功能信号，不参与大面积装饰。
+     静态值只是兜底，实际由 settings store 的 applyTheme() 跟着强调色预设写成行内变量。 */
+  --brand: #4aa8ff;
+  --brand-soft: rgba(74, 168, 255, 0.16);
+  --brand-line: rgba(74, 168, 255, 0.38);
+  --ring: rgba(74, 168, 255, 0.45);
   --link: #8ec7ff;
   --danger: #ff6b6b;
   --ok: #56d364;
@@ -42,10 +48,15 @@ html[data-theme='light'] {
 
   --t1: #17171a;
   --t2: #5f5f68;
-  --t3: #8b8b95;
+  /* 原来是 #8b8b95，白底上只有 2.9:1，正文小字读不清；#6b6b75 是 5.3:1 */
+  --t3: #6b6b75;
 
   --accent: #17171a;
   --accent-fg: #ffffff;
+  --brand: #0f6fd1;
+  --brand-soft: rgba(15, 111, 209, 0.1);
+  --brand-line: rgba(15, 111, 209, 0.3);
+  --ring: rgba(15, 111, 209, 0.38);
   --link: #1d6fd6;
   --danger: #d93a3a;
   --ok: #1a9d43;
@@ -64,6 +75,8 @@ html[data-theme='light'] {
   --radius-lg: 14px;
   --side-w: 196px;
   --top-h: 56px;
+  /* 触控/鼠标都舒服的最小点击高度 */
+  --tap: 28px;
   --font: 'Microsoft YaHei UI', 'PingFang SC', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', sans-serif;
   --mono: 'Cascadia Mono', Consolas, 'Courier New', monospace;
 }

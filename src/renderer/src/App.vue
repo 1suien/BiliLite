@@ -28,12 +28,18 @@ const ui = useUiStore()
 const keyword = ref('')
 const searchEl = ref(null)
 const scrollEl = ref(null)
+/** 剧场模式：收起侧栏与顶栏，把播放器放到最大（快捷键 F 切换、Esc 退出） */
+const theater = ref(false)
+function toggleTheater() {
+  theater.value = !theater.value
+}
 
 // 切换页面（路由变了）时回到顶部：否则从拉到一半的列表点进视频页，
 // 播放器会被顶到屏幕外，看起来像「没有播放器」。
 watch(
   () => route.fullPath,
   () => {
+    theater.value = false
     const el = scrollEl.value || document.querySelector('.scroll')
     if (!el) return
     // .scroll 是 scroll-behavior:smooth，这里要「立刻」跳，不能带动画
@@ -147,16 +153,27 @@ onMounted(async () => {
     console.warn('[habit] 习惯数据初始化失败：', err && err.message)
   }
   window.addEventListener('keydown', (e) => {
-    if (e.key === '/' && !/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName)) {
+    const el = document.activeElement
+    const typing = !!el && (/^(INPUT|TEXTAREA)$/.test(el.tagName) || el.isContentEditable)
+    if (e.key === '/' && !typing) {
       e.preventDefault()
       searchEl.value && searchEl.value.focus()
+      return
+    }
+    // 输入框里打字时不要抢快捷键
+    if (typing || e.ctrlKey || e.metaKey || e.altKey) return
+    if (e.key === 'f' || e.key === 'F') {
+      e.preventDefault()
+      toggleTheater()
+    } else if (e.key === 'Escape' && theater.value) {
+      theater.value = false
     }
   })
 })
 </script>
 
 <template>
-  <div class="app">
+  <div class="app" :class="{ theater }">
     <aside class="side">
       <div class="brand">
         <div class="brand-mark">学</div>
@@ -231,6 +248,14 @@ onMounted(async () => {
         <span class="chip plain" title="今天累计学习时长">
           <Icon name="clock" :size="13" /> 今日 {{ todayText }}h
         </span>
+        <button
+          class="btn ghost sm"
+          :class="{ on: theater }"
+          title="剧场模式：收起侧栏与顶栏，专注看这一段（快捷键 F，Esc 退出）"
+          @click="toggleTheater"
+        >
+          <Icon name="monitor" :size="14" /> 剧场模式 <span class="kbd">F</span>
+        </button>
         <button class="btn ghost sm" title="返回" @click="router.back()"><Icon name="left" :size="15" /></button>
       </header>
 
@@ -240,6 +265,16 @@ onMounted(async () => {
         </RouterView>
       </div>
     </main>
+
+    <!-- 剧场模式把顶栏藏起来了，得留一个能点回来的出口 -->
+    <button
+      v-if="theater"
+      class="btn sm theater-exit"
+      title="退出剧场模式（Esc）"
+      @click="toggleTheater"
+    >
+      <Icon name="monitor" :size="14" /> 退出剧场 <span class="kbd">Esc</span>
+    </button>
 
     <PageFloat />
 

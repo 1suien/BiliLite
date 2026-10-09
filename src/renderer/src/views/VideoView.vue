@@ -108,6 +108,26 @@ const qualities = computed(() => {
   const list = data.acceptQuality && data.acceptQuality.length ? data.acceptQuality : [data.quality]
   return sortQuality(list)
 })
+/** 当前生效的画质：以播放器实播为准（服务端可能降级） */
+const curQuality = computed(() => actualQuality.value || quality.value)
+/**
+ * 未登录时 B 站只给到 480P：1080P 及以上（qn >= 80）点了也不会生效。
+ * 与其让用户点了没反应，不如把「为什么点不动」直接写在档位上。
+ */
+function isLocked(q) {
+  const cur = curQuality.value || 0
+  return !auth.loggedIn && q >= 80 && cur > 0 && cur <= 480
+}
+/** 错误卡文案：主文案说人话，原始报错降级成一行可读的排查信息 */
+const errSplit = computed(() => {
+  const raw = String(errorMsg.value || '').trim()
+  const m = /^([^：:]+)[：:]\s*([\s\S]*)$/.exec(raw)
+  const head = m ? m[1].trim() : raw
+  const tail = m ? m[2].trim() : ''
+  const streamy = /拉流失败|Failed to fetch|TypeError|NetworkError/i.test(raw)
+  if (streamy) return { human: '这条线路暂时拿不到数据', why: tail || raw }
+  return { human: head, why: '' }
+})
 const pct = computed(() => (duration.value ? Math.min(100, (currentTime.value / duration.value) * 100) : 0))
 const currentPageTitle = computed(() => {
   const p = pageList.value[pageIndex.value]
@@ -770,6 +790,11 @@ async function selectPage(idx) {
 }
 
 async function selectQuality(qn) {
+  if (isLocked(qn)) {
+    ui.toast('未登录时选不了这一档，扫码登录后可用')
+    ui.askLogin()
+    return
+  }
   if (qn === quality.value || !player) return
   const keep = videoEl.value.currentTime || 0
   quality.value = qn
@@ -1083,15 +1108,18 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div v-if="errorMsg" class="panel" style="margin-top: 12px; border-color: var(--danger)">
-        <div style="color: var(--danger)">{{ errorMsg }}</div>
-        <div class="row" style="margin-top: 8px">
-          <button class="btn sm" @click="startPlay">重新获取播放地址</button>
-          <button v-if="!auth.loggedIn" class="btn sm primary" @click="ui.loginOpen = true">扫码登录</button>
-          <button class="btn sm ghost" @click="openExternal">在浏览器打开</button>
+      <div v-if="errorMsg" class="panel err-card" style="margin-top: 12px">
+        <div class="err-head">
+          <b>{{ errSplit.human }}</b>
+          <span v-if="errSplit.why" class="err-why" :title="errorMsg">{{ errSplit.why }}</span>
         </div>
-        <div class="muted" style="font-size: 12px; margin-top: 8px">
-          付费/会员专享内容需要登录对应账号；未登录时只能观看 360P。
+        <div class="row" style="margin-top: 8px">
+          <button class="btn sm primary" @click="startPlay">重新获取播放地址</button>
+          <button class="btn sm ghost" @click="openExternal">在浏览器打开</button>
+          <button v-if="!auth.loggedIn" class="btn sm" @click="ui.loginOpen = true">扫码登录</button>
+        </div>
+        <div class="err-tip">
+          先点「重新获取播放地址」：多数情况重试一次就会换到可用线路。连续失败就用「在浏览器打开」确认视频本身能不能播。
         </div>
       </div>
 
@@ -1100,7 +1128,7 @@ onBeforeUnmount(() => {
           <h1 style="font-size: 17px; margin: 0 0 6px; line-height: 1.45">{{ info.title }}</h1>
           <div v-if="currentPageTitle" class="dim" style="font-size: 12.5px">正在播放：{{ currentPageTitle }}</div>
           <div class="row muted" style="flex-wrap: wrap; margin-top: 8px; font-size: 12.5px">
-            <span class="chip plain" style="cursor: pointer" @click="router.push({ name: 'up', params: { mid: String(info.upMid) } })">
+            <span class="chip link" @click="router.push({ name: 'up', params: { mid: String(info.upMid) } })">
               <Icon name="user" :size="13" /> {{ info.upName }}
             </span>
             <span class="chip plain">{{ fmtCount(info.play) }} 播放</span>
@@ -1138,17 +1166,12 @@ onBeforeUnmount(() => {
 
       <div class="tabs" style="margin-top: 18px">
         <div class="tab" :class="{ on: tab === 'intro' }" @click="tab = 'intro'">简介</div>
-        <div class="tab" :class="{ on: tab === 'pages' }" @click="tab = 'pages'">分P（{{ pageList.length }}）</div>
         <div class="tab" :class="{ on: tab === 'notes' }" @click="tab = 'notes'">笔记（{{ notes.length }}）</div>
         <div class="tab" :class="{ on: tab === 'related' }" @click="tab = 'related'">相关推荐</div>
       </div>
 
       <div v-if="tab === 'intro'" class="panel" style="white-space: pre-wrap; font-size: 13px; color: var(--t2)">
         {{ info.desc || '这个视频没有填写简介。' }}
-      </div>
-
-      <div v-else-if="tab === 'pages'" class="panel">
-        <PartList :parts="pageList" :index="pageIndex" @select="selectPage" />
       </div>
 
       <div v-else-if="tab === 'notes'" class="panel">
@@ -1199,14 +1222,15 @@ onBeforeUnmount(() => {
           <Icon name="monitor" :size="15" />
           <b style="font-size: 13px">清晰度</b>
           <span class="grow" />
-          <span class="muted" style="font-size: 11.5px">当前 {{ qnLabel(actualQuality || quality) }}</span>
+          <span class="muted" style="font-size: 11.5px">当前 {{ qnLabel(curQuality) }}</span>
         </div>
         <div class="row" style="flex-wrap: wrap">
           <span
             v-for="q in qualities"
             :key="q"
             class="chip"
-            :class="{ on: q === (actualQuality || quality) }"
+            :class="{ cur: q === curQuality, lock: isLocked(q) }"
+            :title="isLocked(q) ? '未登录时选不了这一档，点「扫码登录」解锁' : qnLabel(q)"
             @click="selectQuality(q)"
           >
             {{ qnLabel(q) }}

@@ -4,7 +4,9 @@ import Icon from './Icon.vue'
 
 // 分P列表：长视频（课程/合集）动辄上百个 P，早先那种「按文字宽度排列的胶囊」一排下来
 // 右边缘参差不齐、也找不到第几个 P 在哪。这里排成对齐的单列清单：
-//   序号徽章（等宽） + 单行省略的标题 + 当前行高亮，超出高度时内部滚动并自动滚到当前 P。
+//   课次分组（L005…） + 序号徽章（等宽） + 单行省略的标题 + 当前行高亮；
+//   超出高度时内部滚动并自动滚到当前 P，右上角另有「跳到当前」。
+// 155 个 P 平铺是找不到 L006 在哪的，所以按课次插分组头。
 // 超过 12 个 P 时给一个筛选框（按编号或标题关键字）。
 const props = defineProps({
   parts: { type: Array, default: () => [] },
@@ -28,6 +30,24 @@ const rows = computed(() =>
     })
 )
 const nameOf = (p) => p.title || p.part || `P${p.page}`
+
+/** 取课次：L005 单词 → L005；没有 Lxxx 编号的（开篇、花絮之类）统一归「开篇」 */
+function courseOf(p) {
+  const m = /^L(\d{3})/i.exec(String(nameOf(p)).trim())
+  return m ? `L${m[1]}` : '开篇'
+}
+
+/** 连续同课次的 P 合成一段，用来插分组头 */
+const sections = computed(() => {
+  const out = []
+  for (const r of rows.value) {
+    const key = courseOf(r.p)
+    const last = out[out.length - 1]
+    if (last && last.key === key) last.rows.push(r)
+    else out.push({ key, rows: [r] })
+  }
+  return out
+})
 
 async function scrollToCurrent() {
   await nextTick()
@@ -55,6 +75,9 @@ watch(filter, scrollToCurrent, { flush: 'post' })
         共 {{ parts.length }} P<template v-if="filter.trim()"> · 命中 {{ rows.length }}</template>
         <template v-else> · 当前 P{{ index + 1 }}</template>
       </span>
+      <button class="jump" type="button" title="滚动到当前播放的分P" @click="scrollToCurrent">
+        跳到当前
+      </button>
     </div>
 
     <input
@@ -65,19 +88,28 @@ watch(filter, scrollToCurrent, { flush: 'post' })
     />
 
     <div ref="box" class="pages-list">
-      <button
-        v-for="r in rows"
-        :key="r.p.cid || r.i"
-        class="page-pill"
-        :class="{ on: r.i === index }"
-        :title="nameOf(r.p)"
-        @click="emit('select', r.i)"
-      >
-        <span class="pn mono">P{{ r.p.page }}</span>
-        <span class="pt">{{ nameOf(r.p) }}</span>
-        <span v-if="r.i === index" class="pdot" aria-hidden="true" />
-      </button>
-      <div v-if="!rows.length" class="muted" style="font-size: 12.5px; padding: 6px 2px">没有匹配的分P</div>
+      <template v-for="s in sections" :key="s.key">
+        <div class="grp">
+          <span class="gk">{{ s.key }}</span>
+          <i class="ln" aria-hidden="true" />
+          <span v-if="s.rows.length > 1" class="cnt">{{ s.rows.length }} 个分P</span>
+        </div>
+        <button
+          v-for="r in s.rows"
+          :key="r.p.cid || r.i"
+          class="page-pill"
+          :class="{ on: r.i === index }"
+          :title="nameOf(r.p)"
+          @click="emit('select', r.i)"
+        >
+          <span class="pn mono">P{{ r.p.page }}</span>
+          <span class="pt">{{ nameOf(r.p) }}</span>
+          <span v-if="r.i === index" class="pdot" aria-hidden="true" />
+        </button>
+      </template>
+      <div v-if="!rows.length" class="muted" style="font-size: 12.5px; padding: 6px 2px">
+        没有匹配的分P
+      </div>
     </div>
   </div>
 </template>
@@ -85,6 +117,23 @@ watch(filter, scrollToCurrent, { flush: 'post' })
 <style scoped>
 .pages-head {
   margin-bottom: 8px;
+}
+.jump {
+  flex: none;
+  margin-left: 8px;
+  padding: 2px 8px;
+  min-height: 22px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--t2);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.jump:hover {
+  border-color: var(--brand-line);
+  color: var(--brand);
 }
 .pages-filter {
   margin-bottom: 8px;
@@ -95,15 +144,46 @@ watch(filter, scrollToCurrent, { flush: 'post' })
   display: flex;
   flex-direction: column;
   gap: 2px;
-  max-height: min(52vh, 460px);
+  /* 右栏高度随窗口变，给一个上下限：小窗口别把简介挤没，大窗口别只剩一条缝 */
+  max-height: clamp(373px, 56vh, 560px);
   overflow: auto;
   padding-right: 4px;
+  scrollbar-gutter: stable;
+}
+/* 课次分组头：滚动时吸顶，一眼知道滚到哪一课了 */
+.grp {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 6px 0 2px;
+  padding: 4px 2px;
+  background: var(--card);
+  font-size: 11.5px;
+}
+.grp .gk {
+  flex: none;
+  color: var(--t2);
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+.grp .ln {
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+.grp .cnt {
+  flex: none;
+  color: var(--t3);
 }
 .page-pill {
   display: flex;
   align-items: center;
   gap: 9px;
   width: 100%;
+  min-height: 30px;
   padding: 6px 9px;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
@@ -140,19 +220,22 @@ watch(filter, scrollToCurrent, { flush: 'post' })
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--brand);
 }
+/* 当前分P：浅品牌底 + 左侧色条。原来是整行实心 --accent（浅色主题下 = 纯黑底白字），
+   一整条黑横杠在列表里比视频画面还抢眼，而且和「选中」之外的信息拉不开层次。 */
 .page-pill.on {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-fg);
+  background: var(--brand-soft);
+  border-color: var(--brand-line);
+  color: var(--t1);
   font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--brand);
 }
 .page-pill.on .pn {
-  background: rgba(255, 255, 255, 0.16);
-  color: var(--accent-fg);
+  background: var(--brand-line);
+  color: var(--t1);
 }
 .page-pill.on .pdot {
-  background: var(--accent-fg);
+  background: var(--brand);
 }
 </style>

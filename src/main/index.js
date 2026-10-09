@@ -32,16 +32,77 @@ if (process.env.STUDY_USER_DATA) {
   }
 }
 
-const MEDIA_HOSTS = ['bilivideo.com', 'bilivideo.cn', 'akamaized.net', 'hdslb.com']
 const IMAGE_HOSTS = ['hdslb.com', 'biliimg.com']
+
+/**
+ * 媒体线路的域名规则。
+ * 以前这里是一张写死的白名单（bilivideo.com / bilivideo.cn / akamaized.net / hdslb.com），
+ * 但 B 站 CDN 会临时开出各种主机：upos-sz-*.bilivideo.com、xy116x196x140x59xy.mcdn.bilivideo.cn:8082、
+ * b-baaa1gvj119u13vbgs9iegnauj0c.edge.mountaintoys.cn:4483……白名单漏掉一个，那条线就必然
+ * 「拉流失败：Failed to fetch」（没 Referer → CDN 403；没有可读的 CORS 头 → 渲染层只能看到 TypeError）。
+ * 所以改成按规则判断，并且把 Range 请求头当成更强的信号。
+ */
+const MEDIA_HOST_RULES = [
+  /(^|\.)bilivideo\.(com|cn|net)$/i,
+  /(^|\.)akamaized\.net$/i,
+  /(^|\.)hdslb\.com$/i,
+  /(^|\.)biliimg\.com$/i,
+  /(^|\.)mcdn\./i,
+  /^\d+x\d+x\d+x\d+xy\./i,
+  /(^|\.)edge\./i
+]
+
+// 响应侧判定用的 content-type（音视频分片、fMP4 的 init 段、HLS 清单）
+const MEDIA_TYPE_RE = /^(video|audio)\//i
+const MEDIA_APP_TYPE_RE = /^application\/(octet-stream|vnd\.apple\.mpegurl|x-mpegurl)/i
 
 function hostMatches(host, list) {
   return list.some((h) => host === h || host.endsWith('.' + h))
 }
 
+function isMediaHost(host) {
+  return !!host && MEDIA_HOST_RULES.some((re) => re.test(host))
+}
+
+/** 请求/响应头大小写不敏感取一个值 */
+function headerValue(headers, name) {
+  if (!headers) return ''
+  const key = Object.keys(headers).find((k) => k.toLowerCase() === name)
+  return key ? String(headers[key]) : ''
+}
+
+/**
+ * 是不是媒体拉流请求。
+ * 分段拉流一定带 Range，这是最可靠的信号；没有 Range 时（例如 fMP4 的首个请求）
+ * 退回按域名规则判断。注意这里的兜底只用来「补 Referer / 补 CORS 头」，
+ * 对普通 API 请求注入这两个头也没有副作用。
+ */
+function looksLikeMediaRequest(url, headers) {
+  if (headerValue(headers, 'range')) return true
+  try {
+    return isMediaHost(new URL(url).hostname)
+  } catch {
+    return false
+  }
+}
+
+/** 响应像不像音视频分片：按 content-type / Accept-Ranges 判断，避免再漏掉未收录的线路域名 */
+function looksLikeMediaResponse(url, headers) {
+  const type = headerValue(headers, 'content-type')
+  if (MEDIA_TYPE_RE.test(type) || MEDIA_APP_TYPE_RE.test(type)) return true
+  if (/bytes/i.test(headerValue(headers, 'accept-ranges'))) return true
+  try {
+    return isMediaHost(new URL(url).hostname)
+  } catch {
+    return false
+  }
+}
+
 /**
  * B 站 CDN 校验 Referer，且不允许跨域读取分片。
  * 渲染层用普通 fetch/XHR 拉 fMP4，因此这里统一注入 Referer 与 CORS 头。
+ * 是否媒体由 looksLikeMediaRequest / looksLikeMediaResponse 判定（Range 头 + 域名规则 + 响应类型），
+ * 不再依赖写死的域名白名单。
  */
 function installNetworkHooks() {
   const ses = session.defaultSession
@@ -54,7 +115,7 @@ function installNetworkHooks() {
     } catch {
       return callback({ requestHeaders: details.requestHeaders })
     }
-    if (hostMatches(host, MEDIA_HOSTS.concat(IMAGE_HOSTS))) {
+    if (looksLikeMediaRequest(url, details.requestHeaders) || hostMatches(host, IMAGE_HOSTS)) {
       details.requestHeaders.Referer = 'https://www.bilibili.com/'
       details.requestHeaders.Origin = 'https://www.bilibili.com'
       details.requestHeaders['User-Agent'] = BASE_HEADERS['User-Agent']
@@ -63,14 +124,7 @@ function installNetworkHooks() {
   })
 
   ses.webRequest.onHeadersReceived((details, callback) => {
-    const url = details.url || ''
-    let host = ''
-    try {
-      host = new URL(url).hostname
-    } catch {
-      return callback({ responseHeaders: details.responseHeaders })
-    }
-    if (hostMatches(host, MEDIA_HOSTS)) {
+    if (looksLikeMediaResponse(details.url || '', details.responseHeaders)) {
       const headers = { ...(details.responseHeaders || {}) }
       for (const key of Object.keys(headers)) {
         if (/^access-control-/i.test(key)) delete headers[key]

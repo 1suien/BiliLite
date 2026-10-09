@@ -102,7 +102,7 @@ textarea {
   letter-spacing: 0.4px;
 }
 .brand-text span {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--t3);
 }
 
@@ -123,19 +123,32 @@ textarea {
   border: 1px solid transparent;
   transition: background 0.13s, color 0.13s;
   user-select: none;
+  position: relative;
 }
 .nav-item:hover {
   background: var(--soft);
   color: var(--t1);
 }
 .nav-item.router-link-active {
-  background: var(--soft);
+  background: var(--brand-soft);
   color: var(--t1);
-  border-color: var(--line);
+  border-color: transparent;
+  font-weight: 600;
+}
+/* 左侧 3px 色条：浅色主题下只靠 --soft 底色几乎看不出「我在哪」 */
+.nav-item.router-link-active::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 9px;
+  bottom: 9px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--brand);
 }
 .nav-item .badge {
   margin-left: auto;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--t3);
 }
 
@@ -185,7 +198,7 @@ textarea {
   text-overflow: ellipsis;
 }
 .side-user .who span {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--t3);
 }
 
@@ -255,8 +268,9 @@ textarea {
   transition: border-color 0.13s, background 0.13s;
 }
 .input:focus {
-  border-color: var(--line-strong);
+  border-color: var(--brand);
   background: var(--soft-hover);
+  box-shadow: 0 0 0 3px var(--ring);
 }
 .input::placeholder {
   color: var(--t3);
@@ -295,6 +309,7 @@ textarea {
 .btn.sm {
   padding: 4px 9px;
   font-size: 12px;
+  min-height: var(--tap);
 }
 .btn.danger {
   color: var(--danger);
@@ -313,6 +328,7 @@ textarea {
   font-size: 12px;
   cursor: pointer;
   user-select: none;
+  min-height: 26px;
 }
 .chip.on {
   background: var(--accent);
@@ -320,8 +336,56 @@ textarea {
   border-color: var(--accent);
   font-weight: 600;
 }
+/* 只读的数据标签（播放量、时长、分组名…）：它们是「数据」不是「按钮」，
+   不该长着可点的样子 —— 否则一屏里十几个按钮样的小胶囊，真正的按钮就找不到了 */
 .chip.plain {
   cursor: default;
+  background: transparent;
+  border-color: transparent;
+  padding: 3px 4px;
+}
+/* 可点的元信息（UP 名等）：保留胶囊外观，但比普通按钮轻 */
+.chip.link {
+  background: var(--soft);
+  border-color: var(--line);
+  color: var(--t2);
+  padding: 3px 9px;
+}
+.chip.link:hover {
+  border-color: var(--brand-line);
+  color: var(--brand);
+}
+/* 当前档位 / 当前状态：实心品牌色 */
+.chip.cur {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #ffffff;
+  font-weight: 600;
+}
+html[data-theme='dark'] .chip.cur {
+  color: #06121f;
+}
+/* 选了也不会生效的档位（例如未登录时的 1080P） */
+.chip.lock {
+  background: transparent;
+  border-style: dashed;
+  border-color: var(--line-strong);
+  color: var(--t3);
+}
+.chip.lock::before {
+  content: '';
+  width: 8px;
+  height: 6px;
+  margin-right: 1px;
+  border: 1.3px solid currentColor;
+  border-radius: 1.5px;
+  position: relative;
+  top: 1px;
+  /* 锁梁：向上投一条细弧；纯 CSS 画锁，避免 Windows 下 🔒 变成彩色 emoji 跟单色图标打架 */
+  box-shadow: 0 -2.6px 0 -0.4px currentColor;
+}
+.chip.lock:hover {
+  color: var(--t2);
 }
 /* chip 里的行内 ✕（编辑快捷任务时用） */
 .chip .chip-x {
@@ -1112,4 +1176,102 @@ table.plain tr:last-child td {
 }
 table.plain td.num {
   font-family: var(--mono);
+}
+
+/* ── 交互与状态打磨 ──────────────────────────────────────────────
+   这一节只做三件事，不动信息结构：
+   1) 键盘可达：焦点环（原来只有 .input 有一点反馈，Tab 走一圈不知道在哪）
+   2) 状态表达：错误卡分层、清晰度锁定、剧场模式
+   3) 性能与动效：弹幕重绘范围、系统「减少动态效果」
+   ────────────────────────────────────────────────────────────── */
+
+/* 键盘焦点：鼠标点击不出现，Tab 切换必须看得见 */
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+.scroll:focus,
+.scroll:focus-visible {
+  outline: none;
+}
+
+/* 错误卡：主文案说人话，原始报错降级成 mono 小字，按钮分出主次 */
+.err-card {
+  border-color: var(--danger);
+  border-left-width: 3px;
+  background: color-mix(in srgb, var(--danger) 6%, var(--card));
+}
+.err-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.err-head b {
+  font-size: 13.5px;
+  color: var(--t1);
+}
+.err-why {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--t3);
+  background: var(--soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.err-tip {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--t2);
+  line-height: 1.6;
+}
+
+/* 弹幕是每秒都在动的绝对定位元素：限制重绘范围，翻页/滚动时不再拖着整页重排 */
+.dm-item {
+  contain: layout paint;
+}
+
+/* 剧场模式：藏起侧栏与顶栏，把播放器放到最大；清晰度与分P 仍留在右栏，随手能切 */
+.app.theater {
+  grid-template-columns: 1fr;
+}
+.app.theater .side,
+.app.theater .top {
+  display: none;
+}
+.app.theater .scroll {
+  padding: 12px 16px 32px;
+}
+.theater-exit {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 60;
+  box-shadow: var(--shadow-sm);
+}
+.kbd {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1;
+  padding: 2px 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  color: var(--t3);
+}
+
+/* 系统开了「减少动态效果」就别再滑来滑去 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

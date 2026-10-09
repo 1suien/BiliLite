@@ -11,6 +11,20 @@ export const ACCENT_PRESETS = {
   green: { label: '绿', dark: '#7fd68a', light: '#15803d' }
 }
 
+/**
+ * 品牌色预设：只用于标记「当前位置 / 进度 / 焦点」——侧栏选中、分P 选中、焦点环、进度环。
+ * 默认的 mono 是纯白/近黑，本身不带色彩信息，选中态只能靠底色深浅区分（浅色主题下几乎看不见），
+ * 因此给它一个中性的蓝；选了青/蓝/紫/橙/绿的用户则沿用自己那一套色相。
+ */
+export const BRAND_PRESETS = {
+  mono: { dark: '#4aa8ff', light: '#0f6fd1' },
+  cyan: { dark: '#5ad1c8', light: '#0f766e' },
+  blue: { dark: '#6ea8fe', light: '#1d4ed8' },
+  purple: { dark: '#b39ddb', light: '#6d28d9' },
+  orange: { dark: '#f0a868', light: '#b45309' },
+  green: { dark: '#7fd68a', light: '#15803d' }
+}
+
 /** 用相对亮度决定强调色上的文字用黑还是白 */
 function readableFg(hex) {
   const m = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim())
@@ -21,6 +35,14 @@ function readableFg(hex) {
   const b = n & 255
   const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255
   return lum > 0.6 ? '#0a0a0b' : '#ffffff'
+}
+
+/** #rrggbb → rgba(r, g, b, a)：给 --brand 派生浅底 / 描边 / 焦点环 */
+function hexToRgba(hex, alpha) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim())
+  if (!m) return `rgba(15, 111, 209, ${alpha})`
+  const n = parseInt(m[1], 16)
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`
 }
 
 export const useSettingsStore = defineStore('settings', {
@@ -68,6 +90,15 @@ export const useSettingsStore = defineStore('settings', {
         : ((ACCENT_PRESETS[a] || ACCENT_PRESETS.mono)[theme] || ACCENT_PRESETS.mono[theme])
       document.documentElement.style.setProperty('--accent', hex)
       document.documentElement.style.setProperty('--accent-fg', readableFg(hex))
+      // 品牌色跟着强调色走：选中态/焦点环要有一致的色彩信号
+      const brand = a.startsWith('#')
+        ? a
+        : ((BRAND_PRESETS[a] || BRAND_PRESETS.mono)[theme] || BRAND_PRESETS.mono[theme])
+      const style = document.documentElement.style
+      style.setProperty('--brand', brand)
+      style.setProperty('--brand-soft', hexToRgba(brand, theme === 'light' ? 0.1 : 0.16))
+      style.setProperty('--brand-line', hexToRgba(brand, theme === 'light' ? 0.3 : 0.38))
+      style.setProperty('--ring', hexToRgba(brand, theme === 'light' ? 0.38 : 0.45))
     },
     async init() {
       if (this.loaded) return
