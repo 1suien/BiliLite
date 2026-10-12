@@ -281,6 +281,19 @@ export async function runSmoke(win) {
   await step('bridge 已注入', 'typeof window.bili', (v) => v === 'object')
   await step('bridge 通道齐全', "Object.keys(window.bili).join(',')", (v) => /auth/.test(v) && /video/.test(v))
   await step('app:ping', 'window.bili.ping()', (v) => v === 'pong' || Boolean(v))
+  // 重启后还要认得登录态：auth:restore 必须是扁平的 { user }。
+  // 历史上它被多包了一层，渲染层拿到 { loggedIn, user }，auth store 的 loggedIn
+  // getter 查 s.user.mid 永远是 undefined —— 表现就是「扫完码是好的，一重启变未登录」。
+  await step(
+    'auth:restore 返回扁平结构',
+    `window.bili.auth.restore().then((r) => {
+      if (!r || typeof r !== 'object') return 'bad:' + typeof r
+      if (!('user' in r)) return 'missing-user'
+      if (r.user === null) return 'guest-ok'
+      return typeof r.user.mid === 'number' ? 'user-ok' : 'nested:' + Object.keys(r.user).join('+')
+    })`,
+    (v) => v === 'guest-ok' || v === 'user-ok'
+  )
   await step('侧栏导航 7 项', "document.querySelectorAll('.nav-item').length", (v) => v === 7)
   await step(
     '侧栏已没有「读书」入口',
@@ -2058,7 +2071,8 @@ export async function runSmoke(win) {
 
   // 学习页：统计卡 + 专注面板（签到日历 / 近 14 天条形图 / 按 UP 分布饼图 / 手动打卡按钮已按需求移除）
   await clickNav('学习')
-  await step('学习页 7 个统计卡', "document.querySelectorAll('.stat-grid .stat').length", (v) => v === 7)
+  await step('学习页 3 个统计卡', "document.querySelectorAll('.stat-grid .stat').length", (v) => v === 3)
+  await step('学习页专注目标面板', "document.querySelectorAll('.ft .ft-row').length > 0", (v) => v === true)
   await step(
     '学习页已没有签到日历 / 14 天条形图 / UP 分布饼图 / 打卡按钮',
     `(() => {
@@ -2218,28 +2232,47 @@ export async function runSmoke(win) {
   if (started !== 'no-button' && dur1 && dur0 && dur1 !== dur0) pass('专注开始后倒计时在走', { dur0, dur1, started })
   else fail('专注开始后倒计时在走', { dur0, dur1, started })
 
-  await pressPomo('/暂停/')
-  await sleep(1500)
+  // 新交互：没有「暂停」这个中间态了 —— 计时中点同一个按钮就会先问一句要不要结束
+  // （提示文案随已专注时长变化，不足 30 秒的会说明不会记档），所以这里不用等 30 秒。
+  const clockAtEnd = await pomoClock()
+  const elapsedAtClick = await js(
+    "(() => { const p = document.querySelector('.focus'); return p ? Number(p.dataset.elapsed) : -1 })()"
+  ).catch(() => -1)
+  const endAsk = await pressPomo('/结束专注/')
+  let confirmOpen = false
+  for (let i = 0; i < 12 && !confirmOpen; i++) {
+    await sleep(300)
+    confirmOpen = await js("!!document.querySelector('.overlay .modal')").catch(() => false)
+  }
+  await backToLearn()
+  const confirmText = await js(
+    "(() => { const m = document.querySelector('.overlay .modal'); return m ? String(m.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 120) : '' })()"
+  ).catch(() => '')
+  if (endAsk !== 'no-button' && confirmOpen)
+    pass('再次点击「结束专注」会先问一句', { endAsk, clockAtEnd, elapsedAtClick, confirmText })
+  else fail('再次点击「结束专注」会先问一句', { endAsk, clockAtEnd, elapsedAtClick, confirmOpen, confirmText })
+
+  // 点「取消」应该什么都不改，计时继续往下走
+  const cancelled = await js(`(() => {
+    const m = document.querySelector('.overlay .modal')
+    if (!m) return 'no-modal'
+    const b = Array.from(m.querySelectorAll('button')).find((x) => /取消/.test(x.textContent))
+    if (!b) return 'no-cancel'
+    b.click()
+    return 'clicked'
+  })()`).catch(() => 'err')
+  await sleep(1200)
   await backToLearn()
   const dur2 = await pomoClock()
-  await sleep(1500)
+  await sleep(1600)
   await backToLearn()
   const dur3 = await pomoClock()
-  // 「暂停后不再走」= 时钟不该继续往下掉。但时钟**往上跳回整轮**不是暂停没生效，而是面板收到了
-  // 重置（`R` 快捷键 / 「重置」按钮，都会把 remain 置回 totalSeconds）——冒烟跑的时候窗口就在
-  // 桌面上，外面的键鼠事件进得来，这类干扰以前也出现过（见本文件里「外部点击干扰」那段注释）。
-  const clockSec = (s) => {
-    const m = /^(\d+):(\d+)$/.exec(String(s || ''))
-    return m ? Number(m[1]) * 60 + Number(m[2]) : null
-  }
-  const c2 = clockSec(dur2)
-  const c3 = clockSec(dur3)
-  if (dur2 && dur2 === dur3) pass('专注暂停后不再走', { dur2, dur3 })
-  else if (c2 != null && c3 != null && c3 > c2) warn(`专注暂停后不再走：倒计时被重置回 ${dur3}（外部输入触发重置，不是暂停失效）`)
-  else fail('专注暂停后不再走', { dur2, dur3 })
+  // 取消之后这一轮还在跑，所以时钟必须继续变
+  if (cancelled === 'clicked' && dur2 && dur3 && dur2 !== dur3) pass('取消结束后计时继续', { dur2, dur3 })
+  else fail('取消结束后计时继续', { cancelled, dur2, dur3 })
 
   // 继续跑完这一轮（专注 1 分钟）：完成后应自动切到休息并把时长记进统计
-  const resumed = await pressPomo('/开始|继续/')
+  const resumed = '仍在计时（新交互没有暂停态）'
   log(`      · 专注诊断（开始后） :: ${show(await pomoDiag())}`)
   let done = null
   let toastText = ''

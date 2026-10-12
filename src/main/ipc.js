@@ -54,7 +54,13 @@ const handlers = {
   'app:ping': wrap(async () => ({ pong: Date.now(), version: app.getVersion() })),
 
   // ---- 认证 ----
-  'auth:restore': wrap(async () => ({ user: await restore(), loggedIn: store.isLoggedIn() })),
+  // 注意：restore() 自己返回的就是 { loggedIn, user }，不能再套一层 user ——
+  // 套了渲染层拿到的是 { loggedIn, user }，auth store 的 loggedIn getter 查 s.user.mid
+  // 永远是 undefined，表现就是「刚扫码登录是好的，一重启就变未登录」。
+  'auth:restore': wrap(async () => {
+    const r = (await restore()) || {}
+    return { user: r.user || null, loggedIn: Boolean(r.loggedIn), stale: Boolean(r.stale), message: r.message || '' }
+  }),
   'auth:qrGenerate': wrap(async () => qrGenerate()),
   'auth:qrPoll': wrap(async ({ qrcodeKey }) => qrPoll(qrcodeKey)),
   'auth:logout': wrap(async () => logout()),

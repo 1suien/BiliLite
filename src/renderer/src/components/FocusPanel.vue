@@ -184,7 +184,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey)
 })
 
-/** 键盘快捷键：空格 开始/暂停 · R 重置 · S 结束本轮 · Esc 关弹层
+/** 键盘快捷键：空格 = 主按钮（开始 / 结束）· R 重置 · Esc 关弹层
     只在学习页真的显示了面板、且焦点不在输入框/按钮上时生效 */
 function onKey(e) {
   if (e.key === 'Escape') {
@@ -194,7 +194,7 @@ function onKey(e) {
   }
   if (e.ctrlKey || e.metaKey || e.altKey) return
   if (!rootEl.value || !rootEl.value.isConnected) return
-  // 全局确认框开着的时候别抢按键（否则 S 会再弹一个确认框，把前一个的 Promise 顶掉）
+  // 全局确认框开着的时候别抢按键（否则空格会再弹一个确认框，把前一个的 Promise 顶掉）
   if (ui.confirmState && ui.confirmState.open) return
   const el = e.target
   const tag = el && el.tagName
@@ -204,27 +204,44 @@ function onKey(e) {
   const k = e.key
   if (k === ' ' || k === 'Spacebar') {
     e.preventDefault()
-    pomo.toggle()
+    primaryAction()
   } else if (k === 'r' || k === 'R') {
     if (!pomo.running) pomo.reset()
-  } else if (k === 's' || k === 'S') {
-    finishRound()
   }
 }
 
-/** 「结束本轮」：专注阶段把已专注的部分也记上（< 30 秒不记），休息阶段直接跳过 */
-async function finishRound() {
-  const secs = pomo.elapsedSeconds
-  if (pomo.mode === 'focus' && secs >= 30) {
-    const ok = await ui.confirm('结束本轮专注？', `已专注 ${fmtDuration(secs)}，会按「部分完成」记进专注记录。`, '结束本轮')
+/** 主按钮上的字：没有「暂停」这个中间态，跑起来之后点它就是结束 */
+const primaryLabel = computed(() => {
+  if (!pomo.running) return '开始专注'
+  return pomo.mode === 'break' ? '跳过休息' : '结束专注'
+})
+
+/**
+ * 主按钮 / 空格：没在跑就开始；在跑就一定要先问一句要不要结束
+ * （提前结束的专注只要超过 30 秒也会按「部分完成」记下来；不足 30 秒不记档）
+ */
+async function primaryAction() {
+  if (!pomo.running) {
+    if (pomo.mode === 'break') pomo.setMode('focus')
+    pomo.start()
+    return
+  }
+  if (pomo.mode === 'focus') {
+    const secs = pomo.elapsedSeconds
+    const sub =
+      secs >= 30
+        ? `已专注 ${fmtDuration(secs)}，会按「部分完成」记进专注记录。`
+        : `这一轮只走了 ${fmtDuration(secs)}，不到 30 秒不会记进专注记录。`
+    const ok = await ui.confirm('结束这次专注？', sub, '结束专注')
     if (!ok) return
   }
-  pomo.finish(false)
+  await pomo.finish(false)
 }
 </script>
 
 <template>
-  <div ref="rootEl" class="panel focus" :class="{ full: isFull }">
+  <!-- data-elapsed 是给冒烟用的可读探针（已专注秒数），不影响界面 -->
+  <div ref="rootEl" class="panel focus" :class="{ full: isFull }" :data-elapsed="pomo.elapsedSeconds">
     <div class="row focus-head">
       <Icon name="zap" :size="15" />
       <strong style="font-size: 13.5px">专注</strong>
@@ -284,20 +301,14 @@ async function finishRound() {
         <div class="focus-bar"><i :style="{ width: Math.round(pomo.progress * 100) + '%' }" /></div>
 
         <div class="row" style="gap: 8px; flex-wrap: wrap">
-          <button class="btn primary" style="min-width: 96px" title="空格" @click="pomo.toggle()">
+          <button class="btn primary" style="min-width: 96px" title="空格" @click="primaryAction">
             <Icon :name="pomo.running ? 'pause' : 'play'" :size="15" />
-            {{ pomo.running ? '暂停' : pomo.remain < pomo.totalSeconds ? '继续' : '开始专注' }}
+            {{ primaryLabel }}
           </button>
           <button class="btn ghost" title="R" @click="pomo.reset()"><Icon name="refresh" :size="14" /> 重置</button>
-          <button class="btn ghost" title="S · 提前结束这一轮" @click="finishRound">
-            {{ pomo.mode === 'focus' ? '结束本轮' : '跳过休息' }}
-          </button>
           <span class="grow" />
           <span class="muted" style="font-size: 11.5px">专注结束自动计入学习时长</span>
         </div>
-        <p class="muted" style="margin: 0; font-size: 11.5px">
-          空格 开始 / 暂停 · R 重置 · S 结束本轮；提前结束的专注只要超过 30 秒也会按「部分完成」记下来。
-        </p>
 
         <!-- 任务绑定 -->
         <div class="focus-task" :class="{ locked: bindLocked }">

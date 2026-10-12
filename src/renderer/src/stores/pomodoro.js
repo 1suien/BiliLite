@@ -146,8 +146,17 @@ export const usePomodoroStore = defineStore('pomodoro', {
       return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
     },
     modeLabel: (s) => (s.mode === 'focus' ? '专注' : '休息'),
-    /** 本轮实际已专注的秒数（计时中 = 已结算 + 正在跑的这段） */
+    /**
+     * 本轮实际已专注的秒数（计时中 = 已结算 + 正在跑的这段）。
+     *
+     * ⚠ 第一行必须读一下 s.remain，别删：Date.now() 不是响应式的，而 Pinia 的 getter 会被缓存，
+     * 只有依赖的 state 变了才重算。不读 remain 的话这个值会永远停在「上一次 store 变化的那一刻」——
+     * 计时中恒等于 0，也就是界面「本轮 0:00」一直不动、`elapsedSeconds >= 30` 永远不成立的根因。
+     * remain 由 tick() 每 250ms 更新一次，正好当这个 getter 的时钟。
+     */
     elapsedSeconds(s) {
+      const clock = s.remain // 仅为建立响应式依赖
+      void clock
       const live = s.running && s.runStart ? Math.floor((Date.now() - s.runStart) / 1000) : 0
       return Math.max(0, Math.round(s.focusedSeconds + live))
     },

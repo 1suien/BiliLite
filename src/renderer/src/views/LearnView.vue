@@ -5,7 +5,7 @@ import BiliImage from '../components/BiliImage.vue'
 import EmptyBlock from '../components/EmptyBlock.vue'
 import FocusPanel from '../components/FocusPanel.vue'
 import HabitHome from '../components/HabitHome.vue'
-import SessionHistory from '../components/SessionHistory.vue'
+import FocusTargets from '../components/FocusTargets.vue'
 import Icon from '../components/Icon.vue'
 import { useLearnStore } from '../stores/learn'
 import { useUiStore } from '../stores/ui'
@@ -23,13 +23,11 @@ const ready = ref(false)
 const recent = computed(() => learn.listByVideo.slice(0, 40))
 const shelf = computed(() => learn.shelf)
 
+// 只留「一眼能看懂 + 别处没有」的三项：
+// 看过视频/已看完/在看是过程量，点进下面的列表能自己数；今日专注挪到了专注目标面板里。
 const stats = computed(() => [
   { label: '总学习时长', value: fmtHours(learn.totalSeconds) + ' h', icon: 'clock' },
-  { label: '看过视频', value: String(learn.totalVideos), icon: 'play' },
-  { label: '已看完', value: String(learn.completedCount), icon: 'check' },
-  { label: '在看', value: String(learn.inProgressCount), icon: 'chart' },
   { label: '连续签到（天）', value: String(learn.checkinStreak), icon: 'fire' },
-  { label: '今日专注', value: String(pomo.todayCount) + ' 轮', icon: 'zap' },
   { label: '本周专注', value: fmtDuration(pomo.weekSeconds), icon: 'zap' }
 ])
 
@@ -137,8 +135,8 @@ onMounted(async () => {
     <!-- 专注（TickTick 风格：圆环 + 大号倒计时 + 任务绑定） -->
     <FocusPanel />
 
-    <!-- 专注记录与统计 -->
-    <SessionHistory />
+    <!-- 专注目标：自己列目标，点一下就开始专注（替代原来的「专注记录」） -->
+    <FocusTargets />
 
     <div class="tabs">
       <button class="tab" :class="{ on: tab === 'recent' }" @click="tab = 'recent'">学习进度（{{ recent.length }}）</button>

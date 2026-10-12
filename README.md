@@ -728,6 +728,69 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 > `checkForUpdates` / `quitAndInstall`，依赖里也没有 `electron-updater`），所以 `resources\app-update.yml`
 > 只是个没被读取的残留文件，Release 里有没有 `latest.yml` 都不影响运行，**不存在「自动更新会覆盖本地改动」这回事**。
 
+> v0.3.1 体验修正（2026-10-12，`main/ipc.js` + `stores/pomodoro.js` + `App.vue` + `LearnView.vue` +
+> 新增 `components/FocusTargets.vue` + `components/FocusPanel.vue` + `main/smoke.js`），来自五条实际使用反馈：
+>
+> 1. **「扫码登录后一重启又要重登」的真因是 IPC 返回值形状不一致，不是凭据丢了。**
+>    `main/ipc.js` 的 `auth:restore` 原来返回 `({ user: await restore(), loggedIn: store.isLoggedIn() })`，
+>    而 `bili/auth.js` 的 `restore()` 本身就返回 `{ loggedIn, user }`，于是渲染层
+>    `stores/auth.js` 里 `this.user = res.user` 存进去的是一个 `{ loggedIn, user }` 包装对象，
+>    getter `loggedIn: (s) => Boolean(s.user && s.user.mid)` 取到 `undefined` → 界面判定未登录。
+>    扫码成功走的是 `auth:qrPoll`（`bili/auth.js` 返回**扁平**的 `{ status, user }`），
+>    所以表现为「刚扫完码是好的、一重启就掉」——同一行赋值、两种上游契约。
+>    修法是让 `auth:restore` 也返回扁平结构 `{ user, loggedIn, stale, message }`。
+>    顺带澄清两条：凭据一直在 `%APPDATA%\study-bili\study-bili.json`（cookie 存在 **`secure`** 字段，
+>    `enc:` + DPAPI 密文，不是 `cookies` 字段），落盘是「先写 `.tmp` 再 `renameSync`」的即时写，
+>    **不存在「退出时没来得及刷盘」**；网络失败也不清 cookie，只有 B 站明确回未登录才清。
+>    冒烟新增断言 `auth:restore 返回扁平结构`。
+>
+> 2. **侧栏分组**：主导航只留 首页/学习/本地/习惯，`收藏 / UP 管理 / 设置` 沉到侧栏底部、账号块之上。
+>    `App.vue` 里 `NAV_SECONDARY = ['/fav','/ups','/settings']` + `navMain`/`navMore` 两个 computed，
+>    **两组仍然共用同一份 `navList`**，拖拽换序语义不变。两个必须一致的地方：DOM 顺序 = 主导航 + 次级，
+>    所以 `onNavDrop` 落盘也要按 `[...非次级, ...次级]` 重排（否则冒烟的
+>    `navOrder.join('|') === afterHrefs.join('|')` 会挂）；跨组拖拽直接 return（拖了也没意义）。
+>    `base.css` 里 `.side-nav.side-more` 的**横向 padding 必须是 0**，不然
+>    `.nav-item.router-link-active::before` 的 `left:-12px` 色条会浮到导航中间。
+>
+> 3. **学习页统计卡 7 张砍到 3 张**（留 总学习时长 / 连续签到（天）/ 本周专注；砍掉的都是能从别处推出来的过程量）。
+>
+> 4. **「专注记录」整块换成可自定义的「专注目标」面板** `components/FocusTargets.vue`：
+>    列表来自 `settings.focusTasks`（默认 `阅读/刷题/看课/整理笔记`，上限 8 个、名字上限 12 字），
+>    支持增删、点名字改名；每行点一下即「开始专注」（正在跑别的目标会先问一句），
+>    正在计时的那个显示实时秒数，其余显示 `累计时长 · 轮数`。原 `components/SessionHistory.vue` **已删除**
+>    （grep 全仓只有 LearnView 引用过它）。注意 `settings.patch` 会立刻改掉 `targets`，
+>    所以改名时要先存下旧名字再判断「当前目标是否跟着改名」。
+>
+> 5. **专注面板去掉「结束本轮」按钮**：主按钮只剩「开始专注 / 结束专注」一个（`primaryAction`），
+>    **计时中再点一律先弹确认框**（不再用「是否已满 30 秒」决定要不要问，30 秒只影响提示文案），
+>    并删掉那行快捷键说明；`S` 快捷键分支与 `finishRound()` 一并删除。
+>
+> 6. **顺手修掉一个藏得很深的番茄钟 bug**：`stores/pomodoro.js` 的 `elapsedSeconds` getter 原来写成
+>    `Math.max(0, Math.round(s.focusedSeconds + (s.running && s.runStart ? Math.floor((Date.now() - s.runStart) / 1000) : 0)))`。
+>    `Date.now()` 不是响应式的，而 Pinia 的 getter 会被缓存、只依赖 `running` / `runStart` / `focusedSeconds`，
+>    `start()` 之后这三个值不再变化 → **整个计时过程中它只算过一次，值恒为 0**：界面「本轮 0:00」不动、
+>    「不到 30 秒」的分支永远走不到（v32 冒烟里 `elapsedAtClick` 实测就是 0，整轮于是被
+>    `finish(false)` 直接结束）。修法是让 getter 先读一次 `s.remain` 建立响应式依赖 —— `tick()` 每 250ms 更新它，
+>    正好当这个 getter 的时钟。修完 `elapsedAtClick` 变成 2、面板文本出现「本轮 0:05」。**这个 getter 别再改回去。**
+>
+> 验证：源码版端到端冒烟 **PASS 96 / FAIL 0 / WARN 0**（`tools\run-smoke.ps1 -Tag v35`，
+> 报告 `smoke-v35-report.txt`）；装机 asar 上再跑一次打包版冒烟，同样 **PASS 96 / FAIL 0 / WARN 0**
+> （`app:ping` 报 `version 0.3.1`）。深色 11 页巡览在 `_work\shots-v34\`：侧栏分组、
+> 学习页 3 张统计卡、专注目标面板、账号块显示「随流水儿 / Lv6 · 已登录」都逐张核过。
+> **打包版冒烟的一个坑**：`BiliLite.exe` 是 GUI 子系统程序，PowerShell 的 `&` 不会等它结束、
+> `$LASTEXITCODE` 是空的（后台 job 也会提前报 completed），结果只能去 `STUDY_SMOKE_OUT` 报告文件的最后一行
+> `=== 冒烟测试结束：失败 N 项 ===` 看；第一次跑还卡在 DASH 起流那一步（窗口被最小化 + 环境抖动），
+> 重跑就全绿了，**不要拿一次卡住当代码回归**。
+>
+> 装机（2026-10-12）：`package.json` 版本 `0.3.0 → 0.3.1`，用 `_work\build-asar.mjs` 以
+> `resources\app.asar.bak-before-ui-polish` 为底、只替换 `out/` 与 `package.json` 重新打包
+> （新 asar **24,379,133 B / 988 个条目**，`out/ui-polish` 残留 0 个，SHA256
+> `F8F68FAFF88A373B5770A17C708FE82A4D518B53C7F867B02723729266E985F0`），覆盖前把原来的 asar 备份成
+> `resources\app.asar.bak-0.3.0`。**改完必须重启 App 才会生效**（旧代码已经在内存里）。
+> 另外又踩了一次 `ELECTRON_RUN_AS_NODE=1`：它一旦还在环境里，Electron 会退化成 Node，
+> 看到的就是 `BiliLite.exe: bad option: --no-sandbox` 加一行 `bad option: --user-data-dir=...` 然后秒退
+> —— 任何启动前先 `Remove-Item Env:ELECTRON_RUN_AS_NODE`。
+
 ## 功能与数据
 
 - **登录**：B 站二维码扫码（`qrcode` 渲染），凭证经 Electron `safeStorage`（DPAPI）加密后存于 `userData/study-bili.json`。

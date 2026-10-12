@@ -172,11 +172,27 @@ textarea {
 
 .side-foot {
   margin-top: auto;
-  padding: 10px 8px 4px;
+  padding: 0 0 4px;
   border-top: 1px solid var(--line);
   display: flex;
   flex-direction: column;
+  gap: 0;
+}
+
+/*
+ * 次级入口（收藏 / UP 管理 / 设置）沉在侧栏底部。
+ * 横向 padding 必须是 0：.nav-item.router-link-active::before 的 left:-12px
+ * 是按「导航容器紧贴 .side 的 12px 内边距」算的，这里再加 padding 色条就会浮到中间。
+ */
+.side-nav.side-more {
+  padding: 8px 0;
+}
+
+.side-account {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
+  padding: 8px 8px 0;
 }
 
 .side-user {
