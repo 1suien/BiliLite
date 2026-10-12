@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { useLearnStore } from './learn'
 import { useUiStore } from './ui'
-import { todayKey, fmtDuration } from '../utils/format'
+import { todayKey, fmtDuration, fmtMin } from '../utils/format'
 import { addFocusSession, allFocusSessions, clearFocusSessions, db, listFocusSessions } from '../db'
 
 /* ── 番茄钟 / 专注 ──────────────────────────────────────────────────────
@@ -98,6 +98,32 @@ function recentDayKeys(days) {
   }
   return out.reverse()
 }
+
+/**
+ * 专注记录 → 界面用的行。
+ * 时间区间靠 startedAt + seconds 现算（数据库里没有结束时刻那一列，也不需要加）：
+ *   「20:45 - 21:30」+「45m」
+ */
+function focusRowView(r) {
+  const p = (x) => String(x).padStart(2, '0')
+  const hm = (d) => `${p(d.getHours())}:${p(d.getMinutes())}`
+  const start = Number(r.startedAt) || Number(r.at) || Date.now()
+  const seconds = Math.max(0, Number(r.seconds) || 0)
+  const a = new Date(start)
+  const b = new Date(start + seconds * 1000)
+  return {
+    id: r.id,
+    task: r.task || '',
+    cover: r.cover || '',
+    seconds,
+    completed: Boolean(r.completed),
+    from: hm(a),
+    to: hm(b),
+    range: `${hm(a)} - ${hm(b)}`,
+    dur: fmtMin(seconds)
+  }
+}
+
 
 export const usePomodoroStore = defineStore('pomodoro', {
   state: () => {
@@ -212,6 +238,71 @@ export const usePomodoroStore = defineStore('pomodoro', {
         if (map.has(r.day)) map.set(r.day, map.get(r.day) + (r.seconds || 0))
       }
       return keys.reverse().map((date) => ({ date, seconds: map.get(date) || 0 }))
+    },
+    /** 全部历史：总秒数 / 总轮数（右栏「概览」用） */
+    allSeconds(s) {
+      return s.sessions.reduce((acc, r) => acc + (r.seconds || 0), 0)
+    },
+    allCount: (s) => s.sessions.length,
+    /** 每个目标的累计时长 / 轮数（按记录里的 task 名字聚合；改过名的就算到新名字上） */
+    byTarget(s) {
+      const map = {}
+      for (const r of s.sessions) {
+        const name = r.task || '未绑定任务'
+        if (!map[name]) map[name] = { seconds: 0, count: 0 }
+        map[name].seconds += Number(r.seconds) || 0
+        map[name].count += 1
+      }
+      return map
+    },
+    /** 同上，只要今天的（目标行右边那句「今日 9:55」） */
+    todayByTarget(s) {
+      const key = todayKey()
+      const map = {}
+      for (const r of s.sessions) {
+        if (r.day !== key) continue
+        const name = r.task || '未绑定任务'
+        if (!map[name]) map[name] = { seconds: 0, count: 0 }
+        map[name].seconds += Number(r.seconds) || 0
+        map[name].count += 1
+      }
+      return map
+    },
+    /**
+     * 专注记录按天分组（新的在前），每行都带好了「20:45 - 21:30」这种区间文本。
+     * 只取最近 60 条：全量统计在 stats 里还有，列表没必要渲染几千行。
+     */
+    byDay(s) {
+      const groups = []
+      const index = new Map()
+      const today = todayKey()
+      const y = new Date()
+      y.setDate(y.getDate() - 1)
+      const yesterday = todayKey(y)
+      const list = s.sessions
+        .slice()
+        .sort((a, b) => (b.startedAt || b.at || 0) - (a.startedAt || a.at || 0))
+        .slice(0, 60)
+      for (const r of list) {
+        const day = r.day || today
+        let g = index.get(day)
+        if (!g) {
+          const d = new Date(`${day}T00:00:00`)
+          const label =
+            day === today ? '今天' : day === yesterday ? '昨天' : `${d.getMonth() + 1}月${d.getDate()}日`
+          g = { day, label, seconds: 0, rows: [] }
+          index.set(day, g)
+          groups.push(g)
+        }
+        g.seconds += Number(r.seconds) || 0
+        g.rows.push(focusRowView(r))
+      }
+      return groups
+    },
+    /** 计时条主按钮上的字：跑起来之后点它就是结束（没有「暂停」这个中间态） */
+    primaryLabel(s) {
+      if (!s.running) return '开始专注'
+      return s.mode === 'break' ? '跳过休息' : '结束专注'
     }
   },
   actions: {
@@ -429,6 +520,33 @@ export const usePomodoroStore = defineStore('pomodoro', {
       this.recordedAt = 0
       this.remain = this.totalSeconds
     },
+    /**
+     * 主按钮 / 空格键：没在跑就开始；在跑就一定要先问一句要不要结束。
+     * 提前结束的专注只要超过 30 秒也会按「部分完成」记下来，不足 30 秒不记档。
+     * 放在 store 里（而不是某个组件里）：计时条、目标行、键盘快捷键三处都要用它。
+     */
+    async primaryAction() {
+      if (!this.running) {
+        if (this.mode === 'break') this.setMode('focus')
+        this.start()
+        return
+      }
+      if (this.mode === 'focus') {
+        const secs = this.elapsedSeconds
+        const sub =
+          secs >= 30
+            ? `已专注 ${fmtDuration(secs)}，会按「部分完成」记进专注记录。`
+            : `这一轮只走了 ${fmtDuration(secs)}，不到 30 秒不会记进专注记录。`
+        let ok = true
+        try {
+          ok = await useUiStore().confirm('结束这次专注？', sub, '结束专注')
+        } catch {
+          ok = true // 确认框拿不到（store 没就绪）就直接结束，别把计时卡死
+        }
+        if (!ok) return
+      }
+      await this.finish(false)
+    },
     /** 写一行专注记录（幂等：同一轮只写一次） */
     async record({ seconds, completed }) {
       const key = this.startedAt || Date.now()
@@ -462,6 +580,44 @@ export const usePomodoroStore = defineStore('pomodoro', {
       await db.focus.delete(id)
       // 「今日专注」是直接从 focus 表算出来的（todayCount），删完重新读一次就自动对齐
       await this.loadStats()
+    },
+    /**
+     * 目标改名：把历史记录里的任务名一起改掉。
+     * 不改的话旧记录会挂在一个已经不存在的目标上（列表里点不到、统计里又是一行幽灵）。
+     */
+    async renameTask(oldName, newName) {
+      const from = String(oldName || '').trim()
+      const to = String(newName || '').trim()
+      if (!from || !to || from === to) return 0
+      let n = 0
+      try {
+        n = await db.focus.where('task').equals(from).modify({ task: to })
+      } catch (err) {
+        console.warn('[focus] 改名历史记录失败：', err && err.message)
+      }
+      if (this.task && this.task.name === from) this.setTask({ ...this.task, name: to })
+      if (n) await this.loadStats()
+      return n
+    },
+    /**
+     * 手动补记一条专注记录（记录面板右上角的「＋」）。
+     * 时间和时长都是用户填的，所以 completed 记 true —— 它本来就是「已经完成的一段」。
+     */
+    async addManualSession({ date, time, minutes, task }) {
+      const mins = Math.max(1, Math.min(600, Math.round(Number(minutes) || 0)))
+      const d = new Date(`${date}T${time || '00:00'}:00`)
+      if (Number.isNaN(d.getTime())) return null
+      const row = await addFocusSession({
+        day: todayKey(d),
+        startedAt: d.getTime(),
+        seconds: mins * 60,
+        completed: true,
+        task: String(task || ''),
+        mode: 'focus',
+        focusMin: mins
+      })
+      if (row) await this.loadStats()
+      return row
     },
     async clearSessions() {
       await clearFocusSessions()

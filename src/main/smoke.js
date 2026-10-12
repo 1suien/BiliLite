@@ -2090,8 +2090,20 @@ export async function runSmoke(win) {
   )
 
   // ── 专注（TickTick 风格面板）：存在 / 倒计时 / 暂停 / 专注结束记入学习时长 ──
-  // 面板 DOM 见 components/FocusPanel.vue：根节点 .panel.focus，大号倒计时是 .ring-clock
-  await step('学习页有专注面板', "!!document.querySelector('.focus .ring-clock')", (v) => v === true)
+  // 面板 DOM 见 components/FocusPanel.vue 与 FocusTargets/FocusOverview/FocusRecords：
+  // 根节点 .focus（带 data-elapsed），左栏目标列表 .ft .ft-row，右栏概览 .ov .ov-card、记录 .rec；
+  // 计时条里的大号倒计时是 .focus-clock（只做「在不在学习页 + 有没有在走」的探针）
+  await step('学习页有专注面板', "!!document.querySelector('.focus .focus-clock')", (v) => v === true)
+  await step(
+    '学习页专注概览四张卡',
+    "document.querySelectorAll('.ov .ov-card').length",
+    (v) => v === 4
+  )
+  await step(
+    '学习页专注记录面板',
+    "!!document.querySelector('.rec .rec-head') && document.querySelector('.focus').innerText.includes('专注记录')",
+    (v) => v === true
+  )
 
   // 专注快捷任务可自定义（用户反馈：阅读 / 刷题 / 看课 / 整理笔记 这四个要能自己改）
   // 必须在番茄钟开跑前做：计时中绑定按钮是 disabled 的
@@ -2156,7 +2168,7 @@ export async function runSmoke(win) {
       return b.textContent.replace(/\\s+/g, ' ').trim()
     })()`)
   const pomoClock = () =>
-    js("(() => { const el = document.querySelector('.focus .ring-clock'); return el ? el.textContent.trim() : '' })()")
+    js("(() => { const el = document.querySelector('.focus .focus-clock'); return el ? el.textContent.trim() : '' })()")
   const pomoHead = () =>
     js(`(() => {
       const el = document.querySelector('.focus .focus-head .muted')
@@ -2177,7 +2189,7 @@ export async function runSmoke(win) {
       return {
         hash: location.hash,
         pomo: document.querySelectorAll('.focus').length,
-        clock: document.querySelectorAll('.focus .ring-clock').length,
+        clock: document.querySelectorAll('.focus .focus-clock').length,
         muted: document.querySelectorAll('.focus .muted').length,
         cls: p ? p.className : 'none',
         panel: p ? String(p.innerText || '').replace(/\\s+/g, ' ').slice(0, 160) : '',
@@ -2189,12 +2201,12 @@ export async function runSmoke(win) {
   // 有人在冒烟跑的时候点窗口会把页面带走（实测点了设置页主题 / 番茄钟按钮 / 侧栏「UP 管理」）：
   // 面板没了就点回学习页，而不是让后面的 js() 抛 TypeError 把整轮冒烟打断。
   const backToLearn = async () => {
-    if (await js("!!document.querySelector('.focus .ring-clock')").catch(() => false)) return true
+    if (await js("!!document.querySelector('.focus .focus-clock')").catch(() => false)) return true
     const h = await js('location.hash').catch(() => '?')
     log(`WARN  专注面板不见了（hash=${h}），重新点侧栏「学习」继续`)
     await clickNav('学习')
     await sleep(900)
-    return js("!!document.querySelector('.focus .ring-clock')").catch(() => false)
+    return js("!!document.querySelector('.focus .focus-clock')").catch(() => false)
   }
 
   // 把「专注」改 1 分钟，方便在冒烟里跑完整一轮。时长输入框收在齿轮按钮后面，得先展开。
@@ -2278,7 +2290,7 @@ export async function runSmoke(win) {
   let toastText = ''
   for (let i = 0; i < 80; i++) {
     await sleep(1000)
-    if (!(await js("!!document.querySelector('.focus .ring-clock')").catch(() => false))) await backToLearn()
+    if (!(await js("!!document.querySelector('.focus .focus-clock')").catch(() => false))) await backToLearn()
     const head = await pomoHead()
     const panel = await pomoPanelText()
     // 新面板头部文案是「今日 N 轮 · M:SS」；历史面板也要出现这一轮（证明落了库）

@@ -5,7 +5,6 @@ import BiliImage from '../components/BiliImage.vue'
 import EmptyBlock from '../components/EmptyBlock.vue'
 import FocusPanel from '../components/FocusPanel.vue'
 import HabitHome from '../components/HabitHome.vue'
-import FocusTargets from '../components/FocusTargets.vue'
 import Icon from '../components/Icon.vue'
 import { useLearnStore } from '../stores/learn'
 import { useUiStore } from '../stores/ui'
@@ -132,11 +131,8 @@ onMounted(async () => {
     <!-- 习惯打卡：今天的习惯，点一下就能打卡（详情在侧栏「习惯」页） -->
     <HabitHome />
 
-    <!-- 专注（TickTick 风格：圆环 + 大号倒计时 + 任务绑定） -->
+    <!-- 专注：左边目标列表 + 常驻计时条，右边概览 + 专注记录（FocusPanel 里组合） -->
     <FocusPanel />
-
-    <!-- 专注目标：自己列目标，点一下就开始专注（替代原来的「专注记录」） -->
-    <FocusTargets />
 
     <div class="tabs">
       <button class="tab" :class="{ on: tab === 'recent' }" @click="tab = 'recent'">学习进度（{{ recent.length }}）</button>

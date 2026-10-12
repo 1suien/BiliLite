@@ -14,6 +14,23 @@ export function fmtDuration(sec) {
   return h > 0 ? `${h}:${p(m)}:${p(ss)}` : `${m}:${p(ss)}`
 }
 
+/**
+ * 45m / 1h 20m —— 专注记录里那种「简洁时长」。
+ * 和 fmtDuration（45:00 / 1:03:40）不是一个用途：这里是列宽只有几十像素的行尾。
+ */
+export function fmtMin(sec) {
+  const s = Math.max(0, Math.floor(Number(sec) || 0))
+  if (s <= 0) return '0m'
+  let h = Math.floor(s / 3600)
+  let m = Math.round((s % 3600) / 60)
+  if (m >= 60) {
+    h += 1
+    m = 0
+  }
+  if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`
+  return `${Math.max(1, m)}m`
+}
+
 /** "MM:SS" / "HH:MM:SS" / "12:34" 文本 → 秒 */
 export function parseDuration(text) {
   if (typeof text === 'number') return text

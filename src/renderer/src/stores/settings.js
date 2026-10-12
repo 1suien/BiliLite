@@ -25,6 +25,39 @@ export const BRAND_PRESETS = {
   green: { dark: '#7fd68a', light: '#15803d' }
 }
 
+/**
+ * 专注目标的色板：每个目标一个色相，渲染成列表左边那个「色块 + 名字首字」的圆标。
+ * 存的是色相 key（不是 hex），这样深/浅两套主题各取各的值，和侧栏/品牌色一套做法。
+ * 不用 emoji 当图标：Windows 上 emoji 一律是彩色的，跟黑白极简的基调打架。
+ */
+export const TARGET_COLORS = {
+  blue: { label: '蓝', dark: '#4aa8ff', light: '#0f6fd1' },
+  cyan: { label: '青', dark: '#5ad1c8', light: '#0f766e' },
+  purple: { label: '紫', dark: '#b39ddb', light: '#6d28d9' },
+  orange: { label: '橙', dark: '#f0a868', light: '#b45309' },
+  green: { label: '绿', dark: '#7fd68a', light: '#15803d' },
+  rose: { label: '玫', dark: '#f48fb1', light: '#be185d' }
+}
+export const TARGET_COLOR_KEYS = Object.keys(TARGET_COLORS)
+/** 默认的四个目标（老版本 focusTasks 的出厂值，迁移时用） */
+export const DEFAULT_FOCUS_TARGETS = ['阅读', '刷题', '看课', '整理笔记']
+
+/** 色相 key + 主题 → 具体 hex；key 不认识就回落到第一个色相 */
+export function targetHex(key, theme) {
+  const c = TARGET_COLORS[key] || TARGET_COLORS[TARGET_COLOR_KEYS[0]]
+  return theme === 'light' ? c.light : c.dark
+}
+
+/** 造一个目标条目；i 只用来轮着分配颜色 */
+export function makeFocusTarget(name, i = 0) {
+  return {
+    name: String(name || '').trim(),
+    color: TARGET_COLOR_KEYS[i % TARGET_COLOR_KEYS.length],
+    archived: false,
+    createdAt: Date.now()
+  }
+}
+
 /** 用相对亮度决定强调色上的文字用黑还是白 */
 function readableFg(hex) {
   const m = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim())
@@ -43,7 +76,7 @@ function readableFg(hex) {
  * 0.45 这档刚好让深色主题的 #4aa8ff 落到近黑字（白字只有 2.1:1）、
  * 浅色主题的 #0f6fd1 落到白字。
  */
-function brandFg(hex) {
+export function brandFg(hex) {
   const m = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim())
   if (!m) return '#06121f'
   const n = parseInt(m[1], 16)
@@ -94,7 +127,13 @@ export const useSettingsStore = defineStore('settings', {
       subBg: true,
       subBottom: 8,
       /** 专注弹层里的快捷任务（可自定义；空数组 = 用代码里的默认四个） */
-      focusTasks: ['阅读', '刷题', '看课', '整理笔记']
+      focusTasks: ['阅读', '刷题', '看课', '整理笔记'],
+      /**
+       * 专注目标（学习页「专注」左栏那份列表）：{ name, color, archived, createdAt }。
+       * 和 focusTasks 是同一份东西的两个视图 —— focusTasks 只是名字数组，历史包袱；
+       * 每次保存目标都会把没有归档的名字同步回 focusTasks（见 setFocusTargets）。
+       */
+      focusTargets: []
     }
   }),
   actions: {
@@ -127,6 +166,16 @@ export const useSettingsStore = defineStore('settings', {
         /* 设置读不到就用默认值，不阻塞启动 */
       }
       this.applyTheme()
+      // 迁移：老版本只有 focusTasks（一串名字），第一次进设置时升级成 focusTargets
+      // （带颜色 / 归档 / 创建时间）。已经有的用户不动，只补空的那一边。
+      if (!Array.isArray(this.settings.focusTargets) || !this.settings.focusTargets.length) {
+        const src =
+          Array.isArray(this.settings.focusTasks) && this.settings.focusTasks.length
+            ? this.settings.focusTasks
+            : DEFAULT_FOCUS_TARGETS
+        const list = src.map((n, i) => makeFocusTarget(n, i)).filter((t) => t.name)
+        if (list.length) await this.setFocusTargets(list)
+      }
       this.loaded = true
     },
     async patch(patch) {
@@ -138,6 +187,32 @@ export const useSettingsStore = defineStore('settings', {
       } catch {
         /* 落盘失败时保持内存值 */
       }
+    },
+
+    /**
+     * 保存专注目标列表。顺带把「没归档的名字」同步进 focusTasks ——
+     * 弹层里的快捷任务 chips 用的还是那个旧字段，两边不能各说各话。
+     */
+    async setFocusTargets(list) {
+      const clean = (Array.isArray(list) ? list : [])
+        .map((t) => ({
+          name: String((t && t.name) || '')
+            .trim()
+            .slice(0, 12),
+          color: TARGET_COLORS[t && t.color] ? t.color : TARGET_COLOR_KEYS[0],
+          archived: Boolean(t && t.archived),
+          createdAt: Number(t && t.createdAt) || Date.now()
+        }))
+        .filter((t) => t.name)
+        .slice(0, 24)
+      await this.patch({
+        focusTargets: clean,
+        focusTasks: clean
+          .filter((t) => !t.archived)
+          .map((t) => t.name)
+          .slice(0, 8)
+      })
+      return clean
     }
   }
 })

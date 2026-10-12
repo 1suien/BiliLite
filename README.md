@@ -790,6 +790,58 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 > 另外又踩了一次 `ELECTRON_RUN_AS_NODE=1`：它一旦还在环境里，Electron 会退化成 Node，
 > 看到的就是 `BiliLite.exe: bad option: --no-sandbox` 加一行 `bad option: --user-data-dir=...` 然后秒退
 > —— 任何启动前先 `Remove-Item Env:ELECTRON_RUN_AS_NODE`。
+>
+> v0.3.2 专注目标改版（2026-10-12，学习页专注区整体重做）：把「一个大圆环 + 会话历史列表」换成
+> **左「专注目标」+ 右「概览 / 专注记录」**两栏（照用户给的参考 App 效果图做的，方案见
+> `UI优化\专注目标改版方案.md`，静态效果图见 `UI优化\专注目标-效果图.html` + `UI优化\效果图\`）。
+>
+> 新增/重写的组件（`src/renderer/src/components/`）：
+> - **`FocusOverview.vue`**（新）：4 张卡「今日番茄 / 今日专注时长 / 总番茄 / 总专注时长」；
+>   根 `.panel.ov`、卡片 `.ov-card`（冒烟断言 `.ov .ov-card` = 4）。
+> - **`FocusRecords.vue`**（新）：按天倒序分组的记录时间线（`20:45 - 21:30 …… 45m` + 任务名），
+>   支持右上 `＋` 手动补记一条、单条删除（悬停才出现）、清空全部；列表自己滚（`.rec-scroll`
+>   `max-height:296px`）。
+> - **`FocusTargets.vue`**（重写）= 左栏。「坚持中 N / 已归档 N」两个页签；每行 = 彩色圆标 + 名字 +
+>   今日时长 + `▶`/`⏸`；**删除改成归档**（计时中归档不丢历史，已归档页签里才有「彻底删除」）；
+>   圆标颜色从 `TARGET_COLORS` 六色按创建顺序自动分配，标里放名字首字（**不用 emoji** ——
+>   Windows 上 emoji 一律彩色，会破坏黑白极简）。
+> - **`FocusPanel.vue`**（重写）= 容器 + 底部常驻计时条。大圆环**只在全屏（`⛶`）里出现**，
+>   平时计时收在左栏底部的计时条（`▶` + 名字 + 大号倒计时 + 进度 + 更换目标 + 时长设置 + 全屏）。
+> - **删掉 `SessionHistory.vue`**（grep 全仓只有 LearnView 引用它，git 历史可恢复）。
+>
+> 数据层：
+> - `stores/settings.js` 新增 `focusTargets: [{name,color,archived,createdAt}]`、`TARGET_COLORS` /
+>   `makeFocusTarget()` / `targetHex()`、action `setFocusTargets()`；**`init()` 里从旧的 `focusTasks`
+>   自动迁移一次**，`setFocusTargets()` 反过来同步 `focusTasks`（飘层里的快捷任务 chips 还在读它，
+>   冒烟也直接断言它，两边必须一致）。
+> - `stores/pomodoro.js` 新增 getters `allSeconds / allCount / byTarget / todayByTarget / byDay /
+>   primaryLabel`，actions `primaryAction()`（从 FocusPanel 搬进 store）、`renameTask()`（改名连带改
+>   历史记录里的 `task`，不丢数据）、`addManualSession()`。
+> - `utils/format.js` 新增 `fmtMin()`（`45m` / `1h 20m`）。
+>
+> 踩过的坑（改这块之前先看一眼）：
+> - `elapsedSeconds` getter 第一行的 `const clock = s.remain; void clock` **不能删** ——
+>   `Date.now()` 不是响应式的，没这行 getter 会被 Pinia 缓存成恒 0（界面「本轮 0:00」不动、
+>   「结束专注」的确认框也不弹）。
+> - 左栏宽度 `minmax(320px, 384px)` 是照计时条挤不挤算出来的：再窄一点，「更换 + 时长设置 + 全屏」
+>   三个按钮会把目标名挤成省略号。
+> - 计时条的「更换目标」是**图标按钮 + `.sr-only` 文字**（跟 `▶` 一个套路），因为冒烟是按
+>   `textContent` 匹配 `/绑定任务|更换/` 找它的 —— 把文字删干净那条断言就会挂。
+> - `.scroll` 上有 `scroll-behavior: smooth`，脚本滚屏必须 `scrollTo({top, behavior:'instant'})`，
+>   直接写 `scrollTop` 会被动画吞掉（表现为「滚不动」）。
+> - 「恢复默认目标」会先弹 `ui.confirm`，脚本里点一次不够，还得点确认框里的按钮。
+>
+> 验证：源码版冒烟 **PASS 98 / FAIL 0 / WARN 0**（`smoke-v51-report.txt`，`app:ping` 报
+> `version 0.3.2`）；新增两条断言「学习页专注概览四张卡」「学习页专注记录面板」，并把
+> `.focus .ring-clock` 全部改名成 **`.focus .focus-clock`**（6 处）。截图：`_work\shots-v50-dark\`
+> （空闲 / 计时中 / 已归档三态）+ `_work\shots-v50-light\`。截图脚本
+> `_work\shot-focus.mjs <out.png> <idle|running|archived> [dark|light] [seed]` —— 它会自己整页重载
+> （只改 hash 拿不到新 bundle）、设主题、摆状态、再把 `.focus-layout` 滚进可视区。
+>
+> 装机（2026-10-12）：`package.json` 版本 `0.3.1 → 0.3.2`，`_work\build-asar.mjs` 以
+> `resources\app.asar.bak-before-ui-polish` 为底重打包 → **24,406,591 B / 988 个条目 / SHA256
+> `F92420C1EF4328F462F985486242F2295839A0973082443DDAB0931EDEA733F8`**，覆盖前把原来的 asar
+> 备份成 `resources\app.asar.bak-0.3.1`。**重启 App 才会生效**。
 
 ## 功能与数据
 
