@@ -868,6 +868,19 @@ function openExternal() {
   api.sys.openExternal(`https://www.bilibili.com/video/${bvid.value}`).catch(() => {})
 }
 
+/** 复制当前视频的 BV 号：学习场景里常要把它贴进笔记/学习清单/群聊。 */
+async function copyBvid() {
+  const id = bvid.value
+  if (!id) return
+  try {
+    await navigator.clipboard.writeText(id)
+    ui.ok(`已复制 BV 号 ${id}`)
+  } catch {
+    // 剪贴板被系统策略挡住时，至少把号码显示出来让用户手动选中
+    ui.err(`复制失败，BV 号是 ${id}`)
+  }
+}
+
 function onKey(e) {
   const tag = document.activeElement && document.activeElement.tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA') return
@@ -1127,16 +1140,6 @@ onBeforeUnmount(() => {
         <div class="grow" style="min-width: 0">
           <h1 style="font-size: 17px; margin: 0 0 6px; line-height: 1.45">{{ info.title }}</h1>
           <div v-if="currentPageTitle" class="dim" style="font-size: 12.5px">正在播放：{{ currentPageTitle }}</div>
-          <div class="row muted" style="flex-wrap: wrap; margin-top: 8px; font-size: 12.5px">
-            <span class="chip link" @click="router.push({ name: 'up', params: { mid: String(info.upMid) } })">
-              <Icon name="user" :size="13" /> {{ info.upName }}
-            </span>
-            <span class="chip plain">{{ fmtCount(info.play) }} 播放</span>
-            <span class="chip plain">{{ fmtCount(info.danmaku) }} 弹幕</span>
-            <span class="chip plain">{{ fmtCount(info.like) }} 点赞</span>
-            <span class="chip plain">{{ fmtCount(info.fav) }} 收藏</span>
-            <span class="chip plain">{{ fmtDate(info.pubdate) }}</span>
-          </div>
         </div>
         <div class="row" style="flex: none">
           <button class="btn sm" @click="collectOpen = true">
@@ -1162,6 +1165,24 @@ onBeforeUnmount(() => {
             <Icon name="pip" :size="14" /> 正在小窗播放
           </button>
         </div>
+      </div>
+
+      <!-- 元信息单独一行并占满整列宽度：放在标题列里只有 ~273px，加了 BV 号后
+           日期必然被挤到第二行；提到外面后 UP 名 + BV 号 + 日期 一行放得下。 -->
+      <div class="row muted" style="flex-wrap: wrap; margin-top: 10px; font-size: 12.5px">
+        <span class="chip link" @click="router.push({ name: 'up', params: { mid: String(info.upMid) } })">
+          <Icon name="user" :size="13" /> {{ info.upName }}
+        </span>
+        <button
+          v-if="bvid"
+          class="chip link bv-chip mono"
+          title="点击复制 BV 号"
+          aria-label="复制 BV 号"
+          @click="copyBvid"
+        >
+          <Icon name="copy" :size="12" /> {{ bvid }}
+        </button>
+        <span class="chip plain">{{ fmtDate(info.pubdate) }}</span>
       </div>
 
       <div class="tabs" style="margin-top: 18px">

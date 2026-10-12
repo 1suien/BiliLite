@@ -843,6 +843,35 @@ Get-Content smoke-pkg-report.txt -Encoding UTF8
 > `F92420C1EF4328F462F985486242F2295839A0973082443DDAB0931EDEA733F8`**，覆盖前把原来的 asar
 > 备份成 `resources\app.asar.bak-0.3.1`。**重启 App 才会生效**。
 
+> v0.3.3 播放页元信息行（2026-10-12，`VideoView.vue` + `Icon.vue`）：
+> 元信息行原来是「UP 名 + 播放/弹幕/点赞/收藏 四个统计 chip + 发布日期」，四个统计数对学习场景
+> 没用，却把发布日期挤到了第二行。改成：
+>
+> - **删掉四个统计 chip**（`{{ fmtCount(info.play) }} 播放` / `弹幕` / `点赞` / `收藏`）。
+>   `fmtCount` 本身不能删 —— 「相关推荐」还在用它（`VideoView.vue` 约 1212 行）。
+> - **原位换成 BV 号胶囊**：`<button class="chip link bv-chip mono" title="点击复制 BV 号"
+>   @click="copyBvid"><Icon name="copy" :size="12" /> {{ bvid }}</button>`，等宽字体，点了
+>   `navigator.clipboard.writeText(bvid)` 并 `ui.ok('已复制 BV 号 XXX')`（失败走 `ui.err`）。
+>   `Icon.vue` 的 `ICONS` 表因此新增 **`copy`** 图标（原有 53 个里没有）。
+> - **元信息行从标题列里提出来，单独占满整列宽度**。原因是实测：播放页头部那行
+>   `display:flex;gap:10px` 总宽 679px（视频列宽），其中标题列 `.grow` 被右侧四个操作按钮
+>   （`flex:none`，396px）挤到只剩 **273px** —— 塞下 UP 名(33) + 四个统计(45×4) + 间距(8×4) = 253
+>   已经极限，再加发布日期(111) 必然 `flex-wrap` 换行。提出去之后一行宽度 679px，
+>   UP 名 + BV 号(约 125) + 日期(111) 一行放得下。**标题的换行是既有现象（273px 装不下 17px 的
+>   长标题），未动。**
+> - 冒烟新增两条断言：`播放页显示 BV 号（点击可复制）`（读 `.bv-chip` 文本要求匹配
+>   `/^BV[0-9A-Za-z]{10}$/`）与 `播放页元信息行不再显示统计数`（在 `.bv-chip` 的 `parentElement`
+>   上查 `播放|弹幕|点赞|收藏`）。
+>
+> 验证：源码版冒烟 **PASS 98 / FAIL 0 / WARN 2**（`smoke-v54-report.txt`，`app:ping` 报
+> `version 0.3.3`；两条 WARN 都是既有的软告警：搜索页没滚起来所以跳过「回到顶部」、CDN 没走
+> ranged 起流）。截图：`_work\shots-v54\09-播放页.png`。
+>
+> 坑（探针踩过）：`_work\cdpx.mjs` 的 `APP_URL` **默认指向装机 asar** 的
+> `out/renderer/index.html`，用 `cdpx.mjs nav` 会把装机版的渲染层加载进 dev 窗口 ——
+> 探针会误报「新 UI 没生效」。要探 dev 构建，必须让 dev 实例加载自己的
+> `_work\BiliLite-src\out\renderer\index.html`。
+
 ## 功能与数据
 
 - **登录**：B 站二维码扫码（`qrcode` 渲染），凭证经 Electron `safeStorage`（DPAPI）加密后存于 `userData/study-bili.json`。

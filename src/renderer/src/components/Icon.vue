@@ -64,7 +64,8 @@ const ICONS = {
     '<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 9.6h17M8.2 3.2v3.6M15.8 3.2v3.6"/><path d="M8 13.4h.01M12 13.4h.01M16 13.4h.01M8 17h.01M12 17h.01"/>',
   target:
     '<circle cx="12" cy="12" r="8.6"/><circle cx="12" cy="12" r="4.6"/><circle cx="12" cy="12" r="1.1" fill="currentColor"/>',
-  archive: '<rect x="3" y="4" width="18" height="4.4" rx="1.4"/><path d="M4.6 8.4V19a1.6 1.6 0 0 0 1.6 1.6h11.6A1.6 1.6 0 0 0 19.4 19V8.4"/><path d="M9.8 12.2h4.4"/>'
+  archive: '<rect x="3" y="4" width="18" height="4.4" rx="1.4"/><path d="M4.6 8.4V19a1.6 1.6 0 0 0 1.6 1.6h11.6A1.6 1.6 0 0 0 19.4 19V8.4"/><path d="M9.8 12.2h4.4"/>',
+  copy: '<rect x="9" y="9" width="12.5" height="12.5" rx="2.2"/><path d="M5.2 15.5H4.2A1.7 1.7 0 0 1 2.5 13.8V4.2A1.7 1.7 0 0 1 4.2 2.5h9.6a1.7 1.7 0 0 1 1.7 1.7v1"/>'
 }
 </script>
 

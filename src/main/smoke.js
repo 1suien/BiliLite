@@ -493,6 +493,28 @@ export async function runSmoke(win) {
     (v) => v === true
   )
 
+  // ---- 元信息行：原来那四个统计胶囊（播放/弹幕/点赞/收藏，学习场景没意义且常常全是 0）
+  //      已删除，换成可点击复制的 BV 号（.bv-chip 是按钮，点击走 navigator.clipboard + toast） ----
+  await step(
+    '播放页显示 BV 号（点击可复制）',
+    `(() => {
+      const el = document.querySelector('.bv-chip')
+      if (!el) return 'missing'
+      const txt = (el.textContent || '').trim()
+      return /^BV[0-9A-Za-z]{10}$/.test(txt) ? 'ok' : 'bad:' + txt
+    })()`,
+    (v) => v === 'ok'
+  )
+  await step(
+    '播放页元信息行不再显示统计数',
+    `(() => {
+      const bv = document.querySelector('.bv-chip')
+      if (!bv || !bv.parentElement) return 'no-bv'
+      return /播放|弹幕|点赞|收藏/.test(bv.parentElement.textContent) ? 'still-has-stats' : 'clean'
+    })()`,
+    (v) => v === 'clean'
+  )
+
   // ---- 分P列表要带分P标题（后端 pagelist 字段是 `part`，界面读 `title`，曾渲染成「P1 ·」和「正在播放：P1 undefined」）----
   // 列表已改成「等宽序号徽章 + 单行省略标题」的对齐清单（components/PartList.vue）
   for (let i = 0; i < 10; i++) {
