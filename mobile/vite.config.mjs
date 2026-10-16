@@ -34,7 +34,12 @@ export default defineConfig({
     alias: [
       { find: '@capacitor/core', replacement: cap('core') },
       { find: '@capacitor/app', replacement: cap('app') },
-      { find: '@capacitor/filesystem', replacement: cap('filesystem') }
+      { find: '@capacitor/filesystem', replacement: cap('filesystem') },
+      // 平台能力（见 src/mobile/platform.js 与 src/mobile/store.js）
+      { find: '@capacitor/clipboard', replacement: cap('clipboard') },
+      { find: '@capacitor/preferences', replacement: cap('preferences') },
+      { find: '@capacitor/status-bar', replacement: cap('status-bar') },
+      { find: '@capacitor/screen-orientation', replacement: cap('screen-orientation') }
     ]
   },
   build: {

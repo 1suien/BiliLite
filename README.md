@@ -43,8 +43,9 @@ src/
   mobile/                   安卓入口与平台层（见 mobile/README.md）
     main.js                 装桥 → 动态 import 渲染层 → 物理返回键 / 安全区
     bridge.js               IPC 通道表的 web 版（41 个通道，复用 src/main/bili/*）
-    store.js                同接口的 localStorage 版
+    store.js                同接口的原生 Preferences 版（load 是异步的）
     native-http.js          接口 JSON 走原生 CapacitorHttp（可自定义 Referer / Origin / Cookie）
+    platform.js             剪贴板 / 全屏 / 画中画 的浏览器侧 shim（渲染层无感）
     mobile.css              触屏 / 安全区样式，只在 html[data-platform='android'] 下生效
   renderer/
     index.html              含 CSP meta（`media-src` / `connect-src` 里有 `lmedia:`，放本地视频要用；
@@ -219,20 +220,29 @@ node 'C:\Users\zouyx\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\pnpm\bin
 
 - **共用同一份渲染层和 B 站接口层**：`src/renderer/**` 与 `src/main/bili/**` 一行逻辑没改，
   安卓端只多写了一个平台层 `src/mobile/`（`bridge.js` 把 `src/main/ipc.js` 的 41 个通道
-  重实现成 web 版、`store.js` 换成 localStorage、`native-http.js` 换成原生 HTTP）。
+  重实现成 web 版、`store.js` 换成原生 Preferences、`native-http.js` 换成原生 HTTP、
+  `platform.js` 补剪贴板/全屏/画中画）。
   渲染层接触桥的地方只有 `src/renderer/src/api/index.js` 一处，所以挂上 `window.bili` 就能跑。
-- **入口顺序**：`mobile/index.html` → `src/mobile/main.js`：设 `data-platform='android'` →
-  `installBridge()` → **动态** `import('../renderer/src/main.js')` → 绑物理返回键。
+- **入口顺序**：`mobile/index.html` → `src/mobile/main.js` 的 `boot()`：设 `data-platform='android'` →
+  `await installBridge()`（存储走原生 Preferences，是异步的）→ `installPlatformShims()` →
+  **动态** `import('../renderer/src/main.js')` → 绑物理返回键。
   （必须动态 import：`api/index.js` 在模块顶层就读 `window.bili`。）
 - **网络两条腿**：`server.hostname` 设成 `www.bilibili.com` 让 WebView 的 `Referer` 天生正确
   （B 站 CDN 无 Referer 会 403），DASH 分片继续走被 Capacitor 原生代理接管的 `window.fetch`（流式）；
   接口 JSON 走 `CapacitorHttp.request()`（可自定义 `Referer` / `Origin` / `Cookie`，无 CORS）。
+- **平台能力**（都用 shim / 插件补齐，渲染层无感）：设置与登录态走 `@capacitor/preferences`；
+  `navigator.clipboard` 换成 `@capacitor/clipboard`；全屏时隐藏状态栏 + 锁横屏；
+  画中画用自写原生插件 `PipPlugin.java`（按 Home 键进小窗，`setSourceRectHint` 贴着视频区域）；
+  物理返回键按「弹层 → 确认框 → 全屏 → 剧场模式 → 路由 → 收到后台」的优先级接管。
 - **触屏适配**：`src/mobile/mobile.css` 只在 `html[data-platform='android']` 下生效，
-  桌面端零影响。安卓端侧栏按 `window.bili.platform` 隐藏「本地」入口。
+  桌面端零影响。安卓端侧栏按 `document.documentElement.dataset.platform` 隐藏「本地」入口。
 - **构建**：`mobile/` 下 `pnpm install --ignore-workspace` → `vite build` → `cap sync android` →
-  `android\gradlew.bat assembleDebug`，产物 `mobile/android/app/build/outputs/apk/debug/app-debug.apk`（≈4.1 MB）。
+  `android\gradlew.bat assembleDebug`，产物 `mobile/android/app/build/outputs/apk/debug/app-debug.apk`（≈4.18 MB，
+  `versionCode 4` / `versionName 0.4.0`）。
   本机 JDK/SDK 在 `C:\Users\zouyx\android-toolchain\`；工程路径含中文，已在
   `mobile/android/gradle.properties` 固化 `android.overridePathCheck=true`。
+  注意 `pnpm run build` 曾被 pnpm 11 的依赖预检带崩（`ERR_PNPM_IGNORED_BUILDS` → 预检 install 退出 1），
+  已在 `mobile/.npmrc` 写 `verify-deps-before-run=false`。
 
 ## 验证
 

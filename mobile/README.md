@@ -15,7 +15,7 @@
 | --- | --- |
 | `src/renderer/**` | **原样复用，一行没改逻辑**。11 个 view 只通过 `src/renderer/src/api/index.js` 接触桥，只要在 Vue 挂载前把 `window.bili` 装好即可 |
 | `src/main/bili/**` | **原样复用**（12 个文件，已无 electron / node: 依赖）：`runtime.js` 注入 store、`md5.js` 纯 JS 签名、`http.js` 的 `setCookieMode()` + `setHttpFetch()` |
-| `src/mobile/**` | 新写的安卓平台层：`bridge.js`（IPC 通道表的 web 版）+ `store.js`（localStorage）+ `native-http.js`（原生 HTTP） |
+| `src/mobile/**` | 新写的安卓平台层：`bridge.js`（IPC 通道表的 web 版）+ `store.js`（原生 Preferences）+ `native-http.js`（原生 HTTP）+ `platform.js`（剪贴板 / 全屏 / 画中画） |
 
 `src/shared/default-settings.js` 是两端共用的默认设置，避免默认值漂移。
 
@@ -23,21 +23,24 @@
 
 ```
 mobile/index.html
-  └─ src/mobile/main.js
+  └─ src/mobile/main.js                      （boot() 里按顺序做，失败会把堆栈画到页面上）
        ├─ import './mobile.css'             触屏样式，只在 html[data-platform='android'] 下生效
        ├─ document.documentElement.dataset.platform = 'android'
-       ├─ installBridge()                    src/mobile/bridge.js
+       ├─ await installBridge()              src/mobile/bridge.js
        │    ├─ setBiliStore(store)           把 B 站接口层接到 WebView 版 store
        │    ├─ setCookieMode('explicit')     桌面/安卓都自己拼 Cookie 头（Cookie 来自接口应答，见下）
        │    ├─ setHttpFetch(createNativeFetch())  接口 JSON 走原生 CapacitorHttp
-       │    ├─ store.load()                  localStorage['bililite.state.v1']
+       │    ├─ await store.load()            原生 Preferences（异步，所以 installBridge 也变成 async）
        │    └─ window.bili = api             （多一个 platform: 'android'）
+       ├─ installPlatformShims()             剪贴板 / 全屏 / 画中画（渲染层无感）
        ├─ await import('../renderer/src/main.js')   ← 必须动态 import
-       └─ wireAndroidBack()                  物理返回键
+       └─ await wireAndroidBack()            物理返回键
 ```
 
 > 动态 import 是**必须**的：`src/renderer/src/api/index.js` 在模块顶层就读 `window.bili`，
 > 静态 import 会被提升到 `installBridge()` 之前，桥还没装上。
+>
+> `boot()` 也没有用顶层 await：vite 的 `target` 是 es2020，esbuild 在 es2020 下拒绝顶层 await。
 
 渲染层里只有一处直接碰网络（不经桥）：`src/renderer/src/player/dash.js` 用
 `fetch(url, { headers: { Range } })` 拉 DASH 分片喂 MSE。这条路径**故意保留走 WebView 的 fetch**，
@@ -71,6 +74,22 @@ mobile/index.html
 之后每个请求由 `http.js` 拼成 `Cookie` 头 —— 不依赖 WebView 的 Set-Cookie 行为。
 （媒体分片不需要 Cookie，签名 URL 自带鉴权；CookieManager 里也有的话由原生代理自动补。）
 
+## 安卓平台能力（`src/mobile/platform.js` + 原生插件）
+
+桌面端的这些能力原来在 Electron 主进程里，安卓端换成了 Capacitor 插件 / 自写插件。
+原则是**渲染层一行不改**：能在 window 上打补丁就打补丁。
+
+| 能力 | 实现 | 渲染层 |
+| --- | --- | --- |
+| 设置 / 登录态存储 | `@capacitor/preferences`（安卓侧 SharedPreferences，应用私有目录，升级不丢）+ localStorage 镜像兜底；`load()` 是异步的，`installBridge()` 会 await 它再挂渲染层，否则会先闪一下默认主题和「未登录」 | 无感（`window.bili.settings.*`） |
+| 剪贴板 | `navigator.clipboard` 被替换成 `@capacitor/clipboard`（原生，不挑焦点/手势），原生不可用时回退浏览器实现；shim 上留了 `__bililite = 'native-clipboard'` 便于自动化验证 | 无感（`LearnView.vue` 导出 JSON、`VideoView.vue` 复制 BV 号都照旧写 `navigator.clipboard.writeText`） |
+| 全屏 | 监听 `fullscreenchange`：进全屏 `StatusBar.hide()` + `ScreenOrientation.lock({orientation:'landscape'})`，退出还原 | 无感（`VideoView.vue` 的 `requestFullscreen()` 照旧） |
+| 画中画 | 自写原生插件 `mobile/android/.../PipPlugin.java`：JS 只汇报「在播没有 + 视频区域」，`MainActivity.onUserLeaveHint()` 在按 Home 时进入 PiP，并用 `setSourceRectHint` / `setAspectRatio` 让小窗贴着视频区域。Manifest 里 `android:supportsPictureInPicture="true"` | 无感（`platform.js` 在 document 上捕获 `play`/`pause`/`ended`，不必拿播放器引用） |
+| 物理返回键 | `@capacitor/app` 的 `backButton` 监听，按优先级：登录弹层 → 确认框 → 全屏 → 剧场模式 → 路由历史 → `minimizeApp()`（回首页时收到后台，不是杀进程） | 无感 |
+
+> 为什么 SESSDATA 不能像桌面端那样判断登录态：WebView 里它是 HttpOnly，JS 读不到
+> （Cookie 由原生 CookieManager 自动随请求带上），所以安卓端 `store.isLoggedIn()` 看 `state.user`。
+
 ## 构建
 
 前置：JDK 17 + Android SDK（本机装在 `C:\Users\zouyx\android-toolchain\`）。
@@ -99,10 +118,16 @@ Set-Location android
 > `mobile/android/local.properties` 里写 `sdk.dir=...`（Capacitor 的 `.gitignore` 已忽略它，不要提交）。
 > 改了 `src/renderer` / `src/mobile` / `capacitor.config.json` 之后都要重新
 > `vite build` + `cap sync android`，否则 APK 里还是旧资源（`android/app/src/main/assets/public` 是同步产物，同样不提交）。
+> 检查 APK 里的 web 层是不是新的：`assets/public/assets/index-*.js` 的哈希应和 `mobile/www/assets/` 一致。
 >
 > `pnpm install` 会以**退出码 1** 结束并打印 `ERR_PNPM_IGNORED_BUILDS ... esbuild@0.21.5`：
 > 这只是 pnpm 拦下了 esbuild 的安装脚本，平台二进制已经在 `node_modules` 里，`vite build` 照常成功；
 > 想消掉提示就跑一次 `pnpm approve-builds`。
+>
+> ⚠️ 上面这个退出码 1 还会连带搞坏 `pnpm run build`：pnpm 11 在跑 script 前会先自动
+> `pnpm install` 做依赖校验，那个 install 以 1 退出，script 根本不会执行（表现为
+> `pnpm run build` 只打印 pnpm 的报错、`www/` 一点没变）。已在 `mobile/.npmrc` 里写
+> `verify-deps-before-run=false` 关掉这个预检。
 
 ### 安装到平板
 
@@ -127,13 +152,36 @@ Set-Location android
   `mobile/www`」这条等价路径：它没有 Electron preload，`window.bili` 为空，
   跑的正是 `installBridge()` 这条安卓启动分支。
 
+## 验证方式（本机模拟器不可用，走的是等价路径）
+
+`_work/mobile-preview.mjs`：把 `mobile/www` 用静态服务器喂给 headless Edge，以「安卓平板 UA
++ 1047×654 视口」加载。它没有 Electron preload，`window.bili` 为空，所以走的正是
+`installBridge()` 这条安卓启动分支。逐路由截图落在 `_work/shots-mobile/`，同时检查：
+
+- **冷启动**：`dataset.platform='android'`、`window.bili.platform='android'`、侧栏没有「本地」、
+  无横向溢出、导航项触控高度 46 px、`#app` 有内容（白屏会带出堆栈）
+- **平台补丁**：剪贴板 shim 标记为 `native-clipboard`；派发一次 `fullscreenchange` 后
+  `dataset.fullscreen` 被写值（证明监听器挂上且原生调用失败被兜住）；对临时 `<video>`
+  派 `play` / `pause` 时 `dataset.pip` 跟着变 1 / 0
+- **存储往返**：写一个设置 → `Page.reload` → 读回同一个值，并且重载后 App 仍能正常挂载
+
+原生侧另用 `aapt dump badging/xmltree` + 在 `classes*.dex` 里搜字符串确认：
+`PipPlugin` 类进了 `classes4.dex`（含 `setSourceRectHint` / `enterPictureInPictureMode`），
+Manifest 上 `android:supportsPictureInPicture` 已生效。
+
 ## 已知限制 / 尚未在真机验证
 
 - **本地视频**：安卓端侧栏已隐藏「本地」入口（`src/renderer/src/App.vue` 按
-  `window.bili.platform === 'android'` 过滤），`sys:pickFile` / `local:pickFiles` 会抛
-  「安卓版暂不支持本机文件选择」。WebView 里没有 Electron 文件对话框，也留不住 File 句柄。
+  `document.documentElement.dataset.platform === 'android'` 过滤），`sys:pickFile` /
+  `local:pickFiles` 会抛「安卓版暂不支持本机文件选择」。WebView 里没有 Electron 文件对话框，
+  也留不住 File 句柄。
+- **画中画**：只在 Android 8.0+ 生效（低版本 `supported()` 返回 false）；平板上的 PiP 是
+  **整页缩放**，`setSourceRectHint` 只是给系统的裁剪提示，效果要真机看。
+- **设置存储**：web 端验证跑的是 Preferences 的 localStorage 实现，真机上是 SharedPreferences，
+  首次启动的读写行为待真机确认（失败会回退 localStorage 镜像，不会丢设置）。
+- **全屏**：进全屏会锁横屏，部分平板系统会忽略方向锁定，忽略即可（异常已兜住）。
 - **备份导出**：`backup:write` 用 `@capacitor/filesystem` 的 `Directory.Documents`，
   Android 10+ 分区存储下是否可写**未验证**。
 - **真机未验证项**：原生 HTTP 的实际响应形态、Cookie 跨会话保持、物理返回键的手势交互、
-  刘海/手势条安全区、播放起流。这些都只能在平板上跑一次才算数（`adb install` 后我可以再验）。
+  刘海/手势条安全区、播放起流、画中画小窗。这些都只能在平板上跑一次才算数（`adb install` 后可以再验）。
 - 安卓端不做 Electron 端的 `ses.webRequest` 头注入（那是桌面独有的 `src/main/index.js` 逻辑）。

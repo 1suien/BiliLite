@@ -5,3 +5,5 @@
 # 想彻底消掉提示就跑一次 `pnpm approve-builds`（本机实测 allowBuilds /
 # onlyBuiltDependencies 两个键都不生效，得用交互式 approve）。
 packages: []
+allowBuilds:
+  esbuild: set this to true or false

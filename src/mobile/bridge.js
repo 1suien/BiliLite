@@ -311,7 +311,7 @@ export const api = {
  * 把桥接层装到 window 上。必须在 `src/renderer/src/api/index.js` 被求值之前调用
  * （那里是模块顶层 `const bridge = window.bili`）。
  */
-export function installBridge() {
+export async function installBridge() {
   setBiliStore(store)
   // B 站接口全部由原生 CapacitorHttp 发出（见 native-http.js 的注释）：Referer /
   // Origin / Cookie 这三个头在浏览器 fetch 里是 forbidden header，设了也会被丢掉，
@@ -320,7 +320,9 @@ export function installBridge() {
   // 不依赖 Set-Cookie，所以自拼 Cookie 完全够用。
   setCookieMode('explicit')
   setHttpFetch(createNativeFetch())
-  store.load()
+  // 存储走原生 Preferences，是异步的：必须等真实设置/登录态读出来再挂渲染层，
+  // 否则会先闪一下默认主题和「未登录」
+  await store.load()
   window.bili = api
   return api
 }
