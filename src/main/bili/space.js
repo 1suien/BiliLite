@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { md5hex } from './md5.js'
 import { api, fixUrl } from './http.js'
 import { signParams, invalidateWbiKeys } from './wbi.js'
 import { searchUp } from './search.js'
@@ -33,7 +33,7 @@ function appSign(params) {
     .sort()
     .map((k) => `${k}=${encodeURIComponent(withTs[k])}`)
     .join('&')
-  return { ...withTs, sign: createHash('md5').update(query + APP_SEC).digest('hex') }
+  return { ...withTs, sign: md5hex(query + APP_SEC) }
 }
 
 export async function fetchUpInfo(mid) {

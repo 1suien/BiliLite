@@ -1,5 +1,7 @@
 import { api, fixUrl } from './http.js'
-import { store } from '../store.js'
+import { storeProxy } from './runtime.js'
+
+const store = storeProxy()
 
 const FOLDER_LIST = 'https://api.bilibili.com/x/v3/fav/folder/created/list-all'
 const FOLDER_COLLECTED = 'https://api.bilibili.com/x/v3/fav/folder/collected/list'

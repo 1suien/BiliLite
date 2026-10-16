@@ -6,7 +6,9 @@
  */
 import { api, request, buildUrl, fixUrl } from './http.js'
 import { signParams } from './wbi.js'
-import { store } from '../store.js'
+import { storeProxy } from './runtime.js'
+
+const store = storeProxy()
 
 const DM_LIST = 'https://api.bilibili.com/x/v1/dm/list.so'
 const DM_XML_FALLBACK = 'https://comment.bilibili.com'

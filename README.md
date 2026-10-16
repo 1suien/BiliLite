@@ -1,6 +1,6 @@
 # BiliLite
 
-学习专注型的 B 站桌面客户端（Windows / Electron）。参考 [BiliLite](https://github.com/ywmoyue/biliuwp-lite) 的功能取舍重新实现：
+学习专注型的 B 站客户端。桌面版是 Windows / Electron，另有一份**共渲染层的安卓版**（Capacitor，见 [`mobile/README.md`](mobile/README.md)）。参考 [BiliLite](https://github.com/ywmoyue/biliuwp-lite) 的功能取舍重新实现：
 保留**扫码登录、UP 管理、首页（只看关注 UP 更新）、搜索、视频播放（分 P / 画质 / DASH / 小窗播放 / 本机文件）、本机收藏 + B 站收藏夹、UP 主主页、学习记录 / 专注（番茄钟 + 任务绑定 + 专注记录）、习惯打卡（每个习惯的月历补打、连续与目标天数、月完成率、打卡日志、归档、到点提醒）**，
 界面走黑白极简 token 体系，不引入娱乐化的信息流。播放页右栏只留「清晰度 + 分P列表」（相关推荐只在下方 tab 里）。
 
@@ -35,7 +35,17 @@ src/
     smoke.js                端到端冒烟测试（见下文）
     local-media.js          本地视频：文件对话框 / 文件夹递归扫描 / `lmedia://local/<id>` 自定义协议（支持 Range）
     bili/                   B 站接口：http / wbi 签名 / auth / nav-classify（登录态分类）/ home / video / search / fav / space
+                            + runtime.js（store 注入点：桌面注 Electron store，安卓注 WebView store）
+                            + md5.js（纯 JS MD5，WebCrypto 没有 MD5）—— 这一层已无 electron / node: 依赖，
+                              所以安卓端原样复用
   preload/index.js          window.bili 白名单桥接（含全局拖拽拦截 → bili:files-dropped 自定义事件）
+  shared/default-settings.js 桌面端 / 安卓端共用的默认设置（避免两份默认值漂移）
+  mobile/                   安卓入口与平台层（见 mobile/README.md）
+    main.js                 装桥 → 动态 import 渲染层 → 物理返回键 / 安全区
+    bridge.js               IPC 通道表的 web 版（41 个通道，复用 src/main/bili/*）
+    store.js                同接口的 localStorage 版
+    native-http.js          接口 JSON 走原生 CapacitorHttp（可自定义 Referer / Origin / Cookie）
+    mobile.css              触屏 / 安全区样式，只在 html[data-platform='android'] 下生效
   renderer/
     index.html              含 CSP meta（`media-src` / `connect-src` 里有 `lmedia:`，放本地视频要用；
                             `worker-src 'self' blob:` 是当年 pdf.js 的 Blob worker 要的 —— 读书模块摘除后
@@ -59,6 +69,10 @@ tools/
   run-smoke.ps1             本机冒烟运行脚本（构建 + 启动 Electron + 收报告，绕开 DSH 沙箱坑）
   check-parsers.mjs         不启动 Electron，直接跑字幕解析 + 登录态分类（22 项断言，改 src/renderer/src/utils/subtitle.js 或 src/main/bili/nav-classify.js 后先跑它）
   check-package.mjs         读 release/win-unpacked/resources/app.asar 的索引，校验打包产物完整、且没夹带 pdf.js 资源
+  check-md5.mjs             纯 JS md5 与 node:crypto 对拍（3020 例），改 src/main/bili/md5.js 后跑它
+mobile/                     安卓版工程（Capacitor 6 + Android WebView）：index.html / vite.config.mjs /
+                            capacitor.config.json / package.json + `android/`（`cap add android` 生成的原生工程）
+                            —— 独立 `pnpm install --ignore-workspace`，vue/vite 复用仓库根依赖，避免两份 Vue
 ```
 
 ## 本地开发与运行
@@ -198,6 +212,27 @@ node 'C:\Users\zouyx\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\pnpm\bin
 ```
 
 在普通 Windows 机器上不需要这些参数，`pnpm run dev` / `pnpm run start` 直接可用。
+
+## 安卓版（Capacitor）
+
+完整说明在 [`mobile/README.md`](mobile/README.md)，这里只记要点：
+
+- **共用同一份渲染层和 B 站接口层**：`src/renderer/**` 与 `src/main/bili/**` 一行逻辑没改，
+  安卓端只多写了一个平台层 `src/mobile/`（`bridge.js` 把 `src/main/ipc.js` 的 41 个通道
+  重实现成 web 版、`store.js` 换成 localStorage、`native-http.js` 换成原生 HTTP）。
+  渲染层接触桥的地方只有 `src/renderer/src/api/index.js` 一处，所以挂上 `window.bili` 就能跑。
+- **入口顺序**：`mobile/index.html` → `src/mobile/main.js`：设 `data-platform='android'` →
+  `installBridge()` → **动态** `import('../renderer/src/main.js')` → 绑物理返回键。
+  （必须动态 import：`api/index.js` 在模块顶层就读 `window.bili`。）
+- **网络两条腿**：`server.hostname` 设成 `www.bilibili.com` 让 WebView 的 `Referer` 天生正确
+  （B 站 CDN 无 Referer 会 403），DASH 分片继续走被 Capacitor 原生代理接管的 `window.fetch`（流式）；
+  接口 JSON 走 `CapacitorHttp.request()`（可自定义 `Referer` / `Origin` / `Cookie`，无 CORS）。
+- **触屏适配**：`src/mobile/mobile.css` 只在 `html[data-platform='android']` 下生效，
+  桌面端零影响。安卓端侧栏按 `window.bili.platform` 隐藏「本地」入口。
+- **构建**：`mobile/` 下 `pnpm install --ignore-workspace` → `vite build` → `cap sync android` →
+  `android\gradlew.bat assembleDebug`，产物 `mobile/android/app/build/outputs/apk/debug/app-debug.apk`（≈4.1 MB）。
+  本机 JDK/SDK 在 `C:\Users\zouyx\android-toolchain\`；工程路径含中文，已在
+  `mobile/android/gradle.properties` 固化 `android.overridePathCheck=true`。
 
 ## 验证
 

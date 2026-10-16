@@ -1,0 +1,68 @@
+/**
+ * 安卓端（Capacitor WebView）的少量样式覆盖。
+ *
+ * 渲染层的布局是按桌面窗口 1267×717 写的，而小米平板 6 横屏约 1047×654 dp ——
+ * 只差 17% 宽度，整体结构完全不用动，所以这里只做四件事：
+ *   1) 处理刘海/手势区的安全边距（index.html 里开了 viewport-fit=cover）
+ *   2) 触屏没有鼠标：去掉点按高亮、放大点击目标（--tap 28 → 36）
+ *   3) 禁掉长按选中/长按弹出菜单造成的「拖影」，输入框仍然可选可编辑
+ *   4) 藏掉只有键盘才用得上的快捷键角标（F / Esc）
+ *
+ * 只在 `html[data-platform='android']` 下生效，桌面端一行都不受影响。
+ */
+
+html[data-platform='android'] {
+  /* 触屏最小点击目标，安卓设计规范建议 48dp，这里取折中避免把界面撑得太松 */
+  --tap: 36px;
+}
+
+html[data-platform='android'] body {
+  -webkit-tap-highlight-color: transparent;
+  /* WebView 里的橡皮筋滚动会露出白底，直接关掉 */
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  /* 禁用长按弹出的「选择/分享」菜单 */
+  -webkit-touch-callout: none;
+}
+
+/* 输入框/文本域必须还能选中和编辑，否则搜索、填表全废 */
+html[data-platform='android'] input,
+html[data-platform='android'] textarea,
+html[data-platform='android'] [contenteditable='true'] {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+/* 安全区：横屏时左右刘海（挖孔/圆角）与返回手势条 */
+html[data-platform='android'] .app {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+html[data-platform='android'] .side {
+  padding-top: calc(14px + env(safe-area-inset-top));
+}
+
+html[data-platform='android'] .top {
+  padding-top: env(safe-area-inset-top);
+}
+
+/* 没有物理键盘，快捷键角标只会让人困惑 */
+html[data-platform='android'] .kbd {
+  display: none;
+}
+
+/* 侧栏导航项点着更舒服一点（桌面 9px，触屏抬到 11px） */
+html[data-platform='android'] .nav-item {
+  padding-top: 11px;
+  padding-bottom: 11px;
+}
+
+/* 悬浮按钮避开右下角的手势条 */
+html[data-platform='android'] .page-float,
+html[data-platform='android'] .theater-exit {
+  bottom: calc(18px + env(safe-area-inset-bottom));
+}

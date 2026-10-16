@@ -1,6 +1,8 @@
 import { api, request, fixUrl } from './http.js'
 import { classifyNav, toNavUser } from './nav-classify.js'
-import { store } from '../store.js'
+import { storeProxy } from './runtime.js'
+
+const store = storeProxy()
 
 const QR_GENERATE = 'https://passport.bilibili.com/x/passport-login/web/qrcode/generate'
 const QR_POLL = 'https://passport.bilibili.com/x/passport-login/web/qrcode/poll'

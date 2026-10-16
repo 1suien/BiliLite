@@ -1,0 +1,24 @@
+{
+  "name": "bililite-mobile",
+  "version": "0.4.0",
+  "private": true,
+  "description": "BiliLite 安卓版（小米平板 6 / Android 14）：Capacitor 外壳 + 与桌面端共用的渲染层与 B 站接口层",
+  "scripts": {
+    "build": "vite build --config mobile/vite.config.mjs",
+    "sync": "cap sync android",
+    "open": "cap open android",
+    "apk": "cap build android --androidreleasetype APK"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/app": "^6.0.2",
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/filesystem": "^6.0.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.0",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "vite": "^5.4.11"
+  },
+  "//": "注意：vue / vue-router / pinia / dexie / mpegts.js / qrcode 不在这里安装，故意复用仓库根目录的 node_modules（见 mobile/vite.config.mjs 的 root 设置），否则会出现两份 Vue 实例。"
+}

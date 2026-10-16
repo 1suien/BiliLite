@@ -59,6 +59,16 @@ watch(
  */
 const NAV_SECONDARY = ['/fav', '/ups', '/settings']
 
+/**
+ * 安卓端没有 Electron 的文件对话框，`/local` 那套「登记本地文件路径 + 自定义
+ * lmedia:// 协议取流」在 WebView 里没有对应物（选中的 File 也留不住），所以
+ * 手机上直接把「本地」从侧栏摘掉，免得点进去只看到一句「暂不支持」。
+ * 判据用 `src/mobile/main.js` 打的 `data-platform` 标记：桌面端没有这个属性，
+ * 这一整段等于不存在；而且它比 `window.bili.platform` 更早可用（不依赖桥）。
+ */
+const IS_ANDROID =
+  typeof document !== 'undefined' && document.documentElement.dataset.platform === 'android'
+
 const DEFAULT_NAV = [
   { to: '/', icon: 'home', label: '首页' },
   { to: '/ups', icon: 'users', label: 'UP 管理' },
@@ -67,7 +77,7 @@ const DEFAULT_NAV = [
   { to: '/habit', icon: 'check', label: '习惯' },
   { to: '/local', icon: 'film', label: '本地' },
   { to: '/settings', icon: 'settings', label: '设置' }
-]
+].filter((n) => !(IS_ANDROID && n.to === '/local'))
 
 /**
  * 侧栏顺序：settings.navOrder 里存的是路由路径数组（用户拖出来的顺序）。

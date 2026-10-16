@@ -1,4 +1,5 @@
-import { createHash } from 'node:crypto'
+// MD5 走自带的纯 JS 实现（node:crypto 在安卓 WebView 里没有，WebCrypto 也不提供 MD5）
+import { md5hex } from './md5.js'
 import { request } from './http.js'
 
 /** Fixed permutation table published by bilibili's web player. */
@@ -40,7 +41,7 @@ export async function signParams(params) {
       return `${encodeURIComponent(k)}=${encodeURIComponent(v)}`
     })
     .join('&')
-  const w_rid = createHash('md5').update(query + key).digest('hex')
+  const w_rid = md5hex(query + key)
   return { ...withTs, w_rid }
 }
 

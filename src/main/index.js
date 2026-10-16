@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { store } from './store.js'
 import { registerIpc } from './ipc.js'
 import { BASE_HEADERS } from './bili/http.js'
+import { setBiliStore } from './bili/runtime.js'
 import { registerLocalScheme, installLocalProtocol } from './local-media.js'
 
 // 本地视频的 lmedia:// 自定义协议必须在 app ready 之前登记特权
@@ -226,6 +227,9 @@ if (!gotLock) {
       console.warn('[app] setAppUserModelId 失败：', err && err.message)
     }
     store.load()
+    // 把桌面端的 store 注入给 B 站接口层（src/main/bili/*）。
+    // 安卓端跑同一层接口，但注入的是 WebView 版 store（src/mobile/store.js）。
+    setBiliStore(store)
     installNetworkHooks()
     installLocalProtocol()
     registerIpc()
