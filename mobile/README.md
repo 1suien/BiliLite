@@ -7,7 +7,7 @@
 横屏 CSS 视口约 **1047×654 dp**，和桌面窗口 1267×717 很接近，所以布局基本沿用桌面版，
 只加了一层触屏/安全区的微调（`src/mobile/mobile.css`）。
 
-版本：`versionCode 7` / `versionName 0.4.3`（`mobile/android/app/build.gradle`）。
+版本：`versionCode 8` / `versionName 0.4.4`（`mobile/android/app/build.gradle`）。
 
 ## 三层结构
 
@@ -135,6 +135,15 @@ UA 那半边在原生侧解决：`MainActivity#applyDesktopUserAgent()` 覆写
 > 黑边上下对称）+ 新增 `ImmersivePlugin.java` 做沉浸式；控制条挂在舞台内部，所以不会悬在黑边上。
 > 本机在 1047×654 的平板视口量过：**修复前** 舞台 `top=0`、底部黑带 65px；**修复后** `top=33`、
 > `bottom=33`（16:9 片源在 16:10 屏上各约 5%，对称）。
+>
+> **剧场模式右上角「退出剧场」被拉成竖白条（0.4.4 修，真机反馈「退出剧场ui影响观感」）**：
+> `mobile.css` 里那条「悬浮按钮避开手势条」把 `.page-float` 与 `.theater-exit` 写在同一个选择器里、
+> 给两者都加了 `bottom`；而 `.theater-exit` 在 `base.css` 里本来就带 `position: fixed; top: 14px`，
+> 于是它同时有 `top` 和 `bottom` → 被拉成一条贯穿屏幕的白色长条，还压住页面右上角的按钮
+> （学习页的「导出 JSON」就被盖住了）。修法：`.page-float` 保留 `bottom`，`.theater-exit` 只调
+> `top/right`（各带 `env(safe-area-inset-*)`），并给安卓的 `.app.theater .scroll` 加
+> `padding-top: 60px`，给出口留一条专用通道。平板视口实测：按钮 **90×36 @945,12**，
+> 高度正常（不再被拉伸），内容整体下移 60px。
 
 ## 构建
 
@@ -162,8 +171,8 @@ Set-Location android
 & .\gradlew.bat assembleDebug --console=plain
 ```
 
-产物：`mobile/android/app/build/outputs/apk/debug/app-debug.apk`（当前 **4,104,453 B / 4.10 MB**，
-`versionCode 7` / `versionName 0.4.3`；本机已核对该 APK 与 `pnpm run build` 重建的 www 字节一致）。
+产物：`mobile/android/app/build/outputs/apk/debug/app-debug.apk`（当前 **4,104,456 B / 3.91 MB**，
+`versionCode 8` / `versionName 0.4.4`；本机已核对该 APK 与 `pnpm run build` 重建的 www 字节一致）。
 
 > `mobile/android/local.properties` 里写 `sdk.dir=...`（Capacitor 的 `.gitignore` 已忽略它，不要提交）。
 > 改了 `src/renderer` / `src/mobile` / `capacitor.config.json` 之后都要重新

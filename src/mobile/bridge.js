@@ -37,7 +37,7 @@ async function appVersion() {
   } catch {
     cachedVersion = ''
   }
-  return cachedVersion || '0.4.1'
+  return cachedVersion || '0.4.4'
 }
 
 /* ------------------------------------------------------------------ *

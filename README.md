@@ -248,11 +248,16 @@ node 'C:\Users\zouyx\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\pnpm\bin
 - **全屏黑边**（真机反馈「视频播放窗口有多余」）：`base.css` 里 `.player-wrap:fullscreen` 改成
   flex 居中，舞台（16:9）在 16:10 的平板上上下各留约 5%，不再把黑带全堆在底下；
   本机在 1047×654 量过：修复前 `top=0` / 底带 65px，修复后 `top=33` / `bottom=33`。
+- **剧场模式出口**（真机反馈「退出剧场ui影响观感」）：`mobile.css` 里给 `.page-float` 和
+  `.theater-exit` 加 `bottom` 时写在了同一个选择器，而 `.theater-exit` 本来就有 `top` →
+  两者一起把它拉成贯穿屏幕的竖白条。现在只给 `.page-float` 加 `bottom`，`.theater-exit` 只调
+  `top/right`，并让安卓的 `.app.theater .scroll` 下移 60px 给出口留通道
+  （平板视口实测按钮 90×36 @945,12，高度正常）。
 - **触屏适配**：`src/mobile/mobile.css` 只在 `html[data-platform='android']` 下生效，桌面端零影响。
   侧栏保留「本地」入口（安卓上已有等价实现）。
 - **构建**：`mobile/` 下 `pnpm install --ignore-workspace` → `pnpm run build` → `cap sync android` →
   `android\gradlew.bat assembleDebug`，产物 `mobile/android/app/build/outputs/apk/debug/app-debug.apk`（≈4.10 MB，
-  `versionCode 7` / `versionName 0.4.3`）。
+  `versionCode 8` / `versionName 0.4.4`）。
   本机 JDK/SDK 在 `C:\Users\zouyx\android-toolchain\`；工程路径含中文，已在
   `mobile/android/gradle.properties` 固化 `android.overridePathCheck=true`。
   注意 `pnpm run build` 曾被 pnpm 11 的依赖预检带崩（`ERR_PNPM_IGNORED_BUILDS` → 预检 install 退出 1），

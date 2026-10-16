@@ -7,6 +7,7 @@
  *   2) 触屏没有鼠标：去掉点按高亮、放大点击目标（--tap 28 → 36）
  *   3) 禁掉长按选中/长按弹出菜单造成的「拖影」，输入框仍然可选可编辑
  *   4) 藏掉只有键盘才用得上的快捷键角标（F / Esc）
+ *   5) 剧场模式下给右上角的「退出剧场」留一条通道（它曾被 bottom 拉成贯穿屏幕的竖白条）
  *
  * 只在 `html[data-platform='android']` 下生效，桌面端一行都不受影响。
  */
@@ -61,8 +62,24 @@ html[data-platform='android'] .nav-item {
   padding-bottom: 11px;
 }
 
-/* 悬浮按钮避开右下角的手势条 */
-html[data-platform='android'] .page-float,
-html[data-platform='android'] .theater-exit {
+/* 右下角的悬浮操作组避开手势条 */
+html[data-platform='android'] .page-float {
   bottom: calc(18px + env(safe-area-inset-bottom));
+}
+
+/*
+ * 「退出剧场」是贴右上角的固定按钮（base.css 里给的是 top: 14px; right: 14px）。
+ * 这里千万别再给它 bottom —— 它已经有 top 了，两个都给会把按钮拉成一条贯穿屏幕的竖白条
+ * （0.4.3 的真机问题：剧场模式下右侧出现一整条白色长条，还压住页面右上角的按钮）。
+ * 只调位置留出安全边距即可。
+ */
+html[data-platform='android'] .theater-exit {
+  top: calc(12px + env(safe-area-inset-top));
+  right: calc(12px + env(safe-area-inset-right));
+}
+
+/* 剧场模式没有顶栏，页面内容顶到最上面；给它让出一条通道，
+   免得「退出剧场」压住页面自己的右上角操作（比如学习页的「导出 JSON」） */
+html[data-platform='android'] .app.theater .scroll {
+  padding-top: 60px;
 }
