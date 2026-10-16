@@ -99,6 +99,10 @@ Set-Location android
 > `mobile/android/local.properties` 里写 `sdk.dir=...`（Capacitor 的 `.gitignore` 已忽略它，不要提交）。
 > 改了 `src/renderer` / `src/mobile` / `capacitor.config.json` 之后都要重新
 > `vite build` + `cap sync android`，否则 APK 里还是旧资源（`android/app/src/main/assets/public` 是同步产物，同样不提交）。
+>
+> `pnpm install` 会以**退出码 1** 结束并打印 `ERR_PNPM_IGNORED_BUILDS ... esbuild@0.21.5`：
+> 这只是 pnpm 拦下了 esbuild 的安装脚本，平台二进制已经在 `node_modules` 里，`vite build` 照常成功；
+> 想消掉提示就跑一次 `pnpm approve-builds`。
 
 ### 安装到平板
 

@@ -1,5 +1,7 @@
-# mobile/ 是独立安装的（pnpm install --ignore-workspace），这份文件只用来允许
-# esbuild 的安装脚本 —— vite 依赖它的平台二进制。
+# mobile/ 独立安装（`pnpm install --ignore-workspace`），不参与仓库根的 workspace。
+#
+# 注：pnpm 会忽略 esbuild 的安装脚本并报 `ERR_PNPM_IGNORED_BUILDS`（退出码 1）——
+# 这只是提示，esbuild 的平台二进制已经在 node_modules 里，`vite build` 正常。
+# 想彻底消掉提示就跑一次 `pnpm approve-builds`（本机实测 allowBuilds /
+# onlyBuiltDependencies 两个键都不生效，得用交互式 approve）。
 packages: []
-allowBuilds:
-  esbuild: set this to true or false
