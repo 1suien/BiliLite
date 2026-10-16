@@ -233,6 +233,10 @@ node 'C:\Users\zouyx\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\pnpm\bin
   换成安卓 / WebView UA 就是 403（2026-10-16 真机上「这条线路暂时拿不到数据 · HTTP 403」的根因）。
   DASH 分片继续走被 Capacitor 原生代理接管的 `window.fetch`（流式）；
   接口 JSON 走 `CapacitorHttp.request()`（可自定义 `Referer` / `Origin` / `Cookie`，无 CORS）。
+- **起播速度**（真机反馈「视频加载时间长」）：实测带宽不是瓶颈（480P 只要 20 KB/s、各线路差 ~72 ms），
+  耗时在轮次上。`dash.js` 因此把 P2P 线路 `*.mcdn.bilivideo.cn` 排到直连 CDN 之后、并加了 8s
+  **首包看门狗**；安卓端播放器上会显示一行起流读数（`地址 0.8s · 首块 2.1s · 首帧 2.6s · 线路 · MB/s`），
+  30 秒后自动消失 —— 桌面端不显示。细节见 `mobile/README.md` 的「起播速度」一节。
 - **平台能力**（都用 shim / 插件补齐，渲染层无感）：设置与登录态走 `@capacitor/preferences`；
   `navigator.clipboard` 换成 `@capacitor/clipboard`；全屏时隐藏状态栏 + 锁横屏；
   画中画用自写原生插件 `PipPlugin.java`（按 Home 键进小窗，`setSourceRectHint` 贴着视频区域）；
@@ -243,7 +247,7 @@ node 'C:\Users\zouyx\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\pnpm\bin
   侧栏保留「本地」入口（安卓上已有等价实现）。
 - **构建**：`mobile/` 下 `pnpm install --ignore-workspace` → `pnpm run build` → `cap sync android` →
   `android\gradlew.bat assembleDebug`，产物 `mobile/android/app/build/outputs/apk/debug/app-debug.apk`（≈4.10 MB，
-  `versionCode 5` / `versionName 0.4.1`）。
+  `versionCode 6` / `versionName 0.4.2`）。
   本机 JDK/SDK 在 `C:\Users\zouyx\android-toolchain\`；工程路径含中文，已在
   `mobile/android/gradle.properties` 固化 `android.overridePathCheck=true`。
   注意 `pnpm run build` 曾被 pnpm 11 的依赖预检带崩（`ERR_PNPM_IGNORED_BUILDS` → 预检 install 退出 1），

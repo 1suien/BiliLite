@@ -1,6 +1,6 @@
 {
   "name": "bililite-mobile",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "description": "BiliLite 安卓版（小米平板 6 / Android 14）：Capacitor 外壳 + 与桌面端共用的渲染层与 B 站接口层",
   "scripts": {

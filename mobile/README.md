@@ -7,7 +7,7 @@
 横屏 CSS 视口约 **1047×654 dp**，和桌面窗口 1267×717 很接近，所以布局基本沿用桌面版，
 只加了一层触屏/安全区的微调（`src/mobile/mobile.css`）。
 
-版本：`versionCode 5` / `versionName 0.4.1`（`mobile/android/app/build.gradle`）。
+版本：`versionCode 6` / `versionName 0.4.2`（`mobile/android/app/build.gradle`）。
 
 ## 三层结构
 
@@ -82,6 +82,33 @@ UA 那半边在原生侧解决：`MainActivity#applyDesktopUserAgent()` 覆写
 之后每个请求由 `http.js` 拼成 `Cookie` 头 —— 不依赖 WebView 的 Set-Cookie 行为。
 （媒体分片不需要 Cookie，签名 URL 自带鉴权；CookieManager 里也有的话由原生代理自动补。）
 
+## 起播速度（2026-10-16 真机反馈「视频加载时间长」）
+
+先量数据再改代码。用真视频（BV1zY4y187cK）实测了候选线路，结论是**带宽不是瓶颈**：
+
+- 未登录时 `playurl` 只给到 480P（视频 164 kbps、音频 86 kbps ≈ 20 KB/s），6 条候选线路
+  TTFB 128–238 ms、实速 2.89–5.10 MB/s，最快的镜像与 `baseUrl` 只差 **~72 ms** —— 抢线路没有收益。
+- 耗时在**轮次**上：`video.view` + `video.playurl` 两次接口往返之后才建 MSE 拉流；
+  每条轨（视频、音频）各自要等**首个 ≥64KB 的分片**才会让 `player.load()` 返回。
+- 音频轨的 `baseUrl` 实测落在 **`*.mcdn.bilivideo.cn`（P2P 线路）** 上：官方播放器能跟它的
+  WebRTC/私有通道配合，第三方客户端拿不到，首包可能干等十几秒。
+
+于是改了三处（都在共用层 `src/renderer/src/player/dash.js`，桌面端同享）：
+
+1. `trackUrls()` 把 mcdn 线路**排到所有直连 CDN 后面**，只在直连线路都用不了时才回退过去。
+2. `streamFrom()` 加 **8s 首包看门狗**（`FIRST_BYTE_TIMEOUT`）：连接接上了却一直不发字节就
+   `abort()` 换下一条线路 —— 否则用户看到的是「缓冲中…」十几秒不动。
+3. 新增起流读数 `player.stat`（`t0/tResp/tFirst/host/vBytes/aBytes`），安卓端显示在播放器上
+   （`VideoView.vue` 的 `perfText`）：
+
+```
+地址 0.8s · 首块 2.1s · 首帧 2.6s · sz-mirrorhw · 1.2MB · 0.6MB/s
+```
+
+缓冲时显示在提示文字下面，播起来缩到左上角，30 秒后自动消失；桌面端不显示（`IS_ANDROID_UI`）。
+定位方式：**地址**久 = 接口慢/风控；**首块**久 = CDN 线路（看 host 是不是 mcdn）；首块快但
+**首帧**久 = 解码；**MB/s** 低 = 带宽不够。
+
 ## 安卓平台能力（`src/mobile/platform.js` + 原生插件）
 
 桌面端的这些能力原来在 Electron 主进程里，安卓端换成了 Capacitor 插件 / 自写插件。
@@ -126,8 +153,8 @@ Set-Location android
 & .\gradlew.bat assembleDebug --console=plain
 ```
 
-产物：`mobile/android/app/build/outputs/apk/debug/app-debug.apk`（当前 **4,180,165 B / 4.18 MB**，
-`versionCode 5` / `versionName 0.4.1`；本机已核对该 APK 与 `pnpm run build` 重建的 www 字节一致）。
+产物：`mobile/android/app/build/outputs/apk/debug/app-debug.apk`（当前 **4,103,477 B / 4.10 MB**，
+`versionCode 6` / `versionName 0.4.2`；本机已核对该 APK 与 `pnpm run build` 重建的 www 字节一致）。
 
 > `mobile/android/local.properties` 里写 `sdk.dir=...`（Capacitor 的 `.gitignore` 已忽略它，不要提交）。
 > 改了 `src/renderer` / `src/mobile` / `capacitor.config.json` 之后都要重新

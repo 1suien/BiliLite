@@ -22,6 +22,8 @@ const AHEAD_MIN = 18
 const BATCH_VIDEO_BYTES = 512 * 1024
 const BATCH_AUDIO_BYTES = 128 * 1024
 const BATCH_MS = 300
+// 首包看门狗：线路接上了却不发数据（P2P/mcdn 线路会这样）时不能一直干等 —— 掐掉换下一条
+const FIRST_BYTE_TIMEOUT = 8000
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -143,7 +145,15 @@ export function pickAudioTrack(tracks = []) {
 
 function trackUrls(t) {
   if (!t) return []
-  return [trackUrl(t), ...trackBackups(t)].filter(Boolean)
+  const urls = [trackUrl(t), ...trackBackups(t)].filter(Boolean)
+  // mcdn（*.mcdn.bilivideo.cn）是 B 站的 P2P 线路：官方播放器能跟它的 WebRTC/私有通道配合，
+  // 第三方客户端拿不到那套通道，实测首包有时要等十几秒。2026-10-16 量真实 playurl：
+  // 音频轨的 baseUrl 就是 mcdn，视频轨是 upos——所以把 mcdn 排到直连线路后面，
+  // 只在所有直连线路都用不了时才回退过去（内容与 backup 是同一条轨的不同 CDN 副本）。
+  const p2p = (u) => /\.mcdn\.bilivideo\.cn/i.test(String(u))
+  const direct = urls.filter((u) => !p2p(u))
+  const p2pUrls = urls.filter(p2p)
+  return direct.length ? [...direct, ...p2pUrls] : urls
 }
 
 /* ── sidx 解析（用于按时间定位） ────────────────────────── */
@@ -242,6 +252,8 @@ export class DashPlayer {
     this.bufferingMsg = false // 当前是否正显示「缓冲中…」提示（用来及时清掉）
     this.statusAt = 0
     this.wantTime = 0
+    // 起流耗时读数（安卓端会显示在播放器左下角）：加载慢时用来判断卡在哪一跳
+    this.stat = { t0: 0, tResp: 0, tFirst: 0, host: '', vBytes: 0, aBytes: 0 }
     this.bound = {}
     this.attach()
   }
@@ -322,6 +334,7 @@ export class DashPlayer {
     this.recoveries = 0
     this.payload = payload
     this.duration = payload && payload.dash ? (payload.dash.duration || 0) / 1000 : 0
+    this.stat = { t0: performance.now(), tResp: 0, tFirst: 0, host: '', vBytes: 0, aBytes: 0 }
 
     if (opts.volume != null) this.el.volume = Math.min(1, Math.max(0, opts.volume))
     if (opts.muted != null) this.el.muted = Boolean(opts.muted)
@@ -705,12 +718,21 @@ export class DashPlayer {
       if (gen !== this.gen || this.destroyed) return appended
       const ac = new AbortController()
       this.aborts.add(ac)
+      let firstWatch = null
       try {
         const res = await fetch(url, {
           method: 'GET',
           headers: offset > 0 ? { Range: `bytes=${offset}-` } : {},
           signal: ac.signal
         })
+        if (!this.stat.tResp) {
+          this.stat.tResp = Math.round(performance.now() - this.stat.t0)
+          try {
+            this.stat.host = new URL(url).host
+          } catch {
+            /* ignore */
+          }
+        }
         dbg('streamFrom', kind, 'offset=' + offset, 'status=' + res.status, 'url=' + url.slice(0, 90))
         // 中段续流必须真的走 Range：有的 CDN 对 `bytes=<大偏移>-` 直接回 200（整个文件）或 416。
         // 把这种响应体当成「从 offset 开始」append 会得到错位数据（画面卡住、buffered 为空）→ 换线路。
@@ -744,6 +766,17 @@ export class DashPlayer {
           if (ok) appended = true
           return ok
         }
+        // 首包看门狗：接了连接却一直不发字节（P2P/mcdn 线路的典型表现）就掐掉换下一条，
+        // 否则用户看到的是「缓冲中…」十几秒不动 —— 实测这正是加载慢最刺眼的那种。
+        firstWatch = setTimeout(() => {
+          if (readBytes) return
+          dbg('streamFrom 首包超时，换线路', kind, 'url=' + String(url).slice(0, 60))
+          try {
+            ac.abort()
+          } catch {
+            /* ignore */
+          }
+        }, FIRST_BYTE_TIMEOUT)
         for (;;) {
           if (gen !== this.gen || this.destroyed) {
             try {
@@ -760,6 +793,10 @@ export class DashPlayer {
           const { done, value } = await reader.read()
           if (done) break
           if (!value || !value.byteLength) continue
+          if (firstWatch) {
+            clearTimeout(firstWatch)
+            firstWatch = null
+          }
           if (!pendingSince) pendingSince = Date.now()
           pending.push(value)
           pendingBytes += value.byteLength
@@ -790,6 +827,10 @@ export class DashPlayer {
         return appended
       } catch (err) {
         this.aborts.delete(ac)
+        if (firstWatch) {
+          clearTimeout(firstWatch)
+          firstWatch = null
+        }
         lastErr = err
         lastUrl = url
         if (gen !== this.gen || this.destroyed) return appended
@@ -838,6 +879,12 @@ export class DashPlayer {
     }
     if (!ok) return false
     await waitUpdate(sb, 5000)
+    // 起流读数：第一个字节真正进了 SourceBuffer 的时刻，就是「首块」
+    if (this.stat) {
+      if (!this.stat.tFirst) this.stat.tFirst = Math.round(performance.now() - this.stat.t0)
+      if (kind === 'video') this.stat.vBytes += bytes.byteLength
+      else this.stat.aBytes += bytes.byteLength
+    }
     if (!this.appendLogged) this.appendLogged = {}
     if (!this.appendLogged[kind]) {
       this.appendLogged[kind] = true

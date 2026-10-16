@@ -58,6 +58,40 @@ const playurl = ref(null)
 const quality = ref(0)
 const actualQuality = ref(0) // 播放器实际选中的视频轨画质（服务端可能降级）
 const isPlaying = ref(false)
+
+// ── 起流耗时读数（只在安卓端显示）─────────────────────────────────
+// 真机「视频加载时间长」这种反馈在 PC 上复现不了，所以把关键几跳摊开：
+// 地址 / 首块 / 首帧 / 实际线路 / 字节数与均速。加载慢时看一眼就知道卡在哪一跳。
+const IS_ANDROID_UI =
+  typeof document !== 'undefined' && document.documentElement.dataset.platform === 'android'
+const perfText = ref('')
+let perfT0 = 0
+let perfUrlMs = 0
+let perfFrameMs = 0
+
+function renderPerf() {
+  if (!IS_ANDROID_UI || !perfT0) return
+  const parts = []
+  if (perfUrlMs) parts.push(`地址 ${(perfUrlMs / 1000).toFixed(1)}s`)
+  const st = player ? player.stat : null
+  if (st && st.tFirst) parts.push(`首块 ${(st.tFirst / 1000).toFixed(1)}s`)
+  if (perfFrameMs) parts.push(`首帧 ${(perfFrameMs / 1000).toFixed(1)}s`)
+  if (st && st.host) {
+    parts.push(
+      String(st.host)
+        .replace(/^upos-/, '')
+        .replace(/\.mcdn\.bilivideo\.cn.*$/, 'mcdn')
+        .replace(/\.bilivideo\.(com|cn)$/, '')
+    )
+  }
+  const bytes = st ? st.vBytes + st.aBytes : 0
+  if (bytes) {
+    parts.push(`${(bytes / 1048576).toFixed(1)}MB`)
+    if (st.tFirst) parts.push(`${(bytes / 1048576 / (st.tFirst / 1000)).toFixed(1)}MB/s`)
+  }
+  perfText.value = parts.join(' · ')
+}
+
 const duration = ref(0)
 const currentTime = ref(0)
 const bufferedPct = ref(0)
@@ -503,6 +537,10 @@ async function startPlay() {
   errorMsg.value = ''
   watchedTotal = 0
   autoChecked = false
+  perfT0 = performance.now()
+  perfUrlMs = 0
+  perfFrameMs = 0
+  perfText.value = ''
 
   // 这个视频已经在小窗里放了：本页别再拉一路（否则两个声音叠在一起）。
   // 页面上会显示「视频正在小窗播放」+ 收回按钮。
@@ -516,6 +554,7 @@ async function startPlay() {
   let data = null
   try {
     data = await api.video.playurl(bvid.value, cid.value, qn)
+    perfUrlMs = performance.now() - perfT0
   } catch (err) {
     errorMsg.value = err.message || '播放地址获取失败'
     statusText.value = ''
@@ -556,6 +595,12 @@ async function startPlay() {
         currentTime.value = t
         if (d) duration.value = d
         updateBuffered()
+        // 安卓端：起流后 30s 内让读数跟着刷（均速才有意义），之后清掉不挡画面
+        if (IS_ANDROID_UI && perfT0) {
+          if (performance.now() - perfT0 > 30000) {
+            if (perfText.value) perfText.value = ''
+          } else renderPerf()
+        }
       },
       onDuration: (d) => {
         if (d) duration.value = d
@@ -589,6 +634,7 @@ async function startPlay() {
       autoplay: true
     })
     startTimers() // 幂等：切分P/换清晰度后保证计时器仍在跑
+    renderPerf()
     applyRate()
     // 本地字幕跟着分P走；开了「自动开启在线字幕」就顺手取一次（失败不打扰用户）
     loadLocalSubs().catch(() => {})
@@ -930,6 +976,11 @@ watch(isPlaying, (playing) => {
     ctlVisible.value = true
     if (hideTimer) clearTimeout(hideTimer)
   } else {
+    // 首帧：从「进播放页」到「画面真的动起来」的总耗时
+    if (IS_ANDROID_UI && perfT0 && !perfFrameMs) {
+      perfFrameMs = performance.now() - perfT0
+      renderPerf()
+    }
     scheduleHide()
   }
 })
@@ -985,7 +1036,11 @@ onBeforeUnmount(() => {
           <div v-if="statusText && !isPlaying" class="player-msg">
             <span class="spinner" style="margin: 0 auto" />
             <div>{{ statusText }}</div>
+            <!-- 安卓端：缓冲中把「卡在哪一跳」一并显示出来 -->
+            <div v-if="perfText" class="perf-line">{{ perfText }}</div>
           </div>
+
+          <div v-else-if="perfText" class="perf-line perf-corner">{{ perfText }}</div>
 
           <!-- 这一路已经在小窗里放了：本页不再拉第二路流，只提示 + 收回归位 -->
           <div v-if="miniHere" class="player-msg player-msg-col">
