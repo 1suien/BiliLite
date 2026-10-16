@@ -696,6 +696,9 @@ export class DashPlayer {
    */
   async streamFrom(kind, urls, gen, offset) {
     let lastErr = null
+    // 记下最后失败的那条地址：报错时把主机名带上，不然只写「HTTP 403」
+    // 根本判断不出是哪一跳（接口/CDN/防盗链）出的问题
+    let lastUrl = ''
     // 是否真的把数据交给过 SourceBuffer：调用方（tryRangedStart）靠它判断要不要回退到「从 0 拉」
     let appended = false
     for (const url of urls) {
@@ -788,11 +791,18 @@ export class DashPlayer {
       } catch (err) {
         this.aborts.delete(ac)
         lastErr = err
+        lastUrl = url
         if (gen !== this.gen || this.destroyed) return appended
       }
     }
     if (!appended && lastErr && gen === this.gen && !this.destroyed) {
-      this.hooks.onError && this.hooks.onError(new Error(`拉流失败：${lastErr.message}`))
+      let host = ''
+      try {
+        host = new URL(lastUrl).host
+      } catch {
+        /* ignore */
+      }
+      this.hooks.onError && this.hooks.onError(new Error(`拉流失败：${lastErr.message}${host ? ` @${host}` : ''}`))
     }
     return appended
   }

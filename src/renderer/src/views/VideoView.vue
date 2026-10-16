@@ -128,6 +128,22 @@ const errSplit = computed(() => {
   if (streamy) return { human: '这条线路暂时拿不到数据', why: tail || raw }
   return { human: head, why: '' }
 })
+/**
+ * 安卓端拉流失败时多显示一行排查信息（页面源 + UA 类别）。
+ * 起因：B 站分片 CDN 会按 User-Agent 判定，桌面 UA 给 206、移动/WebView UA 直接 403，
+ * 而 UA 在 WebView 里由原生侧设置（见 MainActivity#applyDesktopUserAgent），
+ * 出错时能一眼看出「UA 到底换没换成桌面」。桌面端没有这一段。
+ */
+const IS_ANDROID =
+  typeof document !== 'undefined' && document.documentElement.dataset.platform === 'android'
+const streamDiag = computed(() => {
+  if (!IS_ANDROID || !errorMsg.value) return ''
+  const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || ''
+  const kind = /Windows NT|Macintosh|X11/.test(ua) ? '桌面' : /Android/.test(ua) ? '安卓' : '其他'
+  const ver = /Chrome\/(\d+)/.exec(ua)
+  const origin = typeof location !== 'undefined' ? location.origin : ''
+  return `源=${origin} · UA=${kind}${ver ? `/Chrome${ver[1]}` : ''}`
+})
 const pct = computed(() => (duration.value ? Math.min(100, (currentTime.value / duration.value) * 100) : 0))
 const currentPageTitle = computed(() => {
   const p = pageList.value[pageIndex.value]
@@ -1126,6 +1142,7 @@ onBeforeUnmount(() => {
           <b>{{ errSplit.human }}</b>
           <span v-if="errSplit.why" class="err-why" :title="errorMsg">{{ errSplit.why }}</span>
         </div>
+        <div v-if="streamDiag" class="err-why" style="margin-top: 4px">{{ streamDiag }}</div>
         <div class="row" style="margin-top: 8px">
           <button class="btn sm primary" @click="startPlay">重新获取播放地址</button>
           <button class="btn sm ghost" @click="openExternal">在浏览器打开</button>

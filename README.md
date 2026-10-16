@@ -227,18 +227,23 @@ node 'C:\Users\zouyx\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\pnpm\bin
   `await installBridge()`（存储走原生 Preferences，是异步的）→ `installPlatformShims()` →
   **动态** `import('../renderer/src/main.js')` → 绑物理返回键。
   （必须动态 import：`api/index.js` 在模块顶层就读 `window.bili`。）
-- **网络两条腿**：`server.hostname` 设成 `www.bilibili.com` 让 WebView 的 `Referer` 天生正确
-  （B 站 CDN 无 Referer 会 403），DASH 分片继续走被 Capacitor 原生代理接管的 `window.fetch`（流式）；
+- **网络两条腿**：`server.hostname` 设成 `www.bilibili.com` 让 WebView 的 `Referer` 天生正确，
+  **并且把 WebView 的 User-Agent 覆写成桌面 Chrome**（`MainActivity#applyDesktopUserAgent()`）——
+  B 站分片 CDN 同时校验这两样：同一个签名分片 URL，桌面 UA + B 站 Referer 给 206，
+  换成安卓 / WebView UA 就是 403（2026-10-16 真机上「这条线路暂时拿不到数据 · HTTP 403」的根因）。
+  DASH 分片继续走被 Capacitor 原生代理接管的 `window.fetch`（流式）；
   接口 JSON 走 `CapacitorHttp.request()`（可自定义 `Referer` / `Origin` / `Cookie`，无 CORS）。
 - **平台能力**（都用 shim / 插件补齐，渲染层无感）：设置与登录态走 `@capacitor/preferences`；
   `navigator.clipboard` 换成 `@capacitor/clipboard`；全屏时隐藏状态栏 + 锁横屏；
   画中画用自写原生插件 `PipPlugin.java`（按 Home 键进小窗，`setSourceRectHint` 贴着视频区域）；
-  物理返回键按「弹层 → 确认框 → 全屏 → 剧场模式 → 路由 → 收到后台」的优先级接管。
-- **触屏适配**：`src/mobile/mobile.css` 只在 `html[data-platform='android']` 下生效，
-  桌面端零影响。安卓端侧栏按 `document.documentElement.dataset.platform` 隐藏「本地」入口。
-- **构建**：`mobile/` 下 `pnpm install --ignore-workspace` → `vite build` → `cap sync android` →
-  `android\gradlew.bat assembleDebug`，产物 `mobile/android/app/build/outputs/apk/debug/app-debug.apk`（≈4.18 MB，
-  `versionCode 4` / `versionName 0.4.0`）。
+  物理返回键按「弹层 → 确认框 → 全屏 → 剧场模式 → 路由 → 收到后台」的优先级接管；
+  **本地视频库**用系统文件选择器（SAF）+ `blob:` URL 实现（`src/mobile/local-files.js`）；
+  **数据导出**写不进公共目录就弹系统分享面板让用户另存（`@capacitor/share`）。
+- **触屏适配**：`src/mobile/mobile.css` 只在 `html[data-platform='android']` 下生效，桌面端零影响。
+  侧栏保留「本地」入口（安卓上已有等价实现）。
+- **构建**：`mobile/` 下 `pnpm install --ignore-workspace` → `pnpm run build` → `cap sync android` →
+  `android\gradlew.bat assembleDebug`，产物 `mobile/android/app/build/outputs/apk/debug/app-debug.apk`（≈4.10 MB，
+  `versionCode 5` / `versionName 0.4.1`）。
   本机 JDK/SDK 在 `C:\Users\zouyx\android-toolchain\`；工程路径含中文，已在
   `mobile/android/gradle.properties` 固化 `android.overridePathCheck=true`。
   注意 `pnpm run build` 曾被 pnpm 11 的依赖预检带崩（`ERR_PNPM_IGNORED_BUILDS` → 预检 install 退出 1），

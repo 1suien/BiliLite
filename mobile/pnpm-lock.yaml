@@ -29,6 +29,9 @@ importers:
       '@capacitor/screen-orientation':
         specifier: ^6.0.4
         version: 6.0.4(@capacitor/core@6.2.2)
+      '@capacitor/share':
+        specifier: ^6.0.4
+        version: 6.0.4(@capacitor/core@6.2.2)
       '@capacitor/status-bar':
         specifier: ^6.0.3
         version: 6.0.3(@capacitor/core@6.2.2)
@@ -97,6 +100,11 @@ packages:
 
   '@capacitor/screen-orientation@6.0.4':
     resolution: {integrity: sha512-BKuGqUGvN7hSEmotI7m8UlGRRBGd9YpAzlnQAXp9VNvKkinSkreMHPrEOiR/sG3QX/vR/BJ190tGQiICmylcTg==}
+    peerDependencies:
+      '@capacitor/core': ^6.0.0
+
+  '@capacitor/share@6.0.4':
+    resolution: {integrity: sha512-Ij8C3as4n6L+SUj3M1ko+DGIsrDw2VTkn5Y/pQnFRI9dRk6YoSpGKLN54yOyN7ew3N9bVa8Rko+dFwdcNg7ESA==}
     peerDependencies:
       '@capacitor/core': ^6.0.0
 
@@ -937,6 +945,10 @@ snapshots:
       '@capacitor/core': 6.2.2
 
   '@capacitor/screen-orientation@6.0.4(@capacitor/core@6.2.2)':
+    dependencies:
+      '@capacitor/core': 6.2.2
+
+  '@capacitor/share@6.0.4(@capacitor/core@6.2.2)':
     dependencies:
       '@capacitor/core': 6.2.2
 

@@ -11,4 +11,6 @@
 # 关掉预检即可；`.npmrc` 里写 kebab-case 的 `verify-deps-before-run=false` 实测不生效，
 # 必须写在 pnpm-workspace.yaml 里。
 packages: []
+allowBuilds:
+  esbuild: set this to true or false
 verifyDepsBeforeRun: false

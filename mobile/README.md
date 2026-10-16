@@ -7,7 +7,7 @@
 横屏 CSS 视口约 **1047×654 dp**，和桌面窗口 1267×717 很接近，所以布局基本沿用桌面版，
 只加了一层触屏/安全区的微调（`src/mobile/mobile.css`）。
 
-版本：`versionCode 4` / `versionName 0.4.0`（`mobile/android/app/build.gradle`）。
+版本：`versionCode 5` / `versionName 0.4.1`（`mobile/android/app/build.gradle`）。
 
 ## 三层结构
 
@@ -15,7 +15,7 @@
 | --- | --- |
 | `src/renderer/**` | **原样复用，一行没改逻辑**。11 个 view 只通过 `src/renderer/src/api/index.js` 接触桥，只要在 Vue 挂载前把 `window.bili` 装好即可 |
 | `src/main/bili/**` | **原样复用**（12 个文件，已无 electron / node: 依赖）：`runtime.js` 注入 store、`md5.js` 纯 JS 签名、`http.js` 的 `setCookieMode()` + `setHttpFetch()` |
-| `src/mobile/**` | 新写的安卓平台层：`bridge.js`（IPC 通道表的 web 版）+ `store.js`（原生 Preferences）+ `native-http.js`（原生 HTTP）+ `platform.js`（剪贴板 / 全屏 / 画中画） |
+| `src/mobile/**` | 新写的安卓平台层：`bridge.js`（IPC 通道表的 web 版）+ `store.js`（原生 Preferences）+ `native-http.js`（原生 HTTP）+ `platform.js`（剪贴板 / 全屏 / 画中画）+ `local-files.js`（本地视频库，SAF → `blob:`） |
 
 `src/shared/default-settings.js` 是两端共用的默认设置，避免默认值漂移。
 
@@ -49,15 +49,23 @@ mobile/index.html
 ## 网络方案（两条腿）
 
 安卓 WebView 里 `Referer` / `Origin` 是 forbidden header，JS 设了也会被丢掉；
-而 B 站 CDN 校验 `Referer`（本项目实测）：
+而 B 站 CDN 既校验 `Referer`、又**按 User-Agent 放行**（下面这张表是拿真视频的签名分片
+URL 逐个 curl 出来的，2026-10-16 真机上报的「HTTP 403 这条线路暂时拿不到数据」就是它）：
 
-| 媒体分片请求 | 结果 |
+| 媒体分片请求（GET + `Range`） | 结果 |
 | --- | --- |
 | 不带 `Referer` | **403** |
 | `Referer: https://localhost/`（Capacitor 默认 hostname） | **403** |
-| `Referer: https://www.bilibili.com/` | **206** |
+| `Referer: https://www.bilibili.com/` + **桌面** Chrome UA | **206** |
+| `Referer: https://www.bilibili.com/` + Chrome **安卓** UA | **403** |
+| `Referer: https://www.bilibili.com/` + WebView（UA 里带 `; wv`） | **403** |
 
-所以方案是分而治之：
+也就是说媒体请求必须**同时**满足「Referer 像 bilibili.com」和「UA 是桌面浏览器」。
+UA 那半边在原生侧解决：`MainActivity#applyDesktopUserAgent()` 覆写
+`WebSettings.setUserAgentString()`，用的就是 `src/main/bili/http.js` 里那个 `UA` 常量
+（同一个串实测 206）。接口调用本来就由 `BASE_HEADERS` 带桌面 UA，所以只需改 WebView 这一处。
+
+于是方案是分而治之：
 
 1. **媒体分片**（DASH，含 `Range`）走 WebView 自己的 `window.fetch`。
    `capacitor.config.json` 里把 **`server.hostname` 设成 `www.bilibili.com`**，页面同源就是 B 站，
@@ -86,6 +94,8 @@ mobile/index.html
 | 全屏 | 监听 `fullscreenchange`：进全屏 `StatusBar.hide()` + `ScreenOrientation.lock({orientation:'landscape'})`，退出还原 | 无感（`VideoView.vue` 的 `requestFullscreen()` 照旧） |
 | 画中画 | 自写原生插件 `mobile/android/.../PipPlugin.java`：JS 只汇报「在播没有 + 视频区域」，`MainActivity.onUserLeaveHint()` 在按 Home 时进入 PiP，并用 `setSourceRectHint` / `setAspectRatio` 让小窗贴着视频区域。Manifest 里 `android:supportsPictureInPicture="true"` | 无感（`platform.js` 在 document 上捕获 `play`/`pause`/`ended`，不必拿播放器引用） |
 | 物理返回键 | `@capacitor/app` 的 `backButton` 监听，按优先级：登录弹层 → 确认框 → 全屏 → 剧场模式 → 路由历史 → `minimizeApp()`（回首页时收到后台，不是杀进程） | 无感 |
+| 本地视频库 | `src/mobile/local-files.js`：隐藏 `<input type="file">`（系统 SAF 选择器）→ `URL.createObjectURL(file)` 成 `blob:` URL；条目形状与桌面 `src/main/local-media.js` 的 `entryFor()` 一致（`id` = `md5(文件名｜大小｜修改时间)` 前 24 位，与桌面同算法，所以「重选同一个文件」能接上原来的进度） | 无感（`LocalView.vue` 的「打开文件 / 打开文件夹」→ `local:pickFiles/pickFolder`；「打开文件夹」在安卓上等价于一次多选） |
+| 数据导出 / 备份 | `backup:write` 先试公共「文档」目录（`Directory.Documents`），分区存储下写不进去就退到应用缓存目录，然后一律弹 `@capacitor/share` 的**系统分享面板**（「保存到…」），用户自己选存到文件 / 网盘 / 微信；`sys:pickFile` 返回一个说明串（安卓没有可回写的绝对路径），`sys:revealPath` = 再分享一次上次导出的文件 | 无感（`SettingsView.vue` 的「选择 / 写入 JSON 备份 / 打开」） |
 
 > 为什么 SESSDATA 不能像桌面端那样判断登录态：WebView 里它是 HttpOnly，JS 读不到
 > （Cookie 由原生 CookieManager 自动随请求带上），所以安卓端 `store.isLoggedIn()` 看 `state.user`。
@@ -117,7 +127,7 @@ Set-Location android
 ```
 
 产物：`mobile/android/app/build/outputs/apk/debug/app-debug.apk`（当前 **4,180,165 B / 4.18 MB**，
-`versionCode 4` / `versionName 0.4.0`；本机已核对该 APK 与 `pnpm run build` 重建的 www 字节一致）。
+`versionCode 5` / `versionName 0.4.1`；本机已核对该 APK 与 `pnpm run build` 重建的 www 字节一致）。
 
 > `mobile/android/local.properties` 里写 `sdk.dir=...`（Capacitor 的 `.gitignore` 已忽略它，不要提交）。
 > 改了 `src/renderer` / `src/mobile` / `capacitor.config.json` 之后都要重新
@@ -167,30 +177,39 @@ Set-Location android
 + 1047×654 视口」加载。它没有 Electron preload，`window.bili` 为空，所以走的正是
 `installBridge()` 这条安卓启动分支。逐路由截图落在 `_work/shots-mobile/`，同时检查：
 
-- **冷启动**：`dataset.platform='android'`、`window.bili.platform='android'`、侧栏没有「本地」、
+- **冷启动**：`dataset.platform='android'`、`window.bili.platform='android'`、侧栏含「本地」、
   无横向溢出、导航项触控高度 46 px、`#app` 有内容（白屏会带出堆栈）
 - **平台补丁**：剪贴板 shim 标记为 `native-clipboard`；派发一次 `fullscreenchange` 后
   `dataset.fullscreen` 被写值（证明监听器挂上且原生调用失败被兜住）；对临时 `<video>`
   派 `play` / `pause` 时 `dataset.pip` 跟着变 1 / 0
 - **存储往返**：写一个设置 → `Page.reload` → 读回同一个值，并且重载后 App 仍能正常挂载
+- **本地视频库**：用 CDP 的 `DOM.setFileInputFiles` 往隐藏 `<input type="file">` 里塞真文件
+  （等价于用户在 SAF 选择器里点了文件），验证四件事：条目 id/路径/大小/MIME 正确、
+  `register()` 命中 1 条 + 未登记的路径进 `missing`、`blob:` URL 能当媒体源播
+  （`loadedmetadata` 拿到真实时长）、进「本地」页点「打开文件」后列表里真的出现行
+  （`0:02 probe-tone.wav 31 KB 播放` / `0:05 屏幕录制 ….mp4 9.0 MB 播放`）
 
 原生侧另用 `aapt dump badging/xmltree` + 在 `classes*.dex` 里搜字符串确认：
 `PipPlugin` 类进了 `classes4.dex`（含 `setSourceRectHint` / `enterPictureInPictureMode`），
+`MainActivity` 里的桌面 UA 串（`Windows NT 10.0; Win64; x64`）也在 `classes4.dex`，
 Manifest 上 `android:supportsPictureInPicture` 已生效。
 
 ## 已知限制 / 尚未在真机验证
 
-- **本地视频**：安卓端侧栏已隐藏「本地」入口（`src/renderer/src/App.vue` 按
-  `document.documentElement.dataset.platform === 'android'` 过滤），`sys:pickFile` /
-  `local:pickFiles` 会抛「安卓版暂不支持本机文件选择」。WebView 里没有 Electron 文件对话框，
-  也留不住 File 句柄。
+- **本地视频**：走 SAF 选择器 + `blob:` URL，所以**只在本次页面会话里有效** —— App 重启后
+  系统不再把同一个文件的读权限给 WebView，条目会显示成「文件不在了」（红字），需要重新选一次。
+  id 由「文件名+大小+修改时间」哈希得到，重选同一个文件会拿到同一个 id，之前存的进度/笔记能接上。
+  没有自定义协议（桌面的 `lmedia://`）也没有绝对路径，「打开位置」在安卓上不可用（会提示）。
 - **画中画**：只在 Android 8.0+ 生效（低版本 `supported()` 返回 false）；平板上的 PiP 是
   **整页缩放**，`setSourceRectHint` 只是给系统的裁剪提示，效果要真机看。
 - **设置存储**：web 端验证跑的是 Preferences 的 localStorage 实现，真机上是 SharedPreferences，
   首次启动的读写行为待真机确认（失败会回退 localStorage 镜像，不会丢设置）。
 - **全屏**：进全屏会锁横屏，部分平板系统会忽略方向锁定，忽略即可（异常已兜住）。
-- **备份导出**：`backup:write` 用 `@capacitor/filesystem` 的 `Directory.Documents`，
-  Android 10+ 分区存储下是否可写**未验证**。
+- **备份导出**：`backup:write` 先试 `Directory.Documents`（分区存储下多半失败），失败退到应用
+  缓存目录，然后弹系统分享面板让用户另存 —— 真机上「保存到文件/网盘」这一步**未验证**。
 - **真机未验证项**：原生 HTTP 的实际响应形态、Cookie 跨会话保持、物理返回键的手势交互、
-  刘海/手势条安全区、播放起流、画中画小窗。这些都只能在平板上跑一次才算数（`adb install` 后可以再验）。
+  刘海/手势条安全区、画中画小窗。这些都只能在平板上跑一次才算数（`adb install` 后可以再验）。
+  拉流 403 的修复（桌面 UA）是 curl 层面实测 206 + APK 里确认代码已编进去，但**没有在真机上
+  重新播过一次**；万一还 403，错误卡现在会多显示一行 `源=… · UA=桌面/Chrome126`，一眼能看出
+  UA 到底换成功没有。
 - 安卓端不做 Electron 端的 `ses.webRequest` 头注入（那是桌面独有的 `src/main/index.js` 逻辑）。

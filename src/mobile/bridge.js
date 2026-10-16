@@ -13,6 +13,7 @@
 import { setBiliStore, storeProxy } from '../main/bili/runtime.js'
 import { setCookieMode, setHttpFetch } from '../main/bili/http.js'
 import { createNativeFetch } from './native-http.js'
+import { acceptFiles, registerPaths, forget } from './local-files.js'
 import { store } from './store.js'
 import { qrGenerate, qrPoll, restore, logout } from '../main/bili/auth.js'
 import { fetchView, fetchPages, fetchPlayurl, fetchRelated } from '../main/bili/video.js'
@@ -36,7 +37,7 @@ async function appVersion() {
   } catch {
     cachedVersion = ''
   }
-  return cachedVersion || '0.4.0'
+  return cachedVersion || '0.4.1'
 }
 
 /* ------------------------------------------------------------------ *
@@ -82,6 +83,18 @@ function readFileBytes(file) {
 
 /** 字幕：路徑 -> File 的临时映射（安卓没有真实可读路径） */
 const subCache = new Map()
+
+/** 设置页「备份目录」里显示的名字：安卓上没有可写的绝对路径可填 */
+const BACKUP_LABEL = '本机（导出时用系统面板选保存位置）'
+
+/** 最近一次导出的备份文件；`设置 → 打开` 用它再弹一次分享面板 */
+let lastBackupUri = ''
+
+/** 把文件丢进系统分享面板，用户可选「保存到文件 / 网盘 / 微信…」 */
+async function shareFile(uri, title) {
+  const { Share } = await import('@capacitor/share')
+  await Share.share({ title, text: title, files: [uri], dialogTitle: '保存到…' })
+}
 
 const SUB_EXTS = ['srt', 'vtt', 'ass', 'ssa']
 const SUB_MAX_BYTES = 8 * 1024 * 1024
@@ -141,12 +154,16 @@ const handlers = {
     }
     return true
   },
-  // 安卓没有「选一个可写目录」这种概念（要用 SAF），这里明确告诉用户
-  'sys:pickFile': async () => {
-    const err = new Error('安卓版暂不支持选择备份目录，学习数据仍然保存在本机应用内')
-    throw err
+  // 安卓没有「选一个可写目录」这种概念：SAF 给的目录没有可回写的绝对路径，
+  // 写公共「文档」目录又要额外权限。所以这里只给个说明字符串，真正落地靠
+  // backup:write —— 文件先写进应用目录，再弹系统分享面板让用户自己选存哪儿。
+  'sys:pickFile': async () => BACKUP_LABEL,
+  'sys:revealPath': async () => {
+    if (!lastBackupUri) throw new Error('还没有导出过备份；先点「写入 JSON 备份」')
+    // 安卓上没有「在资源管理器里定位」，等价物是再分享一次那个文件
+    await shareFile(lastBackupUri, 'BiliLite 学习数据备份')
+    return true
   },
-  'sys:revealPath': async () => true,
   'sys:pickSubtitle': async () => {
     const files = await pickFilesFromInput({ accept: '.srt,.vtt,.ass,.ssa', multiple: true })
     const out = []
@@ -167,31 +184,62 @@ const handlers = {
     return { path, name: f.name, size: f.size, bytes }
   },
 
-  // 安卓版不做本地视频库（要 SAF + 内容 URI 才能解码），给出明确提示
+  // 本地视频库：安卓上等价物是系统文件选择器（SAF）+ blob: URL，
+  // 见 src/mobile/local-files.js 顶部的说明（含「重启后要重选」这条限制）
   'local:pickFiles': async () => {
-    throw new Error('安卓版暂不支持本地视频库，可以直接搜索 B 站视频')
+    const files = await pickFilesFromInput({ accept: 'video/*,audio/*', multiple: true })
+    if (!files.length) return { canceled: true }
+    return { entries: acceptFiles(files) }
   },
   'local:pickFolder': async () => {
-    throw new Error('安卓版暂不支持本地视频库，可以直接搜索 B 站视频')
+    // 没有「选文件夹」这个动作，等价物就是一次多选
+    const files = await pickFilesFromInput({ accept: 'video/*,audio/*', multiple: true })
+    if (!files.length) return { canceled: true }
+    return { dir: '本机文件', entries: acceptFiles(files), truncated: files.length >= 500 }
   },
-  'local:register': async () => ({ entries: [] }),
-  'local:remove': async () => true,
-  'local:reveal': async () => true,
+  'local:register': async ({ paths }) => registerPaths(paths),
+  'local:remove': async ({ id }) => forget(id),
+  'local:reveal': async () => {
+    throw new Error('安卓上没有「在资源管理器里定位」，去系统「文件」应用里找这个文件')
+  },
 
   'backup:write': async ({ name, text }) => {
-    // 安卓走 Capacitor Filesystem 写到应用的 Documents 目录
+    const file = name || `bililite-${Date.now()}.json`
+    const { Filesystem, Directory, Encoding } = await import('@capacitor/filesystem')
+    // ① 先试公共「文档」目录：写成功的话插到电脑上就能看到（Android 9 及以下，
+    //    或用户给过「所有文件访问」权限时才可能成功）
+    let uri = ''
+    let where = '文档'
     try {
-      const { Filesystem, Directory, Encoding } = await import('@capacitor/filesystem')
       const res = await Filesystem.writeFile({
-        path: name || `bililite-${Date.now()}.json`,
-        data: text,
+        path: file,
+        data: String(text == null ? '' : text),
         directory: Directory.Documents,
         encoding: Encoding.UTF8,
         recursive: true
       })
-      return res.uri
-    } catch (err) {
-      throw new Error('导出失败：' + (err && err.message ? err.message : String(err)))
+      uri = res.uri
+    } catch {
+      // ② 分区存储下写公共目录必然失败，退到应用私有目录（一定能写）
+      const res = await Filesystem.writeFile({
+        path: file,
+        data: String(text == null ? '' : text),
+        directory: Directory.Cache,
+        encoding: Encoding.UTF8,
+        recursive: true
+      })
+      uri = res.uri
+      where = '应用缓存'
+    }
+    lastBackupUri = uri
+    // ③ 再弹系统分享面板：用户可以自己决定存到「文件」、网盘、微信……
+    //    安卓上这才是「把数据存到本地」的正路（应用私有目录用户看不到）
+    try {
+      await shareFile(uri, `BiliLite 学习数据备份 ${file}`)
+      return `${where}/${file}（已打开「保存到」面板，可另存到任意位置）`
+    } catch {
+      // 用户取消分享、或设备没有分享面板：文件本身已经写好了
+      return `${where}/${file}`
     }
   }
 }
