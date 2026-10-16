@@ -99,11 +99,14 @@ Capacitor 侧依赖在 `mobile/` 里**独立安装**（`--ignore-workspace`，�
 $env:JAVA_HOME  = 'C:\Users\zouyx\android-toolchain\jdk-17'
 $env:ANDROID_HOME = 'C:\Users\zouyx\android-toolchain\sdk'
 $env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
-$env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
 
 # 本机 node / pnpm 不在 PATH，用绝对路径（普通机器直接 node / pnpm 即可）
-$NODE = 'C:\Users\zouyx\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe'
+$NODEDIR = 'C:\Users\zouyx\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin'
+$NODE = "$NODEDIR\node.exe"
 $PNPM = 'C:\Users\zouyx\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\pnpm\bin\pnpm.mjs'
+
+# node 必须进 PATH：pnpm 跑 script 时执行的是 node_modules\.bin\vite.cmd，它内部再调 node
+$env:PATH = "$env:JAVA_HOME\bin;$NODEDIR;$env:PATH"
 
 Set-Location 'C:\Users\zouyx\Desktop\学习APP\_work\BiliLite-src\mobile'
 & $NODE $PNPM install --ignore-workspace                        # 只装 @capacitor/* + vite + plugin-vue
@@ -113,7 +116,8 @@ Set-Location android
 & .\gradlew.bat assembleDebug --console=plain
 ```
 
-产物：`mobile/android/app/build/outputs/apk/debug/app-debug.apk`（当前 ≈ **4.1 MB**）。
+产物：`mobile/android/app/build/outputs/apk/debug/app-debug.apk`（当前 **4,180,165 B / 4.18 MB**，
+`versionCode 4` / `versionName 0.4.0`；本机已核对该 APK 与 `pnpm run build` 重建的 www 字节一致）。
 
 > `mobile/android/local.properties` 里写 `sdk.dir=...`（Capacitor 的 `.gitignore` 已忽略它，不要提交）。
 > 改了 `src/renderer` / `src/mobile` / `capacitor.config.json` 之后都要重新
@@ -126,8 +130,13 @@ Set-Location android
 >
 > ⚠️ 上面这个退出码 1 还会连带搞坏 `pnpm run build`：pnpm 11 在跑 script 前会先自动
 > `pnpm install` 做依赖校验，那个 install 以 1 退出，script 根本不会执行（表现为
-> `pnpm run build` 只打印 pnpm 的报错、`www/` 一点没变）。已在 `mobile/.npmrc` 里写
-> `verify-deps-before-run=false` 关掉这个预检。
+> `pnpm run build` 只打印 pnpm 的报错、`www/` 一点没变）。已在 `mobile/pnpm-workspace.yaml`
+> 里写 `verifyDepsBeforeRun: false` 关掉这个预检（`mobile/.npmrc` 里写
+> `verify-deps-before-run=false` **不生效**，实测过）。
+>
+> `build` 脚本是 `vite build --config vite.config.mjs`，路径相对 `mobile/`，
+> 所以**必须在 `mobile/` 目录里跑**（`vite.config.mjs` 自身用 `import.meta.url`
+> 定位 root / 入口 / 依赖，与 cwd 无关）。
 
 ### 安装到平板
 

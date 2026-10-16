@@ -4,7 +4,7 @@
   "private": true,
   "description": "BiliLite 安卓版（小米平板 6 / Android 14）：Capacitor 外壳 + 与桌面端共用的渲染层与 B 站接口层",
   "scripts": {
-    "build": "vite build --config mobile/vite.config.mjs",
+    "build": "vite build --config vite.config.mjs",
     "sync": "cap sync android",
     "open": "cap open android",
     "apk": "cap build android --androidreleasetype APK"

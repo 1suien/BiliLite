@@ -242,7 +242,7 @@ node 'C:\Users\zouyx\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\pnpm\bin
   本机 JDK/SDK 在 `C:\Users\zouyx\android-toolchain\`；工程路径含中文，已在
   `mobile/android/gradle.properties` 固化 `android.overridePathCheck=true`。
   注意 `pnpm run build` 曾被 pnpm 11 的依赖预检带崩（`ERR_PNPM_IGNORED_BUILDS` → 预检 install 退出 1），
-  已在 `mobile/.npmrc` 写 `verify-deps-before-run=false`。
+  已在 `mobile/pnpm-workspace.yaml` 写 `verifyDepsBeforeRun: false`（`.npmrc` 里的同名 kebab-case 键不生效）。
 
 ## 验证
 

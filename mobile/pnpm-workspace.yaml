@@ -1,9 +1,14 @@
 # mobile/ 独立安装（`pnpm install --ignore-workspace`），不参与仓库根的 workspace。
+# 本文件只有两个作用：声明「不是一个 workspace」+ 关掉 pnpm 11 的 script 前置校验。
 #
-# 注：pnpm 会忽略 esbuild 的安装脚本并报 `ERR_PNPM_IGNORED_BUILDS`（退出码 1）——
+# 注 1：pnpm 会忽略 esbuild 的安装脚本并报 `ERR_PNPM_IGNORED_BUILDS`（退出码 1）——
 # 这只是提示，esbuild 的平台二进制已经在 node_modules 里，`vite build` 正常。
-# 想彻底消掉提示就跑一次 `pnpm approve-builds`（本机实测 allowBuilds /
-# onlyBuiltDependencies 两个键都不生效，得用交互式 approve）。
+# 本机实测 `allowBuilds` / `onlyBuiltDependencies` 两个键都消不掉它，
+# 想消掉得跑一次交互式 `pnpm approve-builds`。
+#
+# 注 2：注 1 的退出码 1 会让 pnpm 11「跑 script 前先自动 install 做依赖校验」这一步失败，
+# 于是 `pnpm run build` 只打印 pnpm 的报错、vite 根本不会执行（www/ 一点没变）。
+# 关掉预检即可；`.npmrc` 里写 kebab-case 的 `verify-deps-before-run=false` 实测不生效，
+# 必须写在 pnpm-workspace.yaml 里。
 packages: []
-allowBuilds:
-  esbuild: set this to true or false
+verifyDepsBeforeRun: false
