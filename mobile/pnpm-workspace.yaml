@@ -1,2 +1,5 @@
+# mobile/ 是独立安装的（pnpm install --ignore-workspace），这份文件只用来允许
+# esbuild 的安装脚本 —— vite 依赖它的平台二进制。
+packages: []
 allowBuilds:
   esbuild: set this to true or false
