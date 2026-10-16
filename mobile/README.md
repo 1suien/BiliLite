@@ -7,7 +7,7 @@
 横屏 CSS 视口约 **1047×654 dp**，和桌面窗口 1267×717 很接近，所以布局基本沿用桌面版，
 只加了一层触屏/安全区的微调（`src/mobile/mobile.css`）。
 
-版本：`versionCode 6` / `versionName 0.4.2`（`mobile/android/app/build.gradle`）。
+版本：`versionCode 7` / `versionName 0.4.3`（`mobile/android/app/build.gradle`）。
 
 ## 三层结构
 
@@ -118,7 +118,7 @@ UA 那半边在原生侧解决：`MainActivity#applyDesktopUserAgent()` 覆写
 | --- | --- | --- |
 | 设置 / 登录态存储 | `@capacitor/preferences`（安卓侧 SharedPreferences，应用私有目录，升级不丢）+ localStorage 镜像兜底；`load()` 是异步的，`installBridge()` 会 await 它再挂渲染层，否则会先闪一下默认主题和「未登录」 | 无感（`window.bili.settings.*`） |
 | 剪贴板 | `navigator.clipboard` 被替换成 `@capacitor/clipboard`（原生，不挑焦点/手势），原生不可用时回退浏览器实现；shim 上留了 `__bililite = 'native-clipboard'` 便于自动化验证 | 无感（`LearnView.vue` 导出 JSON、`VideoView.vue` 复制 BV 号都照旧写 `navigator.clipboard.writeText`） |
-| 全屏 | 监听 `fullscreenchange`：进全屏 `StatusBar.hide()` + `ScreenOrientation.lock({orientation:'landscape'})`，退出还原 | 无感（`VideoView.vue` 的 `requestFullscreen()` 照旧） |
+| 全屏 | 监听 `fullscreenchange`：进全屏 `Immersive.setImmersive({on:true})`（自写原生插件，把内容铺到系统栏底下 + 藏掉状态栏和手势条）+ `StatusBar.hide()` + `ScreenOrientation.lock({orientation:'landscape'})`，退出全部还原 | 无感（`VideoView.vue` 的 `requestFullscreen()` 照旧） |
 | 画中画 | 自写原生插件 `mobile/android/.../PipPlugin.java`：JS 只汇报「在播没有 + 视频区域」，`MainActivity.onUserLeaveHint()` 在按 Home 时进入 PiP，并用 `setSourceRectHint` / `setAspectRatio` 让小窗贴着视频区域。Manifest 里 `android:supportsPictureInPicture="true"` | 无感（`platform.js` 在 document 上捕获 `play`/`pause`/`ended`，不必拿播放器引用） |
 | 物理返回键 | `@capacitor/app` 的 `backButton` 监听，按优先级：登录弹层 → 确认框 → 全屏 → 剧场模式 → 路由历史 → `minimizeApp()`（回首页时收到后台，不是杀进程） | 无感 |
 | 本地视频库 | `src/mobile/local-files.js`：隐藏 `<input type="file">`（系统 SAF 选择器）→ `URL.createObjectURL(file)` 成 `blob:` URL；条目形状与桌面 `src/main/local-media.js` 的 `entryFor()` 一致（`id` = `md5(文件名｜大小｜修改时间)` 前 24 位，与桌面同算法，所以「重选同一个文件」能接上原来的进度） | 无感（`LocalView.vue` 的「打开文件 / 打开文件夹」→ `local:pickFiles/pickFolder`；「打开文件夹」在安卓上等价于一次多选） |
@@ -126,6 +126,15 @@ UA 那半边在原生侧解决：`MainActivity#applyDesktopUserAgent()` 覆写
 
 > 为什么 SESSDATA 不能像桌面端那样判断登录态：WebView 里它是 HttpOnly，JS 读不到
 > （Cookie 由原生 CookieManager 自动随请求带上），所以安卓端 `store.isLoggedIn()` 看 `state.user`。
+
+> **全屏上下黑带（0.4.3 修，真机反馈「视频播放窗口有多余」）**：两个来源 ——
+> ① WebView 的视口不包含系统栏，全屏时状态栏那块是**一整条黑带**（原先只 `StatusBar.hide()`，
+> 没让内容铺到系统栏底下，所以那条带子还在）；② 舞台 `.player-stage` 固定 16:9 且默认顶对齐，
+> 在 16:10 的平板上（小米平板 6：2880×1800）底下会空出约 10%。
+> 修法：`base.css` 给 `.player-wrap:fullscreen` 加 `display:flex; align-items:center`（舞台居中，
+> 黑边上下对称）+ 新增 `ImmersivePlugin.java` 做沉浸式；控制条挂在舞台内部，所以不会悬在黑边上。
+> 本机在 1047×654 的平板视口量过：**修复前** 舞台 `top=0`、底部黑带 65px；**修复后** `top=33`、
+> `bottom=33`（16:9 片源在 16:10 屏上各约 5%，对称）。
 
 ## 构建
 
@@ -153,8 +162,8 @@ Set-Location android
 & .\gradlew.bat assembleDebug --console=plain
 ```
 
-产物：`mobile/android/app/build/outputs/apk/debug/app-debug.apk`（当前 **4,103,477 B / 4.10 MB**，
-`versionCode 6` / `versionName 0.4.2`；本机已核对该 APK 与 `pnpm run build` 重建的 www 字节一致）。
+产物：`mobile/android/app/build/outputs/apk/debug/app-debug.apk`（当前 **4,104,453 B / 4.10 MB**，
+`versionCode 7` / `versionName 0.4.3`；本机已核对该 APK 与 `pnpm run build` 重建的 www 字节一致）。
 
 > `mobile/android/local.properties` 里写 `sdk.dir=...`（Capacitor 的 `.gitignore` 已忽略它，不要提交）。
 > 改了 `src/renderer` / `src/mobile` / `capacitor.config.json` 之后都要重新

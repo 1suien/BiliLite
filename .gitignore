@@ -75,7 +75,10 @@ scratch/
 notes-local/
 
 # ---- 第三方参考应用（二进制分发，不入库） ----
-BiliLite/
+# 必须写成根锚定的 /BiliLite/：Windows 上 gitignore 是大小写不敏感的，
+# 裸 `BiliLite/` 会连安卓版的 Java 包目录 mobile/android/.../com/bililite/app/ 一起忽略掉
+#（PipPlugin.java / MainActivity.java 就这么漏了一次）。
+/BiliLite/
 
 # 版本备份（安装包/bundle 体积大，不入库）
 backup/

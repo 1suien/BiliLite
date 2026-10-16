@@ -870,6 +870,21 @@ input[type='range'] {
   background: #000;
 }
 
+/* 全屏（Fullscreen API 作用在 .player-wrap 上）：舞台居中，别把 16:9 的舞台顶在最上面。
+   舞台是 16/9、宽度撑满，屏幕高宽比不是 16:9 时下面就会空出一条黑带（小米平板 6 是
+   2880×1800 = 16:10，实测空出约 10%）—— 2026-10-16 真机反馈「视频播放窗口有多余」就是它。
+   居中之后上下黑边对称（16:9 片源各约 5%），控制条仍然贴在画面底边、不悬空。 */
+.player-wrap:fullscreen {
+  border: 0;
+  border-radius: 0;
+  display: flex;
+  align-items: center;
+}
+.player-wrap:fullscreen .player-stage video {
+  /* 片源比 16:9 更宽时（电影宽银幕）由它自己在舞台内居中 */
+  object-fit: contain;
+}
+
 /* 弹幕层 */
 .dm-layer {
   position: absolute;

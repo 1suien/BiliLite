@@ -45,7 +45,7 @@ src/
     bridge.js               IPC 通道表的 web 版（41 个通道，复用 src/main/bili/*）
     store.js                同接口的原生 Preferences 版（load 是异步的）
     native-http.js          接口 JSON 走原生 CapacitorHttp（可自定义 Referer / Origin / Cookie）
-    platform.js             剪贴板 / 全屏 / 画中画 的浏览器侧 shim（渲染层无感）
+    platform.js             剪贴板 / 全屏（含沉浸式）/ 画中画 的浏览器侧 shim（渲染层无感）
     mobile.css              触屏 / 安全区样式，只在 html[data-platform='android'] 下生效
   renderer/
     index.html              含 CSP meta（`media-src` / `connect-src` 里有 `lmedia:`，放本地视频要用；
@@ -238,16 +238,21 @@ node 'C:\Users\zouyx\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\pnpm\bin
   **首包看门狗**；安卓端播放器上会显示一行起流读数（`地址 0.8s · 首块 2.1s · 首帧 2.6s · 线路 · MB/s`），
   30 秒后自动消失 —— 桌面端不显示。细节见 `mobile/README.md` 的「起播速度」一节。
 - **平台能力**（都用 shim / 插件补齐，渲染层无感）：设置与登录态走 `@capacitor/preferences`；
-  `navigator.clipboard` 换成 `@capacitor/clipboard`；全屏时隐藏状态栏 + 锁横屏；
+  `navigator.clipboard` 换成 `@capacitor/clipboard`；全屏时隐藏状态栏 + 手势条 + 锁横屏
+  （沉浸式由自写插件 `ImmersivePlugin.java` 做，`setDecorFitsSystemWindows(false)` +
+  `hide(systemBars())`；只藏状态栏不够 —— WebView 视口不含系统栏，全屏时那一条仍是黑带）；
   画中画用自写原生插件 `PipPlugin.java`（按 Home 键进小窗，`setSourceRectHint` 贴着视频区域）；
   物理返回键按「弹层 → 确认框 → 全屏 → 剧场模式 → 路由 → 收到后台」的优先级接管；
   **本地视频库**用系统文件选择器（SAF）+ `blob:` URL 实现（`src/mobile/local-files.js`）；
   **数据导出**写不进公共目录就弹系统分享面板让用户另存（`@capacitor/share`）。
+- **全屏黑边**（真机反馈「视频播放窗口有多余」）：`base.css` 里 `.player-wrap:fullscreen` 改成
+  flex 居中，舞台（16:9）在 16:10 的平板上上下各留约 5%，不再把黑带全堆在底下；
+  本机在 1047×654 量过：修复前 `top=0` / 底带 65px，修复后 `top=33` / `bottom=33`。
 - **触屏适配**：`src/mobile/mobile.css` 只在 `html[data-platform='android']` 下生效，桌面端零影响。
   侧栏保留「本地」入口（安卓上已有等价实现）。
 - **构建**：`mobile/` 下 `pnpm install --ignore-workspace` → `pnpm run build` → `cap sync android` →
   `android\gradlew.bat assembleDebug`，产物 `mobile/android/app/build/outputs/apk/debug/app-debug.apk`（≈4.10 MB，
-  `versionCode 6` / `versionName 0.4.2`）。
+  `versionCode 7` / `versionName 0.4.3`）。
   本机 JDK/SDK 在 `C:\Users\zouyx\android-toolchain\`；工程路径含中文，已在
   `mobile/android/gradle.properties` 固化 `android.overridePathCheck=true`。
   注意 `pnpm run build` 曾被 pnpm 11 的依赖预检带崩（`ERR_PNPM_IGNORED_BUILDS` → 预检 install 退出 1），

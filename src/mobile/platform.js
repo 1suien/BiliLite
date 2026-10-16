@@ -7,7 +7,7 @@
  *    所以这里换成 Capacitor 原生剪贴板；原生不可用（浏览器预览）时回退原实现。
  * 2. **全屏**：渲染层用 Fullscreen API（`VideoView.vue` 的 `requestFullscreen()`）。
  *    WebView 只能把它变成「整页铺满」，不会隐藏状态栏、也不会转横屏。这里监听
- *    fullscreenchange，进全屏时隐藏状态栏 + 锁横屏，退出时还原。
+ *    fullscreenchange，进全屏时隐藏状态栏 + 手势条（自写插件 Immersive）+ 锁横屏，退出时还原。
  * 3. **画中画**：全局监听 `<video>` 的 play/pause（捕获阶段，不必改播放器代码），把
  *    「在播 + 视频区域」汇报给原生 PipPlugin；按 Home 键时由
  *    `MainActivity.onUserLeaveHint()` 真正进入小窗。
@@ -23,6 +23,8 @@ import { StatusBar } from '@capacitor/status-bar'
 import { ScreenOrientation } from '@capacitor/screen-orientation'
 
 const Pip = registerPlugin('Pip')
+// 自写插件（mobile/android/.../ImmersivePlugin.java）：连状态栏带手势条一起藏掉
+const Immersive = registerPlugin('Immersive')
 
 /**
  * 把 navigator.clipboard 换成原生实现（保留原实现做兜底）。
@@ -73,6 +75,14 @@ function installFullscreen() {
   document.addEventListener('fullscreenchange', async () => {
     const on = Boolean(document.fullscreenElement)
     document.documentElement.dataset.fullscreen = on ? '1' : '0'
+    // 沉浸式：让画面铺到系统栏底下并把状态栏 + 手势条藏掉。
+    // 只藏状态栏不够 —— 实测（小米平板 6 / Android 14）WebView 的视口不含系统栏，
+    // 全屏时上下各留一条黑带，真机截图反馈的「播放窗口有多余」就是它。
+    try {
+      await Immersive.setImmersive({ on })
+    } catch {
+      /* 浏览器预览 / 老版本 APK 里没有这个插件，退回下面的状态栏方案 */
+    }
     try {
       if (on) await StatusBar.hide()
       else await StatusBar.show()
