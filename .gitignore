@@ -30,3 +30,6 @@ __pycache__/
 *.keystore
 *.jks
 debug.keystore
+
+# 构建期 JVM user.home="?" 产生的临时 debug keystore 目录
+**/?/.android/

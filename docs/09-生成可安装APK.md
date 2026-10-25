@@ -5,13 +5,13 @@
 | 项目 | 值 |
 |---|---|
 | 文件 | `BiliLite-0.4.3-debug.apk` |
-| 大小 | 4,107,542 B（官方 0.4.3 APK 是 4,104,453 B） |
-| SHA-256 | `b4fd3333abe25a1e2881ca142ee187ad7bca0d015398c4cd81babb0e7350abe3` |
+| 大小 | 4,109,301 B（官方 0.4.3 APK 是 4,104,453 B；首版还原产物 4,107,542 B，加了 0.6.25 移植的播放交互后 4,109,301 B） |
+| SHA-256 | `2f056529b49368f68bfba4bcfcb517457a1001fbb6cf92c91d7e3012e14aa1cd` |
 | package | `com.bililite.app` |
 | versionCode / versionName | `7` / `0.4.3` |
 | minSdk / targetSdk / compileSdk | 22 / 34 / 34 |
 | 签名 | debug，CN=Android Debug，APK Signature Scheme v1 + v2 |
-| 构建 | `./gradlew assembleDebug`，BUILD SUCCESSFUL in 4m 39s，264 tasks |
+| 构建 | `./gradlew assembleDebug`，BUILD SUCCESSFUL in 52s（增量）/ 4m 39s（首次），264 tasks |
 
 构建来源：`app/`（还原工程）→ `npm run build` → `npm run sync` → `app/android`（官方 Gradle 工程）→ `gradlew assembleDebug`。中间产物在 `app/android/app/build/outputs/apk/debug/app-debug.apk`。
 
@@ -65,6 +65,28 @@ JAVA_HOME=/opt/toolchain/jdk17 ./gradlew --no-daemon --max-workers=2 \
 ```
 
 x86_64 机器上不需要 qemu，直接 `tools/build/build-apk.sh`（JDK 17 + Android SDK 即可）。
+
+### 二次构建的坑：debug keystore 落在 `?/.android/`
+
+这台机器 uid 没有 `/etc/passwd` 条目，JVM 拿到的 `user.home` 是字面量 `?`，AGP 于是把调试证书算成 `<module>/?/.android/debug.keystore`。首次构建能过是因为临时在 `gradle.properties` 里加了 `-Duser.home=…`；之后增量构建会报：
+
+```
+property 'signingConfigData.signingConfigData.storeFile' specifies file '.../app/android/app/?/.android/debug.keystore' which doesn't exist
+```
+
+两个解法（任一）：
+
+```bash
+# 1) 在 AGP 计算出的路径补一份 debug keystore（本机复构建时用的就是这个）
+mkdir -p app/android/app/'?'/.android
+keytool -genkeypair -keystore app/android/app/'?'/.android/debug.keystore \
+  -storepass android -keypass android -alias androiddebugkey \
+  -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+
+# 2) 或在 app/android/gradle.properties 里加 -Duser.home=/tmp/some-home 并保证该目录下有 .android/debug.keystore
+```
+
+> 注意：`?` 目录是构建临时产物，不要提交（`app/.gitignore` 已忽略 `android/app/build/`，但这些 `?/.android/` 需要手动删或加到忽略里）。
 
 ## 备用出包方案（不需要 JDK / Gradle / aapt2）
 

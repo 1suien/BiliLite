@@ -147,6 +147,12 @@ const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2]
 const rate = ref(1)
 /** 倍速菜单 */
 const rateMenu = ref(false)
+/** 长按倍速：正在长按时临时生效的倍速（0=没在长按） */
+const longPressRate = ref(0)
+/** 双击跳转的瞬时提示（"+10 秒" 之类） */
+const seekHint = ref('')
+/** 自动连播倒计时剩余秒数（0=没有倒计时） */
+const nextCountdown = ref(0)
 /** 字幕菜单 */
 const subMenu = ref(false)
 /** 在线字幕轨道 */
@@ -180,6 +186,18 @@ const SUB_BOTTOMS = [
 const ctlVisible = ref(true)
 /** 控制条自动隐藏的定时器 */
 let hideTimer: any = null
+/** 长按倍速的判定定时器 */
+let longPressTimer: any = null
+/** 长按是否已生效（用松手后的那次 click 吞掉，避免误触暂停） */
+let longPressFired = false
+/** 双击跳转提示的定时器 */
+let seekHintTimer: any = null
+/** 单击的延迟定时器（用来区分单击/双击：双击只跳转，不切换播放） */
+let clickTimer: any = null
+/** 自动连播倒计时的定时器 */
+let nextCountdownTimer: any = null
+/** 屏幕常亮的 Wake Lock（安卓 WebView 支持；不支持就静默跳过） */
+let wakeLock: any = null
 
 /** 详情（空对象兜底，模板里直接取字段） */
 const video = computed<Partial<VideoDetail>>(() => (detail.value ? detail.value : {}))
@@ -444,6 +462,131 @@ function parseSubtitle(raw: string, ext = '') {
   return { format: isAss ? 'ass' : 'srt', items }
 }
 
+/* --------------------------- 手势与屏幕常亮 --------------------------- */
+/* 还原 0.6.25 的三项本地交互：长按倍速（long_press_speed）、双击左右跳步
+   （dtap_seek_step）、播放时保持屏幕常亮（Wake Lock API 对应原生 KEEP_SCREEN_ON）。 */
+
+/** 在线字幕的时间单位归一化（还原原生 dc.Q 的启发式）：
+ *  最大 to 超过 max(时长*2, 5000) 时按毫秒处理，否则按秒。 */
+function normalizeOnlineSubs(list: SubtitleTrack[]): SubtitleTrack[] {
+  const durSec = Number(duration.value) || 0
+  const limit = Math.max(durSec * 2, 5000)
+  return (list || []).map((track) => {
+    const items = (track.items || []).filter((c) => c && String(c.content || '').trim())
+    if (!items.length) return track
+    let maxTo = 0
+    for (const c of items) maxTo = Math.max(maxTo, Number(c.to) || 0)
+    const inMs = maxTo > limit
+    return {
+      ...track,
+      items: items.map((c) => ({
+        ...c,
+        from: inMs ? (Number(c.from) || 0) / 1000 : Number(c.from) || 0,
+        to: inMs ? (Number(c.to) || 0) / 1000 : Number(c.to) || 0,
+      })),
+    }
+  })
+}
+
+/** 长按开始：按住 450ms 后临时切到 longPressSpeed（仅播放中生效） */
+function onVideoPointerDown(e: PointerEvent) {
+  if (typeof e.button === 'number' && e.button !== 0) return
+  longPressFired = false
+  if (longPressTimer) clearTimeout(longPressTimer)
+  longPressTimer = setTimeout(() => {
+    longPressTimer = null
+    const el = videoEl.value
+    if (!player || !el || el.paused) return
+    const fast = Number(settings.settings.longPressSpeed) || 2
+    longPressFired = true
+    longPressRate.value = fast
+    el.playbackRate = fast
+  }, 450)
+  window.addEventListener('pointerup', onVideoPointerUp, { once: true })
+  window.addEventListener('pointercancel', onVideoPointerUp, { once: true })
+}
+
+/** 松手：取消判定、恢复原倍速；longPressFired 留到随后那次 click 用来吞掉 */
+function onVideoPointerUp() {
+  window.removeEventListener('pointerup', onVideoPointerUp)
+  window.removeEventListener('pointercancel', onVideoPointerUp)
+  if (longPressTimer) {
+    clearTimeout(longPressTimer)
+    longPressTimer = null
+  }
+  if (!longPressFired) return
+  longPressRate.value = 0
+  applyRate()
+  setTimeout(() => {
+    longPressFired = false
+  }, 500)
+}
+
+/** 单击视频：延迟 220ms 再切换播放，给双击留出判定窗口 */
+function onVideoClick() {
+  if (longPressFired) return
+  if (clickTimer) {
+    // 200ms 内的第二次点击：由 dblclick 处理，这里不再切换
+    clearTimeout(clickTimer)
+    clickTimer = null
+    return
+  }
+  clickTimer = setTimeout(() => {
+    clickTimer = null
+    togglePlay()
+  }, 220)
+}
+
+/** 舞台双击：左 1/3 后退、右 1/3 前进、中间全屏 */
+function onStageDblClick(e: MouseEvent) {
+  if (clickTimer) {
+    clearTimeout(clickTimer)
+    clickTimer = null
+  }
+  const el = e.currentTarget as HTMLElement
+  const rect = el.getBoundingClientRect()
+  const pct = rect.width ? (e.clientX - rect.left) / rect.width : 0.5
+  const step = Number(settings.settings.doubleTapStep) || 10
+  if (pct <= 0.34) seekBy(-step, true)
+  else if (pct >= 0.66) seekBy(step, true)
+  else toggleFullscreen()
+}
+
+/** 双击跳转的临时提示 */
+function showSeekHint(n: number) {
+  seekHint.value = `${n > 0 ? '+' : '−'}${Math.abs(Math.round(n))} 秒`
+  if (seekHintTimer) clearTimeout(seekHintTimer)
+  seekHintTimer = setTimeout(() => {
+    seekHint.value = ''
+  }, 700)
+}
+
+/** 申请屏幕常亮（仅在播放中且设置开启时） */
+async function acquireWakeLock() {
+  if (!settings.settings.keepAwake) return
+  if (typeof navigator === 'undefined' || !(navigator as any).wakeLock) return
+  if (wakeLock) return
+  try {
+    wakeLock = await (navigator as any).wakeLock.request('screen')
+    if (wakeLock && wakeLock.addEventListener) {
+      wakeLock.addEventListener('release', () => {
+        wakeLock = null
+      })
+    }
+  } catch {
+    wakeLock = null
+  }
+}
+
+/** 释放屏幕常亮 */
+async function releaseWakeLock() {
+  const cur = wakeLock
+  wakeLock = null
+  try {
+    cur && (await cur.release())
+  } catch {}
+}
+
 /* ------------------------------- 播放设置 ------------------------------- */
 
 /** 把当前倍速应用到元素上 */
@@ -472,7 +615,7 @@ async function loadOnlineSubs() {
   subLan.value = ''
   try {
     const res = await bili.video.subtitle(bvid.value, id)
-    onlineSubs.value = (res && res.list) || []
+    onlineSubs.value = normalizeOnlineSubs((res && res.list) || [])
     if (onlineSubs.value.length && !subOff.value && !localSubKey.value) {
       subLan.value = onlineSubs.value[0].lan
     }
@@ -897,6 +1040,8 @@ function destroyPlayer() {
   subCidLoaded.value = ''
   localSubs.value = []
   localSubKey.value = ''
+  cancelNextCountdown()
+  releaseWakeLock()
 }
 
 /** 缩到小窗播放 */
@@ -1041,10 +1186,36 @@ function onEnded() {
   playing.value = false
   const total = duration.value || 0
   learn.save({ ...(progressData() as any), seconds: total, duration: total, completed: true }).catch(() => {})
-  if (settings.settings.autoNext && pageIndex.value + 1 < pages.value.length) {
+  cancelNextCountdown()
+  if (!settings.settings.autoNext || pageIndex.value + 1 >= pages.value.length) return
+  const delay = Math.max(0, Number(settings.settings.autoNextDelay) || 0)
+  if (delay > 0) startNextCountdown(delay)
+  else {
     ui.toast('自动播放下一 P')
     selectPage(pageIndex.value + 1)
   }
+}
+
+/** 自动连播延迟：显示「N 秒后播放下一 P」，期间可取消 */
+function startNextCountdown(sec: number) {
+  cancelNextCountdown()
+  nextCountdown.value = sec
+  nextCountdownTimer = setInterval(() => {
+    nextCountdown.value -= 1
+    if (nextCountdown.value > 0) return
+    cancelNextCountdown()
+    if (settings.settings.autoNext && pageIndex.value + 1 < pages.value.length) {
+      ui.toast('自动播放下一 P')
+      selectPage(pageIndex.value + 1)
+    }
+  }, 1000)
+}
+
+/** 停掉倒计时（取消按钮 / 换 P / 离开页面都调） */
+function cancelNextCountdown() {
+  if (nextCountdownTimer) clearInterval(nextCountdownTimer)
+  nextCountdownTimer = null
+  nextCountdown.value = 0
 }
 
 /* ------------------------------- 播放控制 ------------------------------- */
@@ -1055,10 +1226,11 @@ function togglePlay() {
   else player.pause()
 }
 
-/** 前进/后退 n 秒（键盘 ←/→） */
-function seekBy(n: number) {
+/** 前进/后退 n 秒（键盘 ←/→、双击左右区域） */
+function seekBy(n: number, hint = false) {
   if (!player) return
   player.seek((videoEl.value?.currentTime || 0) + n)
+  if (hint) showSeekHint(n)
 }
 
 /** 进度条按下：拖动预览 + 松手 seek */
@@ -1090,6 +1262,7 @@ function toggleMute() {
 
 /** 选分P */
 async function selectPage(i: number) {
+  cancelNextCountdown()
   if (i === pageIndex.value) return
   flushProgress()
   pageIndex.value = i
@@ -1269,11 +1442,22 @@ onMounted(async () => {
   window.addEventListener('bili:files-dropped', onFilesDropped as any)
 })
 
+// 播放状态变化时同步屏幕常亮（受「播放时保持屏幕常亮」开关控制）
+watch(playing, (on) => {
+  if (on) acquireWakeLock()
+  else releaseWakeLock()
+})
+
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('pointerdown', onGlobalPointerDown, true)
   window.removeEventListener('bili:files-dropped', onFilesDropped as any)
   if (hideTimer) clearTimeout(hideTimer)
+  if (clickTimer) clearTimeout(clickTimer)
+  if (longPressTimer) clearTimeout(longPressTimer)
+  if (seekHintTimer) clearTimeout(seekHintTimer)
+  cancelNextCountdown()
+  releaseWakeLock()
   flushProgress()
   destroyPlayer()
 })
@@ -1289,11 +1473,32 @@ onBeforeUnmount(() => {
   <div v-else-if="detail" class="watch">
     <div style="min-width: 0">
       <div ref="wrapEl" class="player-wrap" @mousemove="onMouseMove" @mouseleave="onMouseLeave">
-        <div class="player-stage" @dblclick="toggleFullscreen">
-          <video ref="videoEl" playsinline preload="auto" @click="togglePlay" />
+        <div class="player-stage" @dblclick="onStageDblClick">
+          <video
+            ref="videoEl"
+            playsinline
+            preload="auto"
+            @click="onVideoClick"
+            @pointerdown="onVideoPointerDown"
+          />
 
           <!-- 字幕 -->
           <div v-if="hasSub && cueText" class="cc-line" :style="subStyle">{{ cueText }}</div>
+
+          <!-- 手势提示（长按倍速 / 双击跳转） -->
+          <div
+            v-if="longPressRate || seekHint"
+            class="cc-line"
+            style="bottom: 46%; background: #000000a8; font-size: 14px"
+          >
+            {{ longPressRate ? longPressRate + '× 倍速中' : seekHint }}
+          </div>
+
+          <!-- 自动连播倒计时 -->
+          <div v-if="nextCountdown > 0" class="player-msg player-msg-col">
+            <div>{{ nextCountdown }} 秒后播放下一 P</div>
+            <button class="btn sm" @click="cancelNextCountdown">取消</button>
+          </div>
 
           <!-- 状态遮罩（缓冲/获取地址时） -->
           <div v-if="status && !playing" class="player-msg">

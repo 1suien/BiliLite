@@ -93,7 +93,15 @@ export const DEFAULT_SETTINGS: Settings = {
   accent: 'mono',
   defaultQuality: 80,
   autoNext: true,
+  /** 自动连播的等待秒数（0=立即，还原自 0.6.25 的 auto_next_delay） */
+  autoNextDelay: 0,
   seekStep: 5,
+  /** 双击左/右跳转的步长（0.6.25 的 dtap_seek_step） */
+  doubleTapStep: 10,
+  /** 长按倍速（0.6.25 的 long_press_speed） */
+  longPressSpeed: 2,
+  /** 播放时保持屏幕常亮（0.6.25 的「播放时保持屏幕常亮」） */
+  keepAwake: true,
   backupPath: '',
   playerVolume: 0.8,
   hideDanmakuArea: true,

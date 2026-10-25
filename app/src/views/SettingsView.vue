@@ -171,7 +171,11 @@ function resetSettings() {
       accent: 'mono',
       defaultQuality: 80,
       autoNext: true,
+      autoNextDelay: 0,
       seekStep: 5,
+      doubleTapStep: 10,
+      longPressSpeed: 2,
+      keepAwake: true,
       playerVolume: 0.8,
       hideDanmakuArea: true,
       autoMark: true,
@@ -269,6 +273,21 @@ onMounted(() => {
         </button>
       </div>
       <div class="field">
+        <label>连播等待</label>
+        <div class="row" style="gap: 8px">
+          <button
+            v-for="sec in [0, 3, 5, 10]"
+            :key="sec"
+            class="chip"
+            :class="{ on: conf.autoNextDelay === sec }"
+            @click="settings.patch({ autoNextDelay: sec })"
+          >
+            {{ sec === 0 ? '立即' : sec + ' 秒' }}
+          </button>
+        </div>
+        <p class="hint">播放结束后等一会儿再切下一 P，期间可以点「取消」反悔。（取自 0.6.25 的连播延迟）</p>
+      </div>
+      <div class="field">
         <label>快进 / 快退步长</label>
         <div class="row" style="gap: 8px">
           <button
@@ -281,6 +300,47 @@ onMounted(() => {
             {{ step }} 秒
           </button>
         </div>
+        <p class="hint">键盘 ←/→ 用这个步长；手机双击画面左/右三分之一用下面的「双击跳步」。</p>
+      </div>
+      <div class="field">
+        <label>双击跳步（左退右进）</label>
+        <div class="row" style="gap: 8px">
+          <button
+            v-for="step in [5, 10, 15, 30]"
+            :key="step"
+            class="chip"
+            :class="{ on: conf.doubleTapStep === step }"
+            @click="settings.patch({ doubleTapStep: step })"
+          >
+            {{ step }} 秒
+          </button>
+        </div>
+      </div>
+      <div class="field">
+        <label>长按倍速</label>
+        <div class="row" style="gap: 8px">
+          <button
+            v-for="sp in [2, 3]"
+            :key="sp"
+            class="chip"
+            :class="{ on: conf.longPressSpeed === sp }"
+            @click="settings.patch({ longPressSpeed: sp })"
+          >
+            {{ sp }}×
+          </button>
+        </div>
+        <p class="hint">播放中按住画面不动即临时加速，松手恢复原速（不改变倍速菜单里的设置）。</p>
+      </div>
+      <div class="field">
+        <label>播放时保持屏幕常亮</label>
+        <button
+          class="chip"
+          :class="{ on: conf.keepAwake }"
+          @click="settings.patch({ keepAwake: !conf.keepAwake })"
+        >
+          {{ conf.keepAwake ? '已开启' : '已关闭' }}
+        </button>
+        <p class="hint">通过浏览器的 Wake Lock 实现；系统不支持或切到后台时会自动失效。</p>
       </div>
       <div class="field">
         <label>默认音量（{{ Math.round(conf.playerVolume * 100) }}%）</label>
