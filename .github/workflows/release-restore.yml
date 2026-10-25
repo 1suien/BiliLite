@@ -5,6 +5,8 @@ on:
   push:
     tags:
       - 'v0.4.3-restore-ci*'
+    branches:
+      - 'restore/android-0.4.3'
   workflow_dispatch:
 
 permissions:
