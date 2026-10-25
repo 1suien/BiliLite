@@ -1,0 +1,30 @@
+/* 来源: VideoView-D0GRAdLR.css  scope: data-v-832a0317 */
+.flist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 280px;
+  overflow: auto;
+}
+.frow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+}
+.frow:hover {
+  background: var(--card-hover);
+  border-color: var(--line-strong);
+}
+.frow.disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+.tag {
+  font-size: 11px;
+  color: var(--ok);
+}

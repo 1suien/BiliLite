@@ -1,0 +1,40 @@
+/* 来源: index-D9UzvbUq.css  （无作用域，全局） */
+html[data-platform="android"] {
+  --tap: 36px;
+}
+html[data-platform="android"] body {
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+html[data-platform="android"] input,
+html[data-platform="android"] textarea,
+html[data-platform="android"] [contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+html[data-platform="android"] .app {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+html[data-platform="android"] .side {
+  padding-top: calc(14px + env(safe-area-inset-top));
+}
+html[data-platform="android"] .top {
+  padding-top: env(safe-area-inset-top);
+}
+html[data-platform="android"] .kbd {
+  display: none;
+}
+html[data-platform="android"] .nav-item {
+  padding-top: 11px;
+  padding-bottom: 11px;
+}
+html[data-platform="android"] .page-float,
+html[data-platform="android"] .theater-exit {
+  bottom: calc(18px + env(safe-area-inset-bottom));
+}

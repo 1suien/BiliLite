@@ -1,0 +1,122 @@
+/* 来源: VideoView-D0GRAdLR.css  scope: data-v-7dc2e51f */
+.pages-head {
+  margin-bottom: 8px;
+}
+.jump {
+  flex: none;
+  margin-left: 8px;
+  padding: 2px 8px;
+  min-height: 22px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--t2);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.jump:hover {
+  border-color: var(--brand-line);
+  color: var(--brand);
+}
+.pages-filter {
+  margin-bottom: 8px;
+  font-size: 12.5px;
+  padding: 5px 9px;
+}
+.pages-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: clamp(373px, 56vh, 560px);
+  overflow: auto;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
+}
+.grp {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 6px 0 2px;
+  padding: 4px 2px;
+  background: var(--card);
+  font-size: 11.5px;
+}
+.grp .gk {
+  flex: none;
+  color: var(--t2);
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+.grp .ln {
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+.grp .cnt {
+  flex: none;
+  color: var(--t3);
+}
+.page-pill {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 30px;
+  padding: 6px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--t1);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    border-color 0.12s;
+}
+.page-pill:hover {
+  background: var(--soft-hover);
+}
+.page-pill .pn {
+  flex: none;
+  width: 34px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--t3);
+  background: var(--soft);
+  border-radius: 5px;
+  padding: 1.5px 0;
+}
+.page-pill .pt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.page-pill .pdot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--brand);
+}
+.page-pill.on {
+  background: var(--brand-soft);
+  border-color: var(--brand-line);
+  color: var(--t1);
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--brand);
+}
+.page-pill.on .pn {
+  background: var(--brand-line);
+  color: var(--t1);
+}
+.page-pill.on .pdot {
+  background: var(--brand);
+}

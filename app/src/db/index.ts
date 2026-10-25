@@ -1,0 +1,554 @@
+/**
+ * 本地数据库（Dexie / IndexedDB）
+ *
+ * 还原自构建产物里的 `new Dexie('study-bili')`：版本 1 ~ 7 的 schema 演进被完整保留，
+ * 数据库名与表名必须与原 APK 一致，否则用户升级后会丢数据。
+ */
+import Dexie, { type Table } from 'dexie'
+import type {
+  CollectItem,
+  DailyRecord,
+  FocusSession,
+  Habit,
+  HabitLog,
+  LocalSub,
+  LocalVideo,
+  ProgressRecord,
+  ShelfItem,
+  UpItem,
+  UpTimeRecord,
+} from '@/types'
+import { todayStr } from '@/utils/format'
+
+export interface BookRecord {
+  id: string
+  addedAt?: number
+  lastReadAt?: number
+  format?: string
+  [key: string]: any
+}
+
+export interface MarkRecord {
+  id?: number
+  bvid: string
+  cid: number
+  sec: number
+  [key: string]: any
+}
+
+export interface NoteRecord {
+  id?: number
+  bvid: string
+  cid: number
+  at: number
+  [key: string]: any
+}
+
+export interface CheckinRecord {
+  date: string
+  at?: number
+}
+
+export interface BookmarkRecord {
+  id?: number
+  bookId: string
+  chapterIndex: number
+  at: number
+}
+
+export interface HighlightRecord {
+  id?: number
+  bookId: string
+  chapterIndex: number
+  at: number
+}
+
+export interface UpGroupRecord {
+  name: string
+  at: number
+}
+
+export interface CollectFolderRecord {
+  name: string
+  at: number
+}
+
+export class BiliLiteDB extends Dexie {
+  progress!: Table<ProgressRecord, string>
+  daily!: Table<DailyRecord, string>
+  marks!: Table<MarkRecord, number>
+  notes!: Table<NoteRecord, number>
+  shelf!: Table<ShelfItem, string>
+  ups!: Table<UpItem, number>
+  upgroups!: Table<UpGroupRecord, string>
+  collect!: Table<CollectItem, number>
+  collectfolders!: Table<CollectFolderRecord, string>
+  checkins!: Table<CheckinRecord, string>
+  upTime!: Table<UpTimeRecord, string>
+  books!: Table<BookRecord, string>
+  bookmarks!: Table<BookmarkRecord, number>
+  highlights!: Table<HighlightRecord, number>
+  focus!: Table<FocusSession, number>
+  subs!: Table<LocalSub, string>
+  locals!: Table<LocalVideo, string>
+  habits!: Table<Habit, number>
+  habitLogs!: Table<HabitLog, string>
+
+  constructor() {
+    super('study-bili')
+
+    this.version(1).stores({
+      progress: 'key, bvid, updatedAt, completed',
+      daily: 'date',
+      marks: '++id, bvid, cid, sec',
+      notes: '++id, bvid, cid, at',
+      shelf: 'bvid, at',
+    })
+    this.version(2).stores({
+      progress: 'key, bvid, updatedAt, completed',
+      daily: 'date',
+      marks: '++id, bvid, cid, sec',
+      notes: '++id, bvid, cid, at',
+      shelf: 'bvid, at',
+      ups: 'mid, group, addedAt',
+      upgroups: 'name, at',
+      collect: '++id, bvid, folder, at',
+      collectfolders: 'name, at',
+      checkins: 'date, at',
+      upTime: 'key, mid, name',
+    })
+    this.version(3).stores({
+      progress: 'key, bvid, updatedAt, completed',
+      daily: 'date',
+      marks: '++id, bvid, cid, sec',
+      notes: '++id, bvid, cid, at',
+      shelf: 'bvid, at',
+      ups: 'mid, group, addedAt',
+      upgroups: 'name, at',
+      collect: '++id, bvid, folder, at',
+      collectfolders: 'name, at',
+      checkins: 'date, at',
+      upTime: 'key, mid, name',
+      books: 'id, addedAt, lastReadAt, format',
+      bookmarks: '++id, bookId, chapterIndex, at',
+      highlights: '++id, bookId, chapterIndex, at',
+    })
+    this.version(4).stores({
+      progress: 'key, bvid, updatedAt, completed',
+      daily: 'date',
+      marks: '++id, bvid, cid, sec',
+      notes: '++id, bvid, cid, at',
+      shelf: 'bvid, at',
+      ups: 'mid, group, addedAt',
+      upgroups: 'name, at',
+      collect: '++id, bvid, folder, at',
+      collectfolders: 'name, at',
+      checkins: 'date, at',
+      upTime: 'key, mid, name',
+      books: 'id, addedAt, lastReadAt, format',
+      bookmarks: '++id, bookId, chapterIndex, at',
+      highlights: '++id, bookId, chapterIndex, at',
+      focus: '++id, day, startedAt, task',
+    })
+    this.version(5).stores({
+      progress: 'key, bvid, updatedAt, completed',
+      daily: 'date',
+      marks: '++id, bvid, cid, sec',
+      notes: '++id, bvid, cid, at',
+      shelf: 'bvid, at',
+      ups: 'mid, group, addedAt',
+      upgroups: 'name, at',
+      collect: '++id, bvid, folder, at',
+      collectfolders: 'name, at',
+      checkins: 'date, at',
+      upTime: 'key, mid, name',
+      books: 'id, addedAt, lastReadAt, format',
+      bookmarks: '++id, bookId, chapterIndex, at',
+      highlights: '++id, bookId, chapterIndex, at',
+      focus: '++id, day, startedAt, task',
+      subs: 'key, bvid, cid, at',
+    })
+    this.version(6).stores({
+      progress: 'key, bvid, updatedAt, completed',
+      daily: 'date',
+      marks: '++id, bvid, cid, sec',
+      notes: '++id, bvid, cid, at',
+      shelf: 'bvid, at',
+      ups: 'mid, group, addedAt',
+      upgroups: 'name, at',
+      collect: '++id, bvid, folder, at',
+      collectfolders: 'name, at',
+      checkins: 'date, at',
+      upTime: 'key, mid, name',
+      books: 'id, addedAt, lastReadAt, format',
+      bookmarks: '++id, bookId, chapterIndex, at',
+      highlights: '++id, bookId, chapterIndex, at',
+      focus: '++id, day, startedAt, task',
+      subs: 'key, bvid, cid, at',
+      locals: 'id, path, addedAt, playedAt',
+    })
+    this.version(7).stores({
+      progress: 'key, bvid, updatedAt, completed',
+      daily: 'date',
+      marks: '++id, bvid, cid, sec',
+      notes: '++id, bvid, cid, at',
+      shelf: 'bvid, at',
+      ups: 'mid, group, addedAt',
+      upgroups: 'name, at',
+      collect: '++id, bvid, folder, at',
+      collectfolders: 'name, at',
+      checkins: 'date, at',
+      upTime: 'key, mid, name',
+      books: 'id, addedAt, lastReadAt, format',
+      bookmarks: '++id, bookId, chapterIndex, at',
+      highlights: '++id, bookId, chapterIndex, at',
+      focus: '++id, day, startedAt, task',
+      subs: 'key, bvid, cid, at',
+      locals: 'id, path, addedAt, playedAt',
+      habits: '++id, name, archived, createdAt',
+      habitLogs: 'key, habitId, date',
+    })
+  }
+}
+
+export const db = new BiliLiteDB()
+
+/* ------------------------------- 学习进度 ------------------------------- */
+
+export async function getProgress(bvid: string, cid: number | string) {
+  return db.progress.get(`${bvid}:${cid}`)
+}
+
+export async function getAllProgress() {
+  return db.progress.toArray()
+}
+
+export async function putProgress(p: ProgressRecord) {
+  const rec = { ...p, key: `${p.bvid}:${p.cid}`, updatedAt: Date.now() }
+  await db.progress.put(rec)
+  return rec
+}
+
+export async function addDailySeconds(date: string, sec: number) {
+  const rec = (await db.daily.get(date)) || { date, seconds: 0, videos: 0 }
+  rec.seconds = Math.max(0, (rec.seconds || 0) + sec)
+  await db.daily.put(rec)
+  return rec
+}
+
+export async function bumpDailyVideo(date: string) {
+  const rec = (await db.daily.get(date)) || { date, seconds: 0, videos: 0 }
+  rec.videos = (rec.videos || 0) + 1
+  await db.daily.put(rec)
+}
+
+/** 最近 n 天（补零，方便直接画图） */
+export async function getDailyRange(n = 30): Promise<DailyRecord[]> {
+  const all = await db.daily.toArray()
+  const map = new Map(all.map((x) => [x.date, x]))
+  const out: DailyRecord[] = []
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date()
+    d.setDate(d.getDate() - i)
+    const key = todayStr(d)
+    const hit = map.get(key)
+    out.push({ date: key, seconds: hit?.seconds || 0, videos: hit?.videos || 0 })
+  }
+  return out
+}
+
+/* -------------------------------- 打卡 -------------------------------- */
+
+export async function getCheckins(): Promise<string[]> {
+  const rows = await db.checkins.toArray()
+  return rows.map((r) => r.date)
+}
+
+export async function putCheckin(date: string) {
+  await db.checkins.put({ date, at: Date.now() })
+  return date
+}
+
+/* ------------------------------ UP 学习时长 ------------------------------ */
+
+export async function addUpSeconds(up: { mid?: number | null; name?: string }, sec: number) {
+  if (!up || !sec) return null
+  const key = String(up.mid || up.name || 'unknown')
+  const rec = (await db.upTime.get(key)) || {
+    key,
+    mid: up.mid || null,
+    name: up.name || '未知 UP',
+    seconds: 0,
+  }
+  rec.seconds = Math.max(0, (rec.seconds || 0) + sec)
+  if (up.name) rec.name = up.name
+  await db.upTime.put(rec)
+  return rec
+}
+
+export async function getUpTime() {
+  return db.upTime.toArray()
+}
+
+/* -------------------------------- 专注 -------------------------------- */
+
+export async function addFocusSession(p: Partial<FocusSession> = {}) {
+  const sec = Math.max(0, Math.round(Number(p.seconds) || 0))
+  const rec: Omit<FocusSession, 'id'> = {
+    day: p.day || todayStr(),
+    startedAt: Number(p.startedAt) || Date.now(),
+    at: Date.now(),
+    seconds: sec,
+    completed: !!p.completed,
+    task: String(p.task || ''),
+    bvid: p.bvid || null,
+    cover: p.cover || '',
+    mode: p.mode || 'focus',
+    focusMin: Number(p.focusMin) || 0,
+  }
+  try {
+    const id = await db.focus.add(rec as FocusSession)
+    return { ...rec, id }
+  } catch (e: any) {
+    console.warn('[focus] 专注记录写入失败：', e && e.message)
+    return null
+  }
+}
+
+/** 近 40 天（3456e6ms）的专注记录，倒序 */
+export async function listFocusSessions({ limit = 200 } = {}) {
+  try {
+    const from = Date.now() - 3456e6
+    const rows = await db.focus.where('startedAt').aboveOrEqual(from).toArray()
+    return rows.sort((a, b) => (b.startedAt || b.at || 0) - (a.startedAt || a.at || 0)).slice(0, limit)
+  } catch (e: any) {
+    console.warn('[focus] 专注记录读取失败：', e && e.message)
+    return []
+  }
+}
+
+export async function allFocusSessions() {
+  try {
+    return await db.focus.toArray()
+  } catch (e: any) {
+    console.warn('[focus] 专注记录读取失败：', e && e.message)
+    return []
+  }
+}
+
+export async function clearFocusSessions() {
+  await db.focus.clear()
+}
+
+/* ------------------------------- 本地字幕 ------------------------------- */
+
+export async function listLocalSubs(bvid: string, cid: number | string) {
+  try {
+    const rows = await db.subs.where('bvid').equals(String(bvid || '')).toArray()
+    return rows
+      .filter((x) => String(x.cid) === String(cid))
+      .sort((a, b) => (a.at || 0) - (b.at || 0))
+  } catch (e: any) {
+    console.warn('[sub] 本地字幕读取失败：', e && e.message)
+    return []
+  }
+}
+
+export async function putLocalSub(p: Partial<LocalSub>) {
+  const bvid = String(p.bvid || '')
+  const cid = String(p.cid || '')
+  const name = String(p.name || '字幕')
+  if (!bvid || !cid || !Array.isArray(p.items) || !p.items.length) return null
+  const rec: LocalSub = {
+    key: `${bvid}:${cid}:${name}`,
+    bvid,
+    cid,
+    name,
+    format: p.format || 'srt',
+    count: p.items.length,
+    items: p.items,
+    at: Date.now(),
+  }
+  try {
+    await db.subs.put(rec)
+    return rec
+  } catch (e: any) {
+    console.warn('[sub] 本地字幕保存失败：', e && e.message)
+    return null
+  }
+}
+
+export async function removeLocalSub(key: string) {
+  try {
+    await db.subs.delete(key)
+  } catch (e: any) {
+    console.warn('[sub] 本地字幕删除失败：', e && e.message)
+  }
+}
+
+/* ------------------------------- 本地视频 ------------------------------- */
+
+export async function listLocals(): Promise<LocalVideo[]> {
+  try {
+    const rows = await db.locals.toArray()
+    return rows.sort((a, b) => (b.playedAt || 0) - (a.playedAt || 0) || (b.addedAt || 0) - (a.addedAt || 0))
+  } catch (e: any) {
+    console.warn('[local] 本地视频读取失败：', e && e.message)
+    return []
+  }
+}
+
+export async function getLocal(id: string) {
+  try {
+    return (await db.locals.get(String(id || ''))) || null
+  } catch (e: any) {
+    console.warn('[local] 本地视频读取失败：', e && e.message)
+    return null
+  }
+}
+
+export async function putLocal(p: Partial<LocalVideo>) {
+  const id = String(p.id || '')
+  if (!id) return null
+  try {
+    const old = (await db.locals.get(id)) || ({} as LocalVideo)
+    const rec = { ...old, ...p, id, addedAt: old.addedAt || p.addedAt || Date.now() }
+    await db.locals.put(rec as LocalVideo)
+    return rec
+  } catch (e: any) {
+    console.warn('[local] 本地视频保存失败：', e && e.message)
+    return null
+  }
+}
+
+export async function removeLocal(id: string) {
+  try {
+    await db.locals.delete(String(id || ''))
+  } catch (e: any) {
+    console.warn('[local] 本地视频删除失败：', e && e.message)
+  }
+}
+
+/* -------------------------------- 习惯 -------------------------------- */
+
+export async function listHabits(): Promise<Habit[]> {
+  try {
+    const rows = await db.habits.toArray()
+    return rows.sort(
+      (a, b) =>
+        (Number(a.archived) ? 1 : 0) - (Number(b.archived) ? 1 : 0) ||
+        (a.createdAt || 0) - (b.createdAt || 0),
+    )
+  } catch (e: any) {
+    console.warn('[habit] 习惯读取失败：', e && e.message)
+    return []
+  }
+}
+
+export async function getHabit(id: number) {
+  try {
+    return (await db.habits.get(Number(id) || 0)) || null
+  } catch (e: any) {
+    console.warn('[habit] 习惯读取失败：', e && e.message)
+    return null
+  }
+}
+
+/** 新建或更新习惯；名称为空返回 null */
+export async function putHabit(p: Partial<Habit> = {}) {
+  const id = Number(p.id) || 0
+  const old: Partial<Habit> = id ? (await db.habits.get(id)) || {} : {}
+  const rec = {
+    ...old,
+    name: String(p.name !== undefined ? p.name : old.name || '').trim(),
+    targetDays: Math.max(1, Math.min(9999, Number(p.targetDays !== undefined ? p.targetDays : old.targetDays) || 100)),
+    remindAt: /^\d{2}:\d{2}$/.test(String(p.remindAt !== undefined ? p.remindAt : old.remindAt || ''))
+      ? String(p.remindAt !== undefined ? p.remindAt : old.remindAt)
+      : '',
+    remindOn: !!(p.remindOn !== undefined ? p.remindOn : old.remindOn),
+    note: String(p.note !== undefined ? p.note : old.note || ''),
+    archived: Number(p.archived !== undefined ? p.archived : old.archived) || 0,
+    createdAt: Number(old.createdAt) || Number(p.createdAt) || Date.now(),
+  }
+  if (!rec.name) return null
+  try {
+    if (id) {
+      await db.habits.put({ ...rec, id })
+      return { ...rec, id }
+    }
+    const newId = await db.habits.add(rec as Habit)
+    return { ...rec, id: newId }
+  } catch (e: any) {
+    console.warn('[habit] 习惯保存失败：', e && e.message)
+    return null
+  }
+}
+
+export async function removeHabit(id: number) {
+  const n = Number(id) || 0
+  if (!n) return 0
+  try {
+    const deleted = await db.habitLogs.where('habitId').equals(n).delete()
+    await db.habits.delete(n)
+    return deleted
+  } catch (e: any) {
+    console.warn('[habit] 习惯删除失败：', e && e.message)
+    return 0
+  }
+}
+
+export async function listHabitLogs({ from = '', to = '', habitId = 0 } = {}) {
+  try {
+    let rows: HabitLog[]
+    if (from || to) {
+      rows = await db.habitLogs.where('date').between(from || '0000-00-00', to || '9999-99-99', true, true).toArray()
+    } else {
+      rows = await db.habitLogs.toArray()
+    }
+    const hid = Number(habitId) || 0
+    return hid ? rows.filter((x) => Number(x.habitId) === hid) : rows
+  } catch (e: any) {
+    console.warn('[habit] 打卡记录读取失败：', e && e.message)
+    return []
+  }
+}
+
+/** 设置/取消某天打卡（done=false 时删除记录） */
+export async function setHabitLog(habitId: number, date: string, done: boolean, note = '') {
+  const hid = Number(habitId) || 0
+  const day = String(date || '').slice(0, 10)
+  if (!hid || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return null
+  const key = `${hid}:${day}`
+  try {
+    if (!done) {
+      await db.habitLogs.delete(key)
+      return null
+    }
+    const old = (await db.habitLogs.get(key)) || ({} as HabitLog)
+    const rec: HabitLog = {
+      ...old,
+      key,
+      habitId: hid,
+      date: day,
+      at: Number(old.at) || Date.now(),
+      note: String(note || old.note || ''),
+    }
+    await db.habitLogs.put(rec)
+    return rec
+  } catch (e: any) {
+    console.warn('[habit] 打卡写入失败：', e && e.message)
+    return null
+  }
+}
+
+export async function clearHabits() {
+  try {
+    await db.habitLogs.clear()
+    await db.habits.clear()
+  } catch (e: any) {
+    console.warn('[habit] 习惯数据清空失败：', e && e.message)
+  }
+}
+
+/** 与原构建一致的默认导出（页面里通过 * as dbModule 使用） */
+export default db

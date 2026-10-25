@@ -1,0 +1,11 @@
+# 构建产物与本地依赖
+node_modules/
+dist/
+
+# APK 构建中间产物（Gradle）
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.apk

@@ -1,0 +1,43 @@
+{
+  "counts": {
+    "anim": 25,
+    "animator": 6,
+    "attr": 305,
+    "bool": 2,
+    "color": 93,
+    "dimen": 127,
+    "drawable": 116,
+    "id": 194,
+    "integer": 6,
+    "interpolator": 7,
+    "layout": 46,
+    "mipmap": 3,
+    "string": 42,
+    "style": 364,
+    "xml": 2
+  },
+  "package": [
+    {
+      "id": "0x7f",
+      "name": "com.bililite.app",
+      "types": [
+        "anim",
+        "animator",
+        "attr",
+        "bool",
+        "color",
+        "dimen",
+        "drawable",
+        "id",
+        "integer",
+        "interpolator",
+        "layout",
+        "mipmap",
+        "string",
+        "style",
+        "?15",
+        "xml"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 从 resources.arsc 解码出的默认配置资源（name 为资源名，值为解码后的内容） -->
+<resources>
+    <bool name="abc_config_actionMenuItemAllCaps">true</bool>
+</resources>

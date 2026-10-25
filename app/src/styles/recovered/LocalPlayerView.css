@@ -1,0 +1,17 @@
+/* 来源: LocalPlayerView-sZl1JEp5.css  scope: data-v-e4d696d1 */
+.stage {
+  background: #000;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.v {
+  display: block;
+  width: 100%;
+  max-height: 68vh;
+  background: #000;
+}
+.clamp-1 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

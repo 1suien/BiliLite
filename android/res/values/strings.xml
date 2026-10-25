@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 从 resources.arsc 解码出的默认配置资源（name 为资源名，值为解码后的内容） -->
+<resources>
+    <string name="androidx_startup">androidx.startup</string>
+    <string name="app_name">BiliLite</string>
+    <string name="custom_url_scheme">com.bililite.app</string>
+    <string name="no_webview_text">This app requires a WebView to work</string>
+    <string name="package_name">com.bililite.app</string>
+    <string name="title_activity_main">BiliLite</string>
+</resources>

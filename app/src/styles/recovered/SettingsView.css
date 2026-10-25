@@ -1,0 +1,64 @@
+/* 来源: SettingsView-6aZR0tR7.css  scope: data-v-77fffa58 */
+.sec {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--t2);
+  margin-bottom: 14px;
+}
+.sec:before {
+  content: "";
+  width: 3px;
+  height: 13px;
+  border-radius: 2px;
+  background: var(--brand);
+}
+.swatch {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px solid var(--line-strong);
+  cursor: pointer;
+  padding: 0;
+  transition:
+    transform 0.1s,
+    box-shadow 0.13s,
+    border-color 0.13s;
+}
+.swatch:hover {
+  transform: scale(1.06);
+}
+.swatch.on {
+  border-color: transparent;
+  box-shadow:
+    0 0 0 2px var(--card),
+    0 0 0 4px var(--brand);
+}
+.accent-hex {
+  width: 118px;
+  font-size: 12px;
+}
+.accent-hex.custom {
+  border-color: var(--brand-line);
+  color: var(--brand);
+}
+.about-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+.about-line .ver {
+  font-size: 12px;
+  color: var(--t3);
+}
+.hint {
+  font-size: 12px;
+  color: var(--t3);
+  margin-top: 6px;
+}

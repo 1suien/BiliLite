@@ -1,0 +1,12 @@
+/* 来源: main-8cPy-pNJ.css  scope: data-v-9c2d8638 */
+.t-enter-active,
+.t-leave-active {
+  transition:
+    opacity 0.18s,
+    transform 0.18s;
+}
+.t-enter-from,
+.t-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}

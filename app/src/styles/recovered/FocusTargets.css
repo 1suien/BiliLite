@@ -1,0 +1,218 @@
+/* 来源: LearnView-DSahkCnj.css  scope: data-v-327feb51 */
+.ft-body {
+  min-width: 0;
+}
+.ft-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+}
+.ft-head > .icon {
+  color: var(--brand);
+  flex: none;
+}
+.ft-head b {
+  font-size: 14px;
+}
+.ft-today {
+  font-size: 12px;
+  font-family: var(--mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ft-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 0 10px;
+}
+.ft-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  color: var(--t2);
+  background: var(--soft);
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.ft-tab:hover {
+  color: var(--t1);
+}
+.ft-tab.on {
+  background: var(--brand-soft);
+  color: var(--brand);
+  border-color: var(--brand-line);
+  font-weight: 600;
+}
+.ft-tab .n {
+  font-family: var(--mono);
+  font-size: 11px;
+  opacity: 0.8;
+}
+.ft-add {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  margin-bottom: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--soft);
+}
+.ft-colors {
+  display: flex;
+  gap: 6px;
+}
+.ft-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  padding: 0;
+  cursor: pointer;
+}
+.ft-swatch.on {
+  border-color: var(--card);
+  box-shadow: 0 0 0 2px var(--brand);
+}
+.ft-empty {
+  padding: 28px 10px 30px;
+  text-align: center;
+}
+.ft-empty p {
+  margin: 0;
+  font-size: 12.5px;
+}
+.ft-list {
+  display: flex;
+  flex-direction: column;
+}
+.ft-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+}
+.ft-row:hover {
+  background: var(--card-hover);
+}
+.ft-row.on {
+  background: var(--brand-soft);
+}
+.ft-row.on:before {
+  content: "";
+  position: absolute;
+  left: -16px;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--brand);
+}
+.ft-mark {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.ft-name {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  font-size: 13.5px;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: text;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ft-row.on .ft-name {
+  font-weight: 600;
+}
+.ft-rename {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.ft-time {
+  font-size: 12px;
+  color: var(--t3);
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+.ft-row.on .ft-time {
+  color: var(--brand);
+}
+.ft-arch {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--t3);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.12s,
+    color 0.12s,
+    background 0.12s;
+}
+.ft-row:hover .ft-arch {
+  opacity: 1;
+}
+.ft-arch:hover {
+  background: var(--soft-hover);
+  color: var(--t1);
+}
+.ft-arch:focus-visible {
+  opacity: 1;
+}
+.ft-go {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--t2);
+  cursor: pointer;
+}
+.ft-go:hover {
+  border-color: var(--brand-line);
+  color: var(--brand);
+  background: var(--soft);
+}
+.ft-go.running {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: var(--brand-fg);
+}
+.ft-row.on .ft-go {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+.ft-row.on .ft-go.running {
+  color: var(--brand-fg);
+}

@@ -1,0 +1,32 @@
+# 依赖与构建缓存（体积大，不入库）
+app/node_modules/
+app/dist/
+tools/browser/node_modules/
+tools/browser/chromium-libs/
+app/android/.gradle/
+app/android/build/
+app/android/app/build/
+app/android/capacitor-cordova-android-plugins/
+app/android/app/src/main/assets/public/
+app/android/app/src/main/assets/capacitor.config.json
+app/android/app/src/main/assets/capacitor.plugins.json
+app/android/app/src/main/res/xml/config.xml
+app/android/local.properties
+
+# 还原依据（原 APK、解包产物、反编译 JS/CSS）——仅本地保留，不入库
+.work/
+reference/apk-dist/
+reference/decompiled/
+android/unzipped/
+
+# 本地/工具产物
+node_modules/
+__pycache__/
+*.pyc
+.DS_Store
+*.log
+.idea/
+*.iml
+*.keystore
+*.jks
+debug.keystore

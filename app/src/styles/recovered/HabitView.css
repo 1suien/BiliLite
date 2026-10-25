@@ -1,0 +1,252 @@
+/* 来源: HabitView-CNkejDFh.css  scope: data-v-3679c9c1 */
+.habit-page {
+  padding: 0 0 24px;
+}
+.hb-today {
+  font-size: 12.5px;
+}
+.hb-wrap {
+  display: grid;
+  grid-template-columns: minmax(380px, 1fr) minmax(320px, 420px);
+  gap: 14px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .hb-wrap {
+    grid-template-columns: 1fr;
+  }}
+.hb-left {
+  padding: 6px 6px 10px;
+}
+.hb-tabs {
+  padding: 4px 8px 0;
+}
+.hb-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.hb-row:hover {
+  background: var(--card-hover);
+}
+.hb-row.on {
+  background: var(--brand-soft);
+  border-color: transparent;
+}
+.hb-row.on:before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--brand);
+}
+.hb-row.off .hb-name {
+  color: var(--t3);
+}
+.hb-face {
+  font-size: 17px;
+  line-height: 1;
+  width: 22px;
+  text-align: center;
+}
+.hb-face.big {
+  font-size: 24px;
+  width: 30px;
+}
+.hb-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.hb-name {
+  font-size: 13.5px;
+}
+.hb-sub {
+  font-size: 11.5px;
+}
+.hb-dots {
+  display: flex;
+  gap: 5px;
+}
+.hb-dot {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--soft);
+  border: 1px solid var(--line);
+}
+.hb-dot.on {
+  background: var(--ok);
+  border-color: transparent;
+}
+.hb-dot.today {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok) 30%, transparent);
+}
+.hb-count {
+  font-size: 12px;
+  color: var(--t2);
+  min-width: 62px;
+  text-align: right;
+}
+.hb-count b {
+  color: var(--t1);
+}
+.hb-count em {
+  color: var(--t3);
+  font-style: normal;
+}
+.hb-check {
+  min-width: 64px;
+}
+.hb-right {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.hb-detail {
+  padding: 12px 14px;
+}
+.hb-detail-head {
+  align-items: flex-start;
+  gap: 8px;
+}
+.hb-detail-sub {
+  display: block;
+  font-size: 12px;
+}
+.hb-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 12px 0;
+}
+.hb-stat {
+  background: var(--soft);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.hb-stat .k {
+  font-size: 11.5px;
+  color: var(--t2);
+}
+.hb-stat .v {
+  font-size: 18px;
+  font-weight: 600;
+}
+.hb-stat .v small {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--t2);
+}
+.hb-goal {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11.5px;
+}
+.hb-goal-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--soft);
+  overflow: hidden;
+}
+.hb-goal-bar i {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+}
+.hb-cal {
+  padding: 12px 14px;
+}
+.hb-cal-title {
+  text-align: center;
+}
+.hb-week,
+.hb-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+.hb-week {
+  margin: 10px 0 6px;
+}
+.hb-week span {
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--t3);
+}
+.hb-cell {
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 12.5px;
+  color: var(--t2);
+  background: var(--soft);
+  cursor: pointer;
+  user-select: none;
+}
+.hb-cell.blank {
+  background: transparent;
+  cursor: default;
+}
+.hb-cell.done {
+  background: var(--ok);
+  color: #fff;
+  font-weight: 600;
+}
+.hb-cell.today {
+  box-shadow: inset 0 0 0 2px var(--t1);
+}
+.hb-cell.future {
+  color: var(--t3);
+  cursor: default;
+}
+.hb-cal-tip {
+  margin-top: 8px;
+  font-size: 11.5px;
+}
+.hb-logs {
+  padding: 12px 14px;
+}
+.hb-logs-head {
+  margin-bottom: 8px;
+}
+.hb-log-day {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+  font-size: 12.5px;
+}
+.hb-log-date {
+  color: var(--t2);
+  min-width: 108px;
+  font-size: 12px;
+}
+.hb-log-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.hb-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--t2);
+}

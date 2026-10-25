@@ -1,0 +1,21 @@
+/* 来源: LearnView-DSahkCnj.css  scope: data-v-8f206686 */
+.habit-home {
+  padding: 12px 14px;
+  margin-top: 14px;
+}
+.hb-home-head {
+  align-items: center;
+  gap: 8px;
+}
+.hb-home-n {
+  font-size: 12.5px;
+}
+.hb-home-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.hb-home-chip {
+  cursor: pointer;
+}

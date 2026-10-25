@@ -1,0 +1,7 @@
+# 安卓版的构建产物与本地依赖（上游 Capicitor 的 android/.gitignore 只管原生那半边）
+node_modules/
+www/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties

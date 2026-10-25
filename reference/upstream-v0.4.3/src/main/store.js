@@ -1,0 +1,112 @@
+import { app, safeStorage } from 'electron'
+import fs from 'node:fs'
+import path from 'node:path'
+// 默认值放在 src/shared 里，桌面端与安卓端共用同一份（安卓端见 src/mobile/store.js）
+import { DEFAULT_SETTINGS } from '../shared/default-settings.js'
+
+function filePath() {
+  return path.join(app.getPath('userData'), 'study-bili.json')
+}
+
+function encodeSecret(payload) {
+  const json = JSON.stringify(payload)
+  try {
+    if (safeStorage.isEncryptionAvailable()) {
+      return 'enc:' + safeStorage.encryptString(json).toString('base64')
+    }
+  } catch {
+    /* fall through to plain storage */
+  }
+  return 'raw:' + Buffer.from(json, 'utf8').toString('base64')
+}
+
+function decodeSecret(blob) {
+  if (!blob || typeof blob !== 'string') return {}
+  try {
+    if (blob.startsWith('enc:')) {
+      return JSON.parse(safeStorage.decryptString(Buffer.from(blob.slice(4), 'base64')))
+    }
+    if (blob.startsWith('raw:')) {
+      return JSON.parse(Buffer.from(blob.slice(4), 'base64').toString('utf8'))
+    }
+  } catch {
+    /* corrupted secret blob -> start clean */
+  }
+  return {}
+}
+
+export const store = {
+  state: {
+    settings: { ...DEFAULT_SETTINGS },
+    user: null,
+    cookies: {}
+  },
+
+  load() {
+    let parsed = null
+    try {
+      parsed = JSON.parse(fs.readFileSync(filePath(), 'utf8'))
+    } catch {
+      parsed = null
+    }
+    if (!parsed || typeof parsed !== 'object') {
+      this.state.settings = { ...DEFAULT_SETTINGS }
+      this.state.user = null
+      this.state.cookies = {}
+      return this.state
+    }
+    this.state.settings = { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) }
+    this.state.user = parsed.user || null
+    const secure = parsed.secure
+    const decoded = decodeSecret(secure)
+    if (typeof secure === 'string' && secure.startsWith('enc:') && !decoded.cookies) {
+      // 密文解不开（DPAPI 变了 / userData 目录被搬过）：先备份一份原始文件，
+      // 免得下一次 persist() 把最后的凭据覆盖掉。此时 cookie 会空 → 表现为「自动退出登录」。
+      console.warn('[store] 登录凭据解密失败（已备份 study-bili.json.bak）')
+      try {
+        fs.copyFileSync(filePath(), filePath() + '.bak')
+      } catch {
+        /* ignore */
+      }
+    }
+    this.state.cookies = decoded.cookies || {}
+    return this.state
+  },
+
+  persist() {
+    const payload = {
+      version: 1,
+      settings: this.state.settings,
+      user: this.state.user,
+      secure: encodeSecret({ cookies: this.state.cookies })
+    }
+    try {
+      fs.mkdirSync(path.dirname(filePath()), { recursive: true })
+      fs.writeFileSync(filePath() + '.tmp', JSON.stringify(payload, null, 2), 'utf8')
+      fs.renameSync(filePath() + '.tmp', filePath())
+    } catch (err) {
+      console.error('[store] 持久化失败:', err)
+    }
+  },
+
+  patchSettings(patch) {
+    this.state.settings = { ...this.state.settings, ...patch }
+    this.persist()
+    return this.state.settings
+  },
+
+  setUser(user) {
+    this.state.user = user
+    this.persist()
+  },
+
+  clearAuth() {
+    this.state.user = null
+    this.state.cookies = {}
+    this.persist()
+  },
+
+  isLoggedIn() {
+    return Boolean(this.state.cookies.SESSDATA)
+  }
+}

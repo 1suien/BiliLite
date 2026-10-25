@@ -1,0 +1,50 @@
+/* 来源: main-8cPy-pNJ.css  scope: data-v-8b5f254d */
+.page-float {
+  position: fixed;
+  right: 22px;
+  bottom: 26px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.float-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--t2);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s,
+    transform 0.15s;
+}
+.float-btn:hover {
+  color: var(--accent-fg);
+  border-color: var(--accent);
+  background: var(--accent);
+  transform: translateY(-1px);
+}
+.float-text {
+  font-size: 10px;
+  line-height: 1;
+}
+.spin {
+  animation: float-spin-8b5f254d 0.6s linear;
+}
+@keyframes float-spin {
+  0% {
+    transform: rotate(0);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

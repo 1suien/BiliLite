@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- 平板横屏；viewport-fit=cover 让内容铺到状态栏/手势区，配合 safe-area 变量 -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#0a0a0b" />
+    <!--
+      安卓端和桌面端的 CSP 不一样：
+      - 请求走 CapacitorHttp（原生 OkHttp）时不受 CSP 约束，但开发期用 WebView 直连时受约束；
+      - media-src 放开 https: 与 blob:，播放器用 MSE + blob 播放 DASH 流。
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; media-src 'self' blob: https:; connect-src 'self' http: https: ws: wss:; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'"
+    />
+    <title>BiliLite</title>
+    <script type="module" crossorigin src="./assets/index-jTHZJced.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-D9UzvbUq.css">
+  </head>
+  <body>
+    <div id="app"></div>
+  </body>
+</html>
