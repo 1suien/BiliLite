@@ -1,5 +1,7 @@
 # BiliLite 0.4.3 — Android APK 前端源码还原工程
 
+**下载 APK**：[Release v0.4.3-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.3-restore)（`BiliLite-0.4.3-debug.apk`，4,107,542 B，sha256 `b4fd3333abe25a1e2881ca142ee187ad7bca0d015398c4cd81babb0e7350abe3`）
+
 把 `BiliLite-0.4.3-android-debug.apk`（4.1 MB）里的**前端部分完整解包、还原成可读、可构建、可继续开发的 Vue 3 + TypeScript 工程**，并把「原始产物」与「还原结果」并排放好，方便逐项对照。
 
 > 原始 APK 是一个 **Capacitor + Vite + Vue 3** 应用：`assets/public` 里是打包后的 JS/CSS，原生壳（`classes.dex`）只负责 Capacitor 桥和两个自定义插件（画中画、沉浸式）。APK 里**没有 sourcemap**，所以这不是「解出原始 TS 源码」，而是**依据压缩产物逐函数重写出来的等价源码**。
@@ -183,6 +185,19 @@ cd android && ./gradlew assembleDebug
 - `app/node_modules/`、`tools/browser/chromium-libs/` 等依赖与浏览器缓存。
 
 仓库里保留的是：还原后的 `app/` 源码与安卓工程、`reference/upstream-v0.4.3/`（MIT 上游源码快照，带 `PROVENANCE.md`）、文档、审计脚本、构建脚本，以及构建好的 `BiliLite-0.4.3-debug.apk`。若你要复跑审计脚本对比反编译产物，请把原始 APK 放回 `.work/` 并按 [docs/03](docs/03-还原方法与还原度.md) 重新解包。
+
+## 发布（GitHub Release）
+
+发布包在 [Releases · v0.4.3-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.3-restore)，内容与本仓库 `BiliLite-0.4.3-debug.apk` 逐字节相同（sha256 见文首）。
+
+Release 不是手工点的：本地只有该仓库的账号级 SSH key（可 push），没有带 `repo` 写权限的 API token，所以用 `.github/workflows/release-restore.yml` 让 GitHub 自己的 `GITHUB_TOKEN`（`permissions: contents: write`）在 CI 里 `gh release create` 建 Release 并上传 APK。复现方式：
+
+```bash
+git tag v0.4.3-restore-ci2 "$(git rev-parse HEAD~N)"   # 指向含 APK 与 docs/RELEASE-v0.4.3-restore.md 的 commit
+git push origin v0.4.3-restore-ci2                      # 触发 workflow；也可在 Actions 页面 workflow_dispatch
+```
+
+workflow 幂等：`gh release view v0.4.3-restore` 已存在时直接跳过。
 
 ## 免责声明
 
