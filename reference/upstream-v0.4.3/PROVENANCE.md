@@ -64,3 +64,7 @@ strings -a classes4.dex | grep -E "WindowCompat|PictureInPictureParams|setDecorF
 ## 版权与使用
 
 上游源码为 MIT 许可，版权归原作者（1suien）所有。本目录只作**本地学习/核对**用，不随本工程再分发，也不含任何账号凭据。`src/main/**` 等桌面端代码与本工程目标（安卓 APK 还原）无关，仅作接口层对照保留。
+
+## 后续版本
+
+上游 `v0.4.4`（commit `8506f1b3b3f41db4edea4877b68aea196c4e6301`）相对本快照的 6 个文件增量放在 [reference/upstream-v0.4.4/](../upstream-v0.4.4/PROVENANCE.md)（含 `CHANGES.diff`），不再重复存整树；本工程已据此把 0.4.4 同步进 `app/`，过程见 [docs/11-0.4.4同步记录.md](../../docs/11-0.4.4同步记录.md)。

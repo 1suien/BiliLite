@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# 从 app/ 源码构建 BiliLite 0.4.3 debug APK。
+# 从 app/ 源码构建 BiliLite 0.4.4 debug APK。
 #
 # 前置（x86_64 Linux / macOS / Windows 的常规机器）：
 #   - Node 20+、npm
 #   - JDK 17（JAVA_HOME 指向它；Gradle 8.2.1 不支持 JDK 21+）
 #   - Android SDK：platforms;android-34、build-tools;34.0.0（ANDROID_SDK_ROOT）
-# 在 aarch64 上跑时 aapt2 只有 x86_64 版本，需要 tools/build/aapt2-qemu.sh 代理，
+# 在 aarch64 上跑时 aapt2 只有 x86_64 版本，需要 tools/build/aapt2-qemu.sh 代理
+# （或 /opt/toolchain/aapt2-bin/aapt2），并把 qemu-x86_64-static 放进 PATH，
 # 见 docs/09-生成可安装APK.md。
 set -euo pipefail
 

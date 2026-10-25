@@ -255,7 +255,7 @@ async function shareFile(uri: string, title: string): Promise<void> {
   await Share.share({ title, text: title, files: [uri], dialogTitle: '保存到…' })
 }
 
-/** 版本号（app:ping 用）：还原 `ur()`，拿不到时回落到原构建里的兜底值 */
+/** 版本号（app:ping 用）：还原 `ur()`，拿不到时回落到原构建里的兜底值（0.4.4） */
 let cachedVersion = ''
 async function getAppVersion(): Promise<string> {
   if (cachedVersion) return cachedVersion
@@ -266,7 +266,7 @@ async function getAppVersion(): Promise<string> {
   } catch {
     cachedVersion = ''
   }
-  return cachedVersion || '0.4.1'
+  return cachedVersion || '0.4.4'
 }
 
 // ---------------------------------------------------------------------------

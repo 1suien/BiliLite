@@ -1,10 +1,14 @@
-name: Create Release (restore v0.4.3)
+name: Create Release (restore APK)
 
 # 由 CI 用 GITHUB_TOKEN 建 Release 并上传 APK 资产（本地无 GitHub 写权限时使用）
+# 支持两个还原版本：
+#   v0.4.3-restore* → BiliLite-0.4.3-debug.apk（历史产物）
+#   v0.4.4-restore* → BiliLite-0.4.4-debug.apk（当前产物，手动 dispatch 时的默认值）
 on:
   push:
     tags:
       - 'v0.4.3-restore*'
+      - 'v0.4.4-restore*'
   workflow_dispatch:
 
 permissions:
@@ -19,27 +23,50 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Pick target version
+        id: pick
+        run: |
+          set -euo pipefail
+          case "${GITHUB_REF_NAME:-}" in
+            v0.4.3-restore*)
+              echo "tag=v0.4.3-restore"                   >> "$GITHUB_OUTPUT"
+              echo "apk=BiliLite-0.4.3-debug.apk"         >> "$GITHUB_OUTPUT"
+              echo "notes=docs/RELEASE-v0.4.3-restore.md" >> "$GITHUB_OUTPUT"
+              echo "title=BiliLite 0.4.3 安卓端 —— 源码还原工程 + 可安装 APK" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "tag=v0.4.4-restore"                   >> "$GITHUB_OUTPUT"
+              echo "apk=BiliLite-0.4.4-debug.apk"         >> "$GITHUB_OUTPUT"
+              echo "notes=docs/RELEASE-v0.4.4-restore.md" >> "$GITHUB_OUTPUT"
+              echo "title=BiliLite 0.4.4 安卓端 —— 源码还原工程 + 可安装 APK" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+          cat "$GITHUB_OUTPUT"
+
       - name: Create or update release with APK asset
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.pick.outputs.tag }}
+          APK: ${{ steps.pick.outputs.apk }}
+          NOTES: ${{ steps.pick.outputs.notes }}
+          TITLE: ${{ steps.pick.outputs.title }}
         run: |
           set -euo pipefail
-          TAG="v0.4.3-restore"
           echo "gh version: $(gh --version | head -1)"
-          ls -l BiliLite-0.4.3-debug.apk
-          sha256sum BiliLite-0.4.3-debug.apk
+          ls -l "$APK"
+          sha256sum "$APK"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "release $TAG exists -> 覆盖资产与说明（重新发布用）"
-            gh release upload "$TAG" ./BiliLite-0.4.3-debug.apk \
+            gh release upload "$TAG" "./$APK" \
               --repo "$GITHUB_REPOSITORY" --clobber
             gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" \
-              --notes-file docs/RELEASE-v0.4.3-restore.md
+              --notes-file "$NOTES"
           else
             gh release create "$TAG" \
-              ./BiliLite-0.4.3-debug.apk \
+              "./$APK" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "BiliLite 0.4.3 安卓端 —— 源码还原工程 + 可安装 APK" \
-              --notes-file docs/RELEASE-v0.4.3-restore.md
+              --title "$TITLE" \
+              --notes-file "$NOTES"
           fi
           echo "=== done ==="
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY"

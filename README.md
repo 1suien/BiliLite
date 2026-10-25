@@ -1,16 +1,18 @@
-# BiliLite 0.4.3 — Android APK 前端源码还原工程
+# BiliLite 0.4.4 — Android APK 前端源码还原工程
 
-**下载 APK**：[Release v0.4.3-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.3-restore)（`BiliLite-0.4.3-debug.apk`，4,107,542 B，sha256 `b4fd3333abe25a1e2881ca142ee187ad7bca0d015398c4cd81babb0e7350abe3`）
+**下载 APK**：`BiliLite-0.4.4-debug.apk`（本仓库根，4,107,559 B，sha256 `d7ceccfe86aa17e582b7b380c26f337acb62e1dd0e09bf4ad031004e5fcc81c0`）—— 由本工程源码构建。0.4.3 的历史产物保留为 `BiliLite-0.4.3-debug.apk`（4,107,542 B，sha256 `b4fd3333abe25a1e2881ca142ee187ad7bca0d015398c4cd81babb0e7350abe3`，[Release v0.4.3-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.3-restore)）。
 
 把 `BiliLite-0.4.3-android-debug.apk`（4.1 MB）里的**前端部分完整解包、还原成可读、可构建、可继续开发的 Vue 3 + TypeScript 工程**，并把「原始产物」与「还原结果」并排放好，方便逐项对照。
 
+> **已跟进到 0.4.4（2026-10-25）**：官方 0.4.4 只改了一处真实行为——安卓剧场模式的「退出剧场」按钮被 `top`+`bottom` 同时约束、拉成贯穿屏幕的竖白条（本次修复）；再加 3 处版本号。本工程已把这份增量同步进 `app/` 并重新出包，本地构建的 `classes*.dex` / `AndroidManifest.xml` / `resources.arsc` 与官方 0.4.4 APK **逐字节相同**。增量清单、产物比对与校验见 [docs/11](docs/11-0.4.4同步记录.md)。
+
 > 原始 APK 是一个 **Capacitor + Vite + Vue 3** 应用：`assets/public` 里是打包后的 JS/CSS，原生壳（`classes.dex`）只负责 Capacitor 桥和两个自定义插件（画中画、沉浸式）。APK 里**没有 sourcemap**，所以这不是「解出原始 TS 源码」，而是**依据压缩产物逐函数重写出来的等价源码**。
 >
-> **后续补充**：作者在 `v0.4.3` tag 上公开了完整原始源码（commit `dd3e5cff`）。本工程已把它快照进 `reference/upstream-v0.4.3/`，把完整的安卓 Gradle 工程 + 3 个 Java 插件源码补进 `app/android/`，并用上游源码对还原工程做了逐模块核对（[docs/08](docs/08-与上游源码逐模块核对.md)，5 份分模块报告共 1692 行）。核对发现并修复了 7 处真实偏差，其余差异全部登记。
+> **后续补充**：作者在 `v0.4.3` tag 上公开了完整原始源码（commit `dd3e5cff`）。本工程已把它快照进 `reference/upstream-v0.4.3/`，把完整的安卓 Gradle 工程 + 3 个 Java 插件源码补进 `app/android/`，并用上游源码对还原工程做了逐模块核对（[docs/08](docs/08-与上游源码逐模块核对.md)，5 份分模块报告共 1692 行）。核对发现并修复了 7 处真实偏差，其余差异全部登记。`v0.4.4` 的增量（6 个文件）另存为 `reference/upstream-v0.4.4/`（改动文件 + 完整 `CHANGES.diff` + `PROVENANCE.md`），与 v0.4.3 快照叠加即完整源码树。
 >
 > **播放方式对比**：用户提供的 BiliLite **0.6.25 原生版**（Compose + Media3/ExoPlayer）已逆向拆解，与本工程 0.4.3 的 WebView/MSE 播放链路逐项对比（取流/选轨/装配/缓冲/字幕/后台/缓存），见 [docs/10](docs/10-播放方式对比.md)。
 
-> **已经能出安装包**：`app/` 源码 → `npm run build` → `cap sync` → `gradlew assembleDebug` 在本机实测通过，产物 `BiliLite-0.4.3-debug.apk`（4,107,542 B，签名/对齐校验通过），见 [docs/09](docs/09-生成可安装APK.md)。
+> **已经能出安装包**：`app/` 源码 → `npm run build` → `cap sync` → `gradlew assembleDebug` 在本机实测通过，当前产物 `BiliLite-0.4.4-debug.apk`（4,107,559 B，签名/对齐校验通过；0.4.3 的上一版产物 4,107,542 B 也保留在仓库里），见 [docs/09](docs/09-生成可安装APK.md)。
 
 ---
 
@@ -19,7 +21,8 @@
 ```
 /root/学习软件
 ├── README.md                     ← 本文件
-├── BiliLite-0.4.3-debug.apk      ← ★ 由本工程源码构建出的可安装 APK（4.1 MB，见 docs/09）
+├── BiliLite-0.4.4-debug.apk      ← ★ 由本工程源码构建出的可安装 APK（4.11 MB，见 docs/09）
+├── BiliLite-0.4.3-debug.apk      ← 上一版产物（0.4.3 源码构建，保留作对照）
 ├── CONTRACT.md                   ← 还原时的内部契约（公共 API 速查 / 模板反推规则）
 ├── app/                          ← ★ 还原出的前端工程（可 npm run build / dev）
 │   ├── package.json  vite.config.ts  tsconfig.json  index.html  capacitor.config.json
@@ -44,6 +47,7 @@
 │   ├── apk-dist/                 ← APK 内 assets/public 原样拷贝（原始 JS/CSS/HTML）
 │   ├── decompiled/               ← 用 prettier 美化后的 41 个 JS chunk + 12 个 CSS
 │   ├── upstream-v0.4.3/          ← 官方源码快照（tag v0.4.3，89 文件 / 1.1 MB，见 PROVENANCE.md）
+│   ├── upstream-v0.4.4/          ← 官方源码增量快照（tag v0.4.4：6 个改动文件 + CHANGES.diff）
 │   └── screenshots/              ← 用无头 Chromium 跑出来的页面截图（mock 数据）
 ├── tools/                        ← 还原工具链（CSS 拆分、组件映射、AXML/ARCS 解码、浏览器验收）
 │   ├── audit/                    ← 上游源码机械比对脚本（通道/设置/Dexie/WBI，可复跑）
@@ -54,6 +58,7 @@
 │   ├── 07-构建验收与开发者工具.md 08-与上游源码逐模块核对.md
 │   ├── 09-生成可安装APK.md         ← 本机实测出包记录（环境搭建 / 校验 / 安装说明）
 │   ├── 10-播放方式对比.md          ← 0.4.3（WebView/MSE）vs 0.6.25（原生 ExoPlayer）播放实现对比
+│   ├── 11-0.4.4同步记录.md        ← 0.4.3→0.4.4 增量、APK 产物比对、二次出包校验
 │   └── audit/                    ← 5 份分模块核对报告（样式/数据/视图/store/播放内核）
 └── .work/                        ← APK 原始解包目录（ground truth，勿改）
 ```
@@ -91,10 +96,10 @@ http://localhost:4173/?mock=1     # preview/build 产物：必须手动加 ?mock
 **想在真机上跑**：安装包已经构建好，直接在仓库根取：
 
 ```bash
-adb install -r BiliLite-0.4.3-debug.apk
+adb install -r BiliLite-0.4.4-debug.apk
 ```
 
-它是用 `app/android/` 这个完整 Gradle 工程在本机 `assembleDebug` 出来的（package `com.bililite.app`、versionCode 7、versionName 0.4.3、debug 签名）。重新出包：
+它是用 `app/android/` 这个完整 Gradle 工程在本机 `assembleDebug` 出来的（package `com.bililite.app`、versionCode 8、versionName 0.4.4、debug 签名；0.4.4 = 0.4.3 + 剧场模式「退出剧场」CSS 修复，见 [docs/11](docs/11-0.4.4同步记录.md)）。重新出包：
 
 ```bash
 cd app
@@ -168,7 +173,7 @@ cd android && ./gradlew assembleDebug
 
 ## 与原 APK 的已知差异（诚实清单）
 
-1. ~~不含完整安卓工程~~ → **已补全并实测出包**：`app/android/` 是官方 tag v0.4.3 的 `mobile/android/` 原样复制（55 个文件，3 个 Java 插件为真源码），仅 `capacitor.settings.gradle` 由 `cap sync` 按 npm 布局重新生成；本机已跑通 `gradlew assembleDebug`，产物 `BiliLite-0.4.3-debug.apk`（4,107,542 B，apksigner/zipalign 校验通过，见 [docs/09](docs/09-生成可安装APK.md)）。
+1. ~~不含完整安卓工程~~ → **已补全并实测出包**：`app/android/` 是官方 tag v0.4.3 的 `mobile/android/` 原样复制（55 个文件，3 个 Java 插件为真源码），仅 `capacitor.settings.gradle` 由 `cap sync` 按 npm 布局重新生成；本机已跑通 `gradlew assembleDebug`，产物 `BiliLite-0.4.4-debug.apk`（4,107,559 B，apksigner/zipalign 校验通过；原生侧与官方 0.4.4 APK **逐字节相同**，见 [docs/09](docs/09-生成可安装APK.md) 与 [docs/11](docs/11-0.4.4同步记录.md)）。
 2. **原始源码没有 sourcemap**：本工程是「行为等价重写」，不是原始 TS 源码；变量名、注释、文件切分与原作者不同。
 3. **弹幕层没实现**：0.4.3 的播放页 chunk 里 `danmaku/弹幕` 出现 0 次（`dm-layer/dm-item/dm-bar` 只有 `global.css` 残留样式），数据桥虽然有 `video:danmaku/sendDanmaku` 通道但没有任何视图调用——忠实还原 = 没有弹幕 UI，故未凭空实现。
 4. **首页没有推荐流**：`home:feed` / `home:popular` 只有桌面端桥（`index-B576k3Hi.js`）暴露，所有视图都没有调用；首页实际是「继续学习 + 关注的 UP 更新」。
@@ -187,20 +192,20 @@ cd android && ./gradlew assembleDebug
 - `reference/decompiled/`：美化后的 41 个 JS chunk + 12 个 CSS；
 - `app/node_modules/`、`tools/browser/chromium-libs/` 等依赖与浏览器缓存。
 
-仓库里保留的是：还原后的 `app/` 源码与安卓工程、`reference/upstream-v0.4.3/`（MIT 上游源码快照，带 `PROVENANCE.md`）、文档、审计脚本、构建脚本，以及构建好的 `BiliLite-0.4.3-debug.apk`。若你要复跑审计脚本对比反编译产物，请把原始 APK 放回 `.work/` 并按 [docs/03](docs/03-还原方法与还原度.md) 重新解包。
+仓库里保留的是：还原后的 `app/` 源码与安卓工程、`reference/upstream-v0.4.3/` 与 `reference/upstream-v0.4.4/`（MIT 上游源码快照，各带 `PROVENANCE.md`）、文档、审计脚本、构建脚本，以及构建好的 `BiliLite-0.4.4-debug.apk`、`BiliLite-0.4.3-debug.apk`。若你要复跑审计脚本对比反编译产物，请把原始 APK 放回 `.work/` 并按 [docs/03](docs/03-还原方法与还原度.md) 重新解包。
 
 ## 发布（GitHub Release）
 
-发布包在 [Releases · v0.4.3-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.3-restore)，内容与本仓库 `BiliLite-0.4.3-debug.apk` 逐字节相同（sha256 见文首）。
+已发布：[Releases · v0.4.3-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.3-restore)（对应 `BiliLite-0.4.3-debug.apk`）。0.4.4 的产物在仓库根 `BiliLite-0.4.4-debug.apk`，按同一套流程用 tag `v0.4.4-restore` 发布即可。
 
 Release 不是手工点的：本地只有该仓库的账号级 SSH key（可 push），没有带 `repo` 写权限的 API token，所以用 `.github/workflows/release-restore.yml` 让 GitHub 自己的 `GITHUB_TOKEN`（`permissions: contents: write`）在 CI 里 `gh release create` 建 Release 并上传 APK。复现方式：
 
 ```bash
-git tag v0.4.3-restore-ci2 "$(git rev-parse HEAD~N)"   # 指向含 APK 与 docs/RELEASE-v0.4.3-restore.md 的 commit
-git push origin v0.4.3-restore-ci2                      # 触发 workflow；也可在 Actions 页面 workflow_dispatch
+git tag v0.4.4-restore-ci1 "$(git rev-parse HEAD~N)"   # 指向含 APK 与 docs/RELEASE-v0.4.4-restore.md 的 commit
+git push origin v0.4.4-restore-ci1                      # 触发 workflow；也可在 Actions 页面 workflow_dispatch
 ```
 
-workflow 幂等：`gh release view v0.4.3-restore` 已存在时直接跳过。
+workflow 幂等：`gh release view v0.4.4-restore` 已存在时覆盖资产与说明；tag 名里带 `v0.4.3-restore` 前缀则走 0.4.3 的资产与说明（历史入口保留）。
 
 ## 免责声明
 

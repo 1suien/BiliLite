@@ -1,0 +1,130 @@
+--- v0.4.3/README.md
++++ v0.4.4/README.md
+@@ -248,11 +248,16 @@
+ - **全屏黑边**（真机反馈「视频播放窗口有多余」）：`base.css` 里 `.player-wrap:fullscreen` 改成
+   flex 居中，舞台（16:9）在 16:10 的平板上上下各留约 5%，不再把黑带全堆在底下；
+   本机在 1047×654 量过：修复前 `top=0` / 底带 65px，修复后 `top=33` / `bottom=33`。
++- **剧场模式出口**（真机反馈「退出剧场ui影响观感」）：`mobile.css` 里给 `.page-float` 和
++  `.theater-exit` 加 `bottom` 时写在了同一个选择器，而 `.theater-exit` 本来就有 `top` →
++  两者一起把它拉成贯穿屏幕的竖白条。现在只给 `.page-float` 加 `bottom`，`.theater-exit` 只调
++  `top/right`，并让安卓的 `.app.theater .scroll` 下移 60px 给出口留通道
++  （平板视口实测按钮 90×36 @945,12，高度正常）。
+ - **触屏适配**：`src/mobile/mobile.css` 只在 `html[data-platform='android']` 下生效，桌面端零影响。
+   侧栏保留「本地」入口（安卓上已有等价实现）。
+ - **构建**：`mobile/` 下 `pnpm install --ignore-workspace` → `pnpm run build` → `cap sync android` →
+   `android\gradlew.bat assembleDebug`，产物 `mobile/android/app/build/outputs/apk/debug/app-debug.apk`（≈4.10 MB，
+-  `versionCode 7` / `versionName 0.4.3`）。
++  `versionCode 8` / `versionName 0.4.4`）。
+   本机 JDK/SDK 在 `C:\Users\zouyx\android-toolchain\`；工程路径含中文，已在
+   `mobile/android/gradle.properties` 固化 `android.overridePathCheck=true`。
+   注意 `pnpm run build` 曾被 pnpm 11 的依赖预检带崩（`ERR_PNPM_IGNORED_BUILDS` → 预检 install 退出 1），
+--- v0.4.3/mobile/README.md
++++ v0.4.4/mobile/README.md
+@@ -7,7 +7,7 @@
+ 横屏 CSS 视口约 **1047×654 dp**，和桌面窗口 1267×717 很接近，所以布局基本沿用桌面版，
+ 只加了一层触屏/安全区的微调（`src/mobile/mobile.css`）。
+ 
+-版本：`versionCode 7` / `versionName 0.4.3`（`mobile/android/app/build.gradle`）。
++版本：`versionCode 8` / `versionName 0.4.4`（`mobile/android/app/build.gradle`）。
+ 
+ ## 三层结构
+ 
+@@ -135,6 +135,15 @@
+ > 黑边上下对称）+ 新增 `ImmersivePlugin.java` 做沉浸式；控制条挂在舞台内部，所以不会悬在黑边上。
+ > 本机在 1047×654 的平板视口量过：**修复前** 舞台 `top=0`、底部黑带 65px；**修复后** `top=33`、
+ > `bottom=33`（16:9 片源在 16:10 屏上各约 5%，对称）。
++>
++> **剧场模式右上角「退出剧场」被拉成竖白条（0.4.4 修，真机反馈「退出剧场ui影响观感」）**：
++> `mobile.css` 里那条「悬浮按钮避开手势条」把 `.page-float` 与 `.theater-exit` 写在同一个选择器里、
++> 给两者都加了 `bottom`；而 `.theater-exit` 在 `base.css` 里本来就带 `position: fixed; top: 14px`，
++> 于是它同时有 `top` 和 `bottom` → 被拉成一条贯穿屏幕的白色长条，还压住页面右上角的按钮
++> （学习页的「导出 JSON」就被盖住了）。修法：`.page-float` 保留 `bottom`，`.theater-exit` 只调
++> `top/right`（各带 `env(safe-area-inset-*)`），并给安卓的 `.app.theater .scroll` 加
++> `padding-top: 60px`，给出口留一条专用通道。平板视口实测：按钮 **90×36 @945,12**，
++> 高度正常（不再被拉伸），内容整体下移 60px。
+ 
+ ## 构建
+ 
+@@ -162,8 +171,8 @@
+ & .\gradlew.bat assembleDebug --console=plain
+ ```
+ 
+-产物：`mobile/android/app/build/outputs/apk/debug/app-debug.apk`（当前 **4,104,453 B / 4.10 MB**，
+-`versionCode 7` / `versionName 0.4.3`；本机已核对该 APK 与 `pnpm run build` 重建的 www 字节一致）。
++产物：`mobile/android/app/build/outputs/apk/debug/app-debug.apk`（当前 **4,104,456 B / 3.91 MB**，
++`versionCode 8` / `versionName 0.4.4`；本机已核对该 APK 与 `pnpm run build` 重建的 www 字节一致）。
+ 
+ > `mobile/android/local.properties` 里写 `sdk.dir=...`（Capacitor 的 `.gitignore` 已忽略它，不要提交）。
+ > 改了 `src/renderer` / `src/mobile` / `capacitor.config.json` 之后都要重新
+--- v0.4.3/mobile/package.json
++++ v0.4.4/mobile/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "bililite-mobile",
+-  "version": "0.4.3",
++  "version": "0.4.4",
+   "private": true,
+   "description": "BiliLite 安卓版（小米平板 6 / Android 14）：Capacitor 外壳 + 与桌面端共用的渲染层与 B 站接口层",
+   "scripts": {
+--- v0.4.3/src/mobile/bridge.js
++++ v0.4.4/src/mobile/bridge.js
+@@ -37,7 +37,7 @@
+   } catch {
+     cachedVersion = ''
+   }
+-  return cachedVersion || '0.4.1'
++  return cachedVersion || '0.4.4'
+ }
+ 
+ /* ------------------------------------------------------------------ *
+--- v0.4.3/src/mobile/mobile.css
++++ v0.4.4/src/mobile/mobile.css
+@@ -7,6 +7,7 @@
+  *   2) 触屏没有鼠标：去掉点按高亮、放大点击目标（--tap 28 → 36）
+  *   3) 禁掉长按选中/长按弹出菜单造成的「拖影」，输入框仍然可选可编辑
+  *   4) 藏掉只有键盘才用得上的快捷键角标（F / Esc）
++ *   5) 剧场模式下给右上角的「退出剧场」留一条通道（它曾被 bottom 拉成贯穿屏幕的竖白条）
+  *
+  * 只在 `html[data-platform='android']` 下生效，桌面端一行都不受影响。
+  */
+@@ -61,8 +62,24 @@
+   padding-bottom: 11px;
+ }
+ 
+-/* 悬浮按钮避开右下角的手势条 */
+-html[data-platform='android'] .page-float,
+-html[data-platform='android'] .theater-exit {
++/* 右下角的悬浮操作组避开手势条 */
++html[data-platform='android'] .page-float {
+   bottom: calc(18px + env(safe-area-inset-bottom));
+ }
++
++/*
++ * 「退出剧场」是贴右上角的固定按钮（base.css 里给的是 top: 14px; right: 14px）。
++ * 这里千万别再给它 bottom —— 它已经有 top 了，两个都给会把按钮拉成一条贯穿屏幕的竖白条
++ * （0.4.3 的真机问题：剧场模式下右侧出现一整条白色长条，还压住页面右上角的按钮）。
++ * 只调位置留出安全边距即可。
++ */
++html[data-platform='android'] .theater-exit {
++  top: calc(12px + env(safe-area-inset-top));
++  right: calc(12px + env(safe-area-inset-right));
++}
++
++/* 剧场模式没有顶栏，页面内容顶到最上面；给它让出一条通道，
++   免得「退出剧场」压住页面自己的右上角操作（比如学习页的「导出 JSON」） */
++html[data-platform='android'] .app.theater .scroll {
++  padding-top: 60px;
++}
+--- v0.4.3/mobile/android/app/build.gradle
++++ v0.4.4/mobile/android/app/build.gradle
+@@ -7,8 +7,8 @@
+         applicationId "com.bililite.app"
+         minSdkVersion rootProject.ext.minSdkVersion
+         targetSdkVersion rootProject.ext.targetSdkVersion
+-        versionCode 7
+-        versionName "0.4.3"
++        versionCode 8
++        versionName "0.4.4"
+         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+         aaptOptions {
+              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

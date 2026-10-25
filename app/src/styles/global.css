@@ -1327,7 +1327,7 @@ table.plain td.num {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }}
-/* 来源: index-D9UzvbUq.css  （无作用域，全局） */
+/* 来源: index-oM37tz4E.css（0.4.4，无作用域，全局） */
 html[data-platform="android"] {
   --tap: 36px;
 }
@@ -1363,7 +1363,21 @@ html[data-platform="android"] .nav-item {
   padding-top: 11px;
   padding-bottom: 11px;
 }
-html[data-platform="android"] .page-float,
-html[data-platform="android"] .theater-exit {
+/* 右下角悬浮操作组避开手势条 */
+html[data-platform="android"] .page-float {
   bottom: calc(18px + env(safe-area-inset-bottom));
+}
+/*
+ * 「退出剧场」是贴右上角的固定按钮（上面 .theater-exit 已给 top/right）。
+ * 0.4.3 把它和 .page-float 写在同一个选择器里一起加 bottom，于是它同时有 top 和 bottom，
+ * 被拉成一条贯穿屏幕的竖白条，还压住页面右上角的操作（如学习页的「导出 JSON」）；
+ * 0.4.4 起只调 top/right 让出安全区。
+ */
+html[data-platform="android"] .theater-exit {
+  top: calc(12px + env(safe-area-inset-top));
+  right: calc(12px + env(safe-area-inset-right));
+}
+/* 剧场模式没有顶栏，内容会顶到最上面；下移 60px 给「退出剧场」留一条通道 */
+html[data-platform="android"] .app.theater .scroll {
+  padding-top: 60px;
 }
