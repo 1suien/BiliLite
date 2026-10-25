@@ -677,6 +677,7 @@ async function loadAll() {
   playurl.value = null
   related.value = []
   notes.value = []
+  noteText.value = ''
   tab.value = 'intro'
   resetPlayerPrefs()
   try {
@@ -713,9 +714,10 @@ async function loadAll() {
   pageIndex.value = byQuery >= 0 ? byQuery : byCid >= 0 ? byCid : saved ? saved.page - 1 : 0
   loading.value = false
   await nextTick()
-  await loadPlayurl()
+  // 笔记/相关推荐不依赖拉流：先加载，避免拉流慢或失败时笔记区一直空着
   loadRelated()
   loadNotes()
+  await loadPlayurl()
   if (detail.value && detail.value.bvid) learn.save(progressData() as any).catch(() => {})
 }
 
@@ -728,11 +730,14 @@ async function loadRelated() {
   }
 }
 
-/** 本机笔记 */
+/** 本机笔记：按「视频 + 分P」独立，切分P/切视频都只看到自己那一份 */
 async function loadNotes() {
   try {
     const rows = await db.notes.where('bvid').equals(bvid.value).toArray()
-    notes.value = rows.sort((a: any, b: any) => (b.at || 0) - (a.at || 0))
+    const cur = String(cid.value || '')
+    notes.value = rows
+      .filter((n: any) => !cur || String(n.cid || '') === cur)
+      .sort((a: any, b: any) => (b.at || 0) - (a.at || 0))
   } catch {
     notes.value = []
   }
@@ -1096,7 +1101,9 @@ async function selectPage(i: number) {
   lastSavedAt = -1
   router.replace({ name: 'video', params: { bvid: bvid.value }, query: { p: i + 1 } })
   status.value = '切换分P…'
-  await loadPlayurl()
+  // 笔记按分P独立：换 P 后清空草稿、重载这一 P 的笔记
+  noteText.value = ''
+  await Promise.all([loadPlayurl(), loadNotes()])
 }
 
 /** 切清晰度（重新拉一次 playurl） */
@@ -1570,23 +1577,25 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-else-if="tab === 'notes'" class="panel">
-        <div class="row" style="margin-bottom: 10px">
-          <input
+        <div class="row" style="margin-bottom: 10px; align-items: flex-end">
+          <textarea
             v-model="noteText"
-            class="input"
-            :placeholder="`记录当前时间点（${formatClock(current)}）的想法，回车保存`"
-            @keyup.enter="saveNote"
-          />
+            class="input note-input"
+            rows="2"
+            :placeholder="`记录当前分P（${formatClock(current)}）的想法；回车换行，Ctrl+Enter 或点「保存」存到本地`"
+            @keydown.ctrl.enter.prevent="saveNote"
+            @keydown.meta.enter.prevent="saveNote"
+          ></textarea>
           <button class="btn primary" @click="saveNote">
             <Icon name="plus" :size="14" /> 保存
           </button>
         </div>
         <div v-if="!notes.length" class="muted" style="font-size: 12.5px">
-          还没有笔记。播放时按回车即可把「时间点 + 想法」存到本地。
+          还没有笔记。笔记按分P独立保存：「回车」换行，点「保存」把「时间点 + 想法」存到本地。
         </div>
         <div v-for="n in notes" :key="n.id" class="field">
           <label class="mono" style="width: 62px">{{ formatClock(n.sec) }}</label>
-          <div class="ctrl">{{ n.text }}</div>
+          <div class="ctrl" style="white-space: pre-wrap">{{ n.text }}</div>
           <div class="row" style="flex: none">
             <button class="btn sm ghost" title="跳转" @click="jumpNote(n)">
               <Icon name="play" :size="13" />

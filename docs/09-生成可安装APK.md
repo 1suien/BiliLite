@@ -1,8 +1,24 @@
 # 09 生成可安装 APK（2026-10-25 实测通过）
 
-本工程的源码**已经真正构建出可安装的 debug APK**。当前产物是 0.4.4（2026-10-25 从 0.4.3 升级后二次出包），0.4.3 的首次出包记录保留在下面。
+本工程的源码**已经真正构建出可安装的 debug APK**。当前产物是 0.4.5（2026-10-25 为「笔记按分P独立 + 回车换行」这项本机改动第三次出包），0.4.4 / 0.4.3 的历史出包记录保留在下面。
 
-## 当前产物：`BiliLite-0.4.4-debug.apk`
+## 当前产物：`BiliLite-0.4.5-debug.apk`（本机构建）
+
+| 项目 | 值 |
+|---|---|
+| 文件 | `BiliLite-0.4.5-debug.apk` |
+| 大小 | 4,107,722 B（官方 0.4.4 APK 是 4,104,456 B） |
+| SHA-256 | `9f0bda8d9e9a74810dd55815fb74b4f2169a539c2b67da18ba15a6890186e6c4` |
+| package | `com.bililite.app` |
+| versionCode / versionName | `9` / `0.4.5` |
+| minSdk / targetSdk / compileSdk | 22 / 34 / 34 |
+| 签名 | debug，CN=Android Debug，APK Signature Scheme v1 + v2 |
+| 构建 | 增量 `assembleDebug` 16s（264 tasks，29 executed）；`clean assembleDebug` 冷构建 **1m 02s**（275 tasks，230 executed） |
+| 可复现 | `clean` 后重建的 APK 与增量构建 sha256 **完全相同** |
+
+0.4.5 = 0.4.4 + 两项本机改动（上游没有）：笔记按 `bvid + cid`（分P）独立、输入框改多行 textarea（回车换行，Ctrl+Enter 或「保存」按钮写入）。改动、验证与升级说明见 [12-笔记按分P独立.md](12-笔记按分P独立.md)。校验：`aapt dump badging` versionCode 9 / versionName 0.4.5 / minSdk 22 / target 34；`apksigner verify` v1+v2 通过；`zipalign -c -p 4` 通过；APK 内 `assets/public` 与 `app/dist` 逐字节一致（`diff -r` 只多 `cordova.js` / `cordova_plugins.js`）；原生侧与 0.4.4 产物相同（只有 web 层与版本号变）。
+
+## 上一版产物：`BiliLite-0.4.4-debug.apk`
 
 | 项目 | 值 |
 |---|---|

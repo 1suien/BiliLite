@@ -340,6 +340,16 @@ textarea {
 .input::placeholder {
   color: var(--t3);
 }
+/* 多行输入（笔记）：textarea 默认等宽字体，这里跟随全局字体 + 可拖动改高 */
+textarea.input {
+  flex: 1;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 12.5px;
+  line-height: 1.55;
+  resize: vertical;
+  min-height: 54px;
+}
 input[type="range"] {
   accent-color: var(--brand);
   cursor: pointer;
