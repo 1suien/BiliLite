@@ -288,11 +288,7 @@ export interface Settings {
   accent: string
   defaultQuality: number
   autoNext: boolean
-  autoNextDelay: number
   seekStep: number
-  doubleTapStep: number
-  longPressSpeed: number
-  keepAwake: boolean
   backupPath: string
   playerVolume: number
   hideDanmakuArea: boolean

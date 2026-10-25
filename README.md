@@ -1,6 +1,6 @@
 # BiliLite 0.4.3 — Android APK 前端源码还原工程
 
-**下载 APK**：[Release v0.4.3-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.3-restore)（`BiliLite-0.4.3-debug.apk`，4,109,301 B，sha256 `2f056529b49368f68bfba4bcfcb517457a1001fbb6cf92c91d7e3012e14aa1cd`）
+**下载 APK**：[Release v0.4.3-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.3-restore)（`BiliLite-0.4.3-debug.apk`，4,107,542 B，sha256 `b4fd3333abe25a1e2881ca142ee187ad7bca0d015398c4cd81babb0e7350abe3`）
 
 把 `BiliLite-0.4.3-android-debug.apk`（4.1 MB）里的**前端部分完整解包、还原成可读、可构建、可继续开发的 Vue 3 + TypeScript 工程**，并把「原始产物」与「还原结果」并排放好，方便逐项对照。
 
@@ -9,10 +9,8 @@
 > **后续补充**：作者在 `v0.4.3` tag 上公开了完整原始源码（commit `dd3e5cff`）。本工程已把它快照进 `reference/upstream-v0.4.3/`，把完整的安卓 Gradle 工程 + 3 个 Java 插件源码补进 `app/android/`，并用上游源码对还原工程做了逐模块核对（[docs/08](docs/08-与上游源码逐模块核对.md)，5 份分模块报告共 1692 行）。核对发现并修复了 7 处真实偏差，其余差异全部登记。
 >
 > **播放方式对比**：用户提供的 BiliLite **0.6.25 原生版**（Compose + Media3/ExoPlayer）已逆向拆解，与本工程 0.4.3 的 WebView/MSE 播放链路逐项对比（取流/选轨/装配/缓冲/字幕/后台/缓存），见 [docs/10](docs/10-播放方式对比.md)。
->
-> **0.6.25 播放能力移植**：在对比基础上，把其中可移植的交互搬进了本工程 —— 长按倍速（2×/3×）、双击左退右进（5/10/15/30 秒）、连播延迟倒计时（0/3/5/10 秒、可取消）、播放时保持屏幕常亮（Wake Lock）、在线字幕秒/毫秒归一化，见 [docs/11](docs/11-0.6.25播放能力移植.md)。
 
-> **已经能出安装包**：`app/` 源码 → `npm run build` → `cap sync` → `gradlew assembleDebug` 在本机实测通过，产物 `BiliLite-0.4.3-debug.apk`（4,109,301 B，签名/对齐校验通过），见 [docs/09](docs/09-生成可安装APK.md)。
+> **已经能出安装包**：`app/` 源码 → `npm run build` → `cap sync` → `gradlew assembleDebug` 在本机实测通过，产物 `BiliLite-0.4.3-debug.apk`（4,107,542 B，签名/对齐校验通过），见 [docs/09](docs/09-生成可安装APK.md)。
 
 ---
 
@@ -56,7 +54,6 @@
 │   ├── 07-构建验收与开发者工具.md 08-与上游源码逐模块核对.md
 │   ├── 09-生成可安装APK.md         ← 本机实测出包记录（环境搭建 / 校验 / 安装说明）
 │   ├── 10-播放方式对比.md          ← 0.4.3（WebView/MSE）vs 0.6.25（原生 ExoPlayer）播放实现对比
-│   ├── 11-0.6.25播放能力移植.md    ← 从原生版搬过来的 5 项播放交互 + 不可移植项说明
 │   └── audit/                    ← 5 份分模块核对报告（样式/数据/视图/store/播放内核）
 └── .work/                        ← APK 原始解包目录（ground truth，勿改）
 ```
@@ -171,7 +168,7 @@ cd android && ./gradlew assembleDebug
 
 ## 与原 APK 的已知差异（诚实清单）
 
-1. ~~不含完整安卓工程~~ → **已补全并实测出包**：`app/android/` 是官方 tag v0.4.3 的 `mobile/android/` 原样复制（55 个文件，3 个 Java 插件为真源码），仅 `capacitor.settings.gradle` 由 `cap sync` 按 npm 布局重新生成；本机已跑通 `gradlew assembleDebug`，产物 `BiliLite-0.4.3-debug.apk`（4,109,301 B，apksigner/zipalign 校验通过，见 [docs/09](docs/09-生成可安装APK.md)）。
+1. ~~不含完整安卓工程~~ → **已补全并实测出包**：`app/android/` 是官方 tag v0.4.3 的 `mobile/android/` 原样复制（55 个文件，3 个 Java 插件为真源码），仅 `capacitor.settings.gradle` 由 `cap sync` 按 npm 布局重新生成；本机已跑通 `gradlew assembleDebug`，产物 `BiliLite-0.4.3-debug.apk`（4,107,542 B，apksigner/zipalign 校验通过，见 [docs/09](docs/09-生成可安装APK.md)）。
 2. **原始源码没有 sourcemap**：本工程是「行为等价重写」，不是原始 TS 源码；变量名、注释、文件切分与原作者不同。
 3. **弹幕层没实现**：0.4.3 的播放页 chunk 里 `danmaku/弹幕` 出现 0 次（`dm-layer/dm-item/dm-bar` 只有 `global.css` 残留样式），数据桥虽然有 `video:danmaku/sendDanmaku` 通道但没有任何视图调用——忠实还原 = 没有弹幕 UI，故未凭空实现。
 4. **首页没有推荐流**：`home:feed` / `home:popular` 只有桌面端桥（`index-B576k3Hi.js`）暴露，所有视图都没有调用；首页实际是「继续学习 + 关注的 UP 更新」。
