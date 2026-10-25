@@ -8,6 +8,8 @@
 >
 > **后续补充**：作者在 `v0.4.3` tag 上公开了完整原始源码（commit `dd3e5cff`）。本工程已把它快照进 `reference/upstream-v0.4.3/`，把完整的安卓 Gradle 工程 + 3 个 Java 插件源码补进 `app/android/`，并用上游源码对还原工程做了逐模块核对（[docs/08](docs/08-与上游源码逐模块核对.md)，5 份分模块报告共 1692 行）。核对发现并修复了 7 处真实偏差，其余差异全部登记。
 >
+> **播放方式对比**：用户提供的 BiliLite **0.6.25 原生版**（Compose + Media3/ExoPlayer）已逆向拆解，与本工程 0.4.3 的 WebView/MSE 播放链路逐项对比（取流/选轨/装配/缓冲/字幕/后台/缓存），见 [docs/10](docs/10-播放方式对比.md)。
+
 > **已经能出安装包**：`app/` 源码 → `npm run build` → `cap sync` → `gradlew assembleDebug` 在本机实测通过，产物 `BiliLite-0.4.3-debug.apk`（4,107,542 B，签名/对齐校验通过），见 [docs/09](docs/09-生成可安装APK.md)。
 
 ---
@@ -51,6 +53,7 @@
 │   ├── 04-数据层与本地存储.md     05-数据桥API清单.md        06-原生能力与安卓工程.md
 │   ├── 07-构建验收与开发者工具.md 08-与上游源码逐模块核对.md
 │   ├── 09-生成可安装APK.md         ← 本机实测出包记录（环境搭建 / 校验 / 安装说明）
+│   ├── 10-播放方式对比.md          ← 0.4.3（WebView/MSE）vs 0.6.25（原生 ExoPlayer）播放实现对比
 │   └── audit/                    ← 5 份分模块核对报告（样式/数据/视图/store/播放内核）
 └── .work/                        ← APK 原始解包目录（ground truth，勿改）
 ```
