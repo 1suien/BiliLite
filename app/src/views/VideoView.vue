@@ -46,6 +46,11 @@ const settings = useSettingsStore()
 const ui = useUiStore()
 const auth = useAuthStore()
 const mini = useMiniStore()
+/**
+ * 本页实例打开的视频 bvid（路由参数会随着离开播放页变空，自动缩窗时要用这个稳定的值）
+ * 本机定制 0.4.8
+ */
+let openedBvid = ''
 
 /** 视频正在小窗里播（本页这时只显示占位，不重复拉流） */
 const miniHere = computed(() => mini.open && mini.bvid === bvid.value)
@@ -937,6 +942,45 @@ function fromMini() {
   nextTick(() => loadPlayurl())
 }
 
+/** 页面正在卸载（刷新/关闭窗口）：这种「离开」不该弹小窗 */
+let unloadingPage = false
+function onPageUnload() {
+  unloadingPage = true
+}
+
+/**
+ * 离开播放页时自动把视频缩成右下角小圆圈并暂停（本机定制 0.4.8）
+ *
+ * 触发：点左侧导航（学习/习惯/本地/首页/UP 管理/收藏/设置）、首页卡片、返回等任何页面切换；
+ * 不触发：切到另一个视频、换分P（路由还是 video，属于同页重建）、刷新/关闭窗口、视频没加载成功。
+ * 点小圆圈回到播放页后会自动从暂停处继续播（见 MiniPlayer 的 backToVideo / fromMini）。
+ */
+function autoMiniOnLeave() {
+  if (unloadingPage) return
+  if (mini.open) return
+  if (!player || !detail.value || errorText.value) return
+  if (router.currentRoute.value.name === 'video') return
+  const el = videoEl.value
+  const at =
+    (el && Number.isFinite(el.currentTime) && el.currentTime > 0 ? el.currentTime : 0) || current.value || 0
+  // 路由参数这一刻已经变成目的页，bvid 要用进入本页时记下的值
+  const miniBvid = openedBvid || String((detail.value as any)?.bvid || '')
+  if (!miniBvid) return
+  mini.play({
+    bvid: miniBvid,
+    cid: cid.value,
+    page: pageIndex.value + 1,
+    title: video.value.title || '',
+    upName: upName.value || '',
+    cover: video.value.cover || '',
+    duration: duration.value || 0,
+    qn: trackQuality.value || playurlQuality.value || 0,
+    startTime: at,
+    paused: true,
+  })
+  ui.toast('视频已缩到右下角小圆圈并暂停，点圆圈回来继续看')
+}
+
 /** 自动打卡（累计看满 300 秒且设置里开了 autoCheckin） */
 function autoCheckin() {
   if (watchedSeconds < 300 || checkedIn || !settings.settings.autoCheckin) return
@@ -1257,6 +1301,7 @@ watch(menuOpen, (val) => {
 })
 
 onMounted(async () => {
+  openedBvid = bvid.value
   await settings.init()
   await learn.init()
   try {
@@ -1270,14 +1315,17 @@ onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('pointerdown', onGlobalPointerDown, true)
   window.addEventListener('bili:files-dropped', onFilesDropped as any)
+  window.addEventListener('beforeunload', onPageUnload)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('pointerdown', onGlobalPointerDown, true)
   window.removeEventListener('bili:files-dropped', onFilesDropped as any)
+  window.removeEventListener('beforeunload', onPageUnload)
   if (hideTimer) clearTimeout(hideTimer)
   flushProgress()
+  autoMiniOnLeave()
   destroyPlayer()
 })
 </script>

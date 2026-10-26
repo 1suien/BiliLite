@@ -43,6 +43,8 @@ export const useMiniStore = defineStore('mini', {
       /** 每次 play 自增：MiniPlayer 用它判断「换视频了」 */
       seq: 0,
       playing: false,
+      /** 进小窗时是否处于暂停（本机定制 0.4.8：离开播放页自动缩进小圈并暂停，点圆圈回来再继续播） */
+      paused: false,
       currentTime: 0,
       duration: 0,
       status: '',
@@ -90,6 +92,8 @@ export const useMiniStore = defineStore('mini', {
       if (v.duration) this.duration = Number(v.duration) || 0
       this.startTime = Number(v.startTime) > 0 ? Number(v.startTime) : 0
       if (v.cid == null && v.fromCard) this.cid = 0
+      // paused=true：进小窗后保持暂停（只加载到当前位置，不继续播）；默认 false 表示照常播放
+      this.paused = !!v.paused
       this.open = true
       this.minimized = false
       this.error = ''
@@ -101,6 +105,7 @@ export const useMiniStore = defineStore('mini', {
     close() {
       this.open = false
       this.playing = false
+      this.paused = false
       this.currentTime = 0
       this.status = ''
       this.error = ''

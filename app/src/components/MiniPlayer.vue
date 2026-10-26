@@ -158,7 +158,8 @@ async function load() {
   const myGen = ++gen
   ;(window as any).__miniLoads = (Number((window as any).__miniLoads) || 0) + 1
   resumeCount = 0
-  userPaused = false
+  // 进小窗时是暂停态（例如从播放页离开自动缩进来）：加载到当前位置后停住，不自动起播
+  userPaused = !!mini.paused
   mini.error = ''
   mini.status = '正在获取播放地址…'
   await nextTick()
@@ -206,17 +207,30 @@ async function load() {
   if (p.setDurationHint) p.setDurationHint(mini.duration)
 
   try {
+    const wantPlay = !mini.paused
     await p.load(playUrl, {
       startTime: mini.startTime || 0,
       volume,
       muted: muted.value,
-      autoplay: true,
+      autoplay: wantPlay,
     })
     if (myGen !== gen) return
     p.setVolume(volume)
     mini.status = ''
-    // 自动播放被拦：先静音再试，还不行就提示用户点一下
-    if (videoEl.value && videoEl.value.paused) {
+    if (!wantPlay) {
+      // 暂停态：只把画面定在离开时那一秒，不继续播
+      try {
+        p.pause()
+      } catch {}
+      const el = videoEl.value
+      if (el) {
+        try {
+          el.pause()
+        } catch {}
+      }
+      mini.playing = false
+    } else if (videoEl.value && videoEl.value.paused) {
+      // 自动播放被拦：先静音再试，还不行就提示用户点一下
       muted.value = true
       applyAudio()
       try {
@@ -289,7 +303,7 @@ function scheduleResume() {
   if (resumeCount >= 3) return
   resumeCount += 1
   setTimeout(() => {
-    if (!mini.open || userPaused) return
+    if (!mini.open || userPaused || mini.paused) return
     const v = videoEl.value
     if (v && (!v.paused || v.ended)) return
     ensurePlay()
@@ -408,7 +422,7 @@ watch([() => mini.open, () => mini.seq], ([open]) => {
     </svg>
 
     <div v-if="!mini.playing" class="mp-badge">
-      <Icon :name="mini.error ? 'refresh' : 'play'" :size="24" />
+      <Icon :name="mini.error ? 'refresh' : mini.paused ? 'pause' : 'play'" :size="24" />
     </div>
 
     <button
@@ -428,7 +442,9 @@ watch([() => mini.open, () => mini.seq], ([open]) => {
       :title="
         mini.error
           ? `播放出错：${mini.error}（点一下回到视频页）`
-          : '点一下回到视频页继续看；按住可拖动位置'
+          : mini.paused
+            ? '已暂停 · 点一下回到视频页继续看；按住可拖动位置'
+            : '点一下回到视频页继续看；按住可拖动位置'
       "
       @pointerup="tap($event, backToVideo)"
       @click="tap($event, backToVideo)"
