@@ -210,16 +210,20 @@ cd android && ./gradlew assembleDebug
 
 ## 发布（GitHub Release）
 
-已发布：[Releases · v0.4.3-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.3-restore)（对应 `BiliLite-0.4.3-debug.apk`）。0.4.4 的产物在仓库根 `BiliLite-0.4.4-debug.apk`，按同一套流程用 tag `v0.4.4-restore` 发布即可。
+已发布：
+- [Releases · v0.4.7-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.7-restore)（当前版本，对应 `BiliLite-0.4.7-debug.apk`，4,108,456 B，sha256 `bee3d816…`）
+- [Releases · v0.4.3-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.3-restore)（历史版本，对应 `BiliLite-0.4.3-debug.apk`）
+
+0.4.4–0.4.6 的产物在仓库根（`BiliLite-0.4.4-debug.apk` / `0.4.5` / `0.4.6`），需要单独发布时按同一套流程打 `v0.4.x-restore` tag 即可。
 
 Release 不是手工点的：本地只有该仓库的账号级 SSH key（可 push），没有带 `repo` 写权限的 API token，所以用 `.github/workflows/release-restore.yml` 让 GitHub 自己的 `GITHUB_TOKEN`（`permissions: contents: write`）在 CI 里 `gh release create` 建 Release 并上传 APK。复现方式：
 
 ```bash
-git tag v0.4.4-restore-ci1 "$(git rev-parse HEAD~N)"   # 指向含 APK 与 docs/RELEASE-v0.4.4-restore.md 的 commit
-git push origin v0.4.4-restore-ci1                      # 触发 workflow；也可在 Actions 页面 workflow_dispatch
+git tag v0.4.7-restore-ci1 "$(git rev-parse HEAD~N)"   # 指向含 APK 与 docs/RELEASE-v0.4.7-restore.md 的 commit
+git push origin v0.4.7-restore-ci1                      # 触发 workflow；也可在 Actions 页面 workflow_dispatch
 ```
 
-workflow 幂等：`gh release view v0.4.4-restore` 已存在时覆盖资产与说明；tag 名里带 `v0.4.3-restore` 前缀则走 0.4.3 的资产与说明（历史入口保留）。
+workflow 幂等：`gh release view v0.4.7-restore` 已存在时覆盖资产与说明；tag 名带 `v0.4.3-restore` / `v0.4.4-restore` 前缀则走对应版本的资产与说明（历史入口保留）。
 
 ## 免责声明
 
