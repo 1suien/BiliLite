@@ -1,6 +1,6 @@
-# BiliLite 0.4.4 — Android APK 前端源码还原工程（本机构建 0.4.8）
+# BiliLite 0.4.4 — Android APK 前端源码还原工程（本机构建 0.4.9）
 
-**下载 APK**：`BiliLite-0.4.8-debug.apk`（本仓库根，4,108,755 B，sha256 `bb61006c654f1d49eb04bee9fe9cdc8a3fd35ffc51310d9c45c94de041e20ca1`；[Release v0.4.8-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.8-restore)）—— 由本工程源码构建，versionCode 12 / versionName 0.4.8，含本机定制改动「笔记按分P独立 + 回车换行」（[docs/12](docs/12-笔记按分P独立.md)）、「备份导入恢复 + 修正『打开』变『保存』」（[docs/13](docs/13-备份打开与导入恢复.md)）与「笔记行按钮调整 + 小窗播放改成右下角小圆圈」（[docs/14](docs/14-小窗圆形气泡与笔记行按钮.md)）、「离开播放页时视频自动缩成暂停小圆、点回继续播」（[docs/15](docs/15-离开播放页自动暂停小窗.md)）。上一版 `BiliLite-0.4.7-debug.apk`（4,108,456 B，sha256 `bee3d8169cc0d0db914c12b51799dfbb76a4138ac588a78501e43017e5d9f8bc`）、`BiliLite-0.4.6-debug.apk`（4,109,055 B，sha256 `b34d26d539fa93c62032c661ac5147c681dbe846d27472e381fa74f5c7da16c8`）、`BiliLite-0.4.5-debug.apk`（4,107,722 B，sha256 `9f0bda8d9e9a74810dd55815fb74b4f2169a539c2b67da18ba15a6890186e6c4`）、`BiliLite-0.4.4-debug.apk`（4,107,559 B，sha256 `d7ceccfe86aa17e582b7b380c26f337acb62e1dd0e09bf4ad031004e5fcc81c0`）与 0.4.3 的历史产物 `BiliLite-0.4.3-debug.apk`（4,107,542 B，sha256 `b4fd3333abe25a1e2881ca142ee187ad7bca0d015398c4cd81babb0e7350abe3`，[Release v0.4.3-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.3-restore)）保留在仓库根作对照。
+**下载 APK**：`BiliLite-0.4.9-debug.apk`（本仓库根，4,105,445 B，sha256 `37e15de561925ca4ab53c643d456f9a2017e4a4c27af21ed0dd07db93fec0c3f`）—— 由本工程源码构建，versionCode 13 / versionName 0.4.9，含本机定制改动「笔记按分P独立 + 回车换行」（[docs/12](docs/12-笔记按分P独立.md)）、「备份导入恢复 + 修正『打开』变『保存』」（[docs/13](docs/13-备份打开与导入恢复.md)）、「笔记行按钮调整 + 小窗播放改成右下角小圆圈」（[docs/14](docs/14-小窗圆形气泡与笔记行按钮.md)）、「离开播放页时视频自动缩成暂停小圆、点回继续播」（[docs/15](docs/15-离开播放页自动暂停小窗.md)）与「删除首页（打开即学习页）」（[docs/16](docs/16-删除首页.md)）。**0.4.9 还没发 Release**，需要时打 `v0.4.9-restore` tag 即可。上一版 `BiliLite-0.4.8-debug.apk`（4,108,755 B，sha256 `bb61006c654f1d49eb04bee9fe9cdc8a3fd35ffc51310d9c45c94de041e20ca1`，[Release v0.4.8-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.8-restore)）、`BiliLite-0.4.7-debug.apk`（4,108,456 B，sha256 `bee3d8169cc0d0db914c12b51799dfbb76a4138ac588a78501e43017e5d9f8bc`）、`BiliLite-0.4.6-debug.apk`（4,109,055 B，sha256 `b34d26d539fa93c62032c661ac5147c681dbe846d27472e381fa74f5c7da16c8`）、`BiliLite-0.4.5-debug.apk`（4,107,722 B，sha256 `9f0bda8d9e9a74810dd55815fb74b4f2169a539c2b67da18ba15a6890186e6c4`）、`BiliLite-0.4.4-debug.apk`（4,107,559 B，sha256 `d7ceccfe86aa17e582b7b380c26f337acb62e1dd0e09bf4ad031004e5fcc81c0`）与 0.4.3 的历史产物 `BiliLite-0.4.3-debug.apk`（4,107,542 B，sha256 `b4fd3333abe25a1e2881ca142ee187ad7bca0d015398c4cd81babb0e7350abe3`，[Release v0.4.3-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.3-restore)）保留在仓库根作对照。
 
 把 `BiliLite-0.4.3-android-debug.apk`（4.1 MB）里的**前端部分完整解包、还原成可读、可构建、可继续开发的 Vue 3 + TypeScript 工程**，并把「原始产物」与「还原结果」并排放好，方便逐项对照。
 
@@ -20,9 +20,11 @@
 
 > **本机定制改动（2026-10-26，0.4.8）**：播放视频时点左侧导航（或任何离开播放页的入口），视频不再直接消失，而是**自动缩成右下角 112×112 圆形小窗并暂停**，停在离开的那一帧；点小圆回到播放页后**自动从暂停处继续播**。同页换分P/换视频、刷新/关窗口、拉流失败都不触发；手动「小窗播放」入口行为不变。这是本仓库自己的交互定制，上游没有；实现细节与 18/18 端到端验收见 [docs/15](docs/15-离开播放页自动暂停小窗.md)。
 
-> **浏览器直接下载**：本机 DSH Web 装了一个只读下载路由（`tools/dsh-download-route/`，`@local/download-route`），打开 `http://127.0.0.1:3080/dl/BiliLite-0.4.8-debug.apk` 即下载（`Content-Disposition: attachment`，MIME `application/vnd.android.package-archive`）。路由只允许工作目录内的相对路径，`..` 穿越返回 403；详见 [docs/09](docs/09-生成可安装APK.md) 的「安装」一节。
+> **本机定制改动（2026-10-26，0.4.9）**：**删除「首页」**——左侧导航的「首页」条目、`/` 路由与 `views/HomeView.vue`（219 行）全部删除，打开 App 直接进「学习」页；`#/` 与旧地址 `#/home` 都自动落到 `#/learn`。连带把「回首页」「去首页找视频」等文案改成「回学习」「去搜索找视频」，UP 管理相关文案去掉「首页会显示…」的说法。首页原来的「继续学习 / 关注 UP 更新」入口随之消失（UP 名单仍保留、仍能管理，只是不再有页面消费它）。这是本仓库自己的删减，上游没有；细节与 10/10 验收见 [docs/16](docs/16-删除首页.md)。
 
-> **已经能出安装包**：`app/` 源码 → `npm run build` → `cap sync` → `gradlew assembleDebug` 在本机实测通过，当前产物 `BiliLite-0.4.8-debug.apk`（4,108,755 B，签名/对齐校验通过；0.4.7 的 4,108,456 B、0.4.6 的 4,109,055 B、0.4.5 的 4,107,722 B、0.4.4 的 4,107,559 B 与 0.4.3 的 4,107,542 B 也保留在仓库里），见 [docs/09](docs/09-生成可安装APK.md)。
+> **浏览器直接下载**：本机 DSH Web 装了一个只读下载路由（`tools/dsh-download-route/`，`@local/download-route`），打开 `http://127.0.0.1:3080/dl/BiliLite-0.4.9-debug.apk` 即下载（`Content-Disposition: attachment`，MIME `application/vnd.android.package-archive`）。路由只允许工作目录内的相对路径，`..` 穿越返回 403；详见 [docs/09](docs/09-生成可安装APK.md) 的「安装」一节。
+
+> **已经能出安装包**：`app/` 源码 → `npm run build` → `cap sync` → `gradlew assembleDebug` 在本机实测通过，当前产物 `BiliLite-0.4.9-debug.apk`（4,105,445 B，签名/对齐校验通过；0.4.8 的 4,108,755 B、0.4.7 的 4,108,456 B、0.4.6 的 4,109,055 B、0.4.5 的 4,107,722 B、0.4.4 的 4,107,559 B 与 0.4.3 的 4,107,542 B 也保留在仓库里），见 [docs/09](docs/09-生成可安装APK.md)。
 
 ---
 
@@ -31,7 +33,8 @@
 ```
 /root/学习软件
 ├── README.md                     ← 本文件
-├── BiliLite-0.4.8-debug.apk      ← ★ 由本工程源码构建出的可安装 APK（4.11 MB，本机 0.4.8 定制版，见 docs/09、docs/15）
+├── BiliLite-0.4.9-debug.apk      ← ★ 由本工程源码构建出的可安装 APK（4.11 MB，本机 0.4.9 定制版：删除首页，见 docs/16）
+├── BiliLite-0.4.8-debug.apk      ← 本机 0.4.8 产物（离开播放页自动缩成暂停小圆，见 docs/15）
 ├── BiliLite-0.4.7-debug.apk      ← 本机 0.4.7 产物（笔记行按钮 + 小窗圆形气泡，见 docs/14）
 ├── BiliLite-0.4.6-debug.apk      ← 本机 0.4.6 产物（备份导入恢复，见 docs/13）
 ├── BiliLite-0.4.5-debug.apk      ← 本机 0.4.5 产物（笔记按分P独立，见 docs/12）
@@ -77,6 +80,7 @@
 │   ├── 13-备份打开与导入恢复.md    ← 本机定制改动：安卓备份行修正、打开 JSON 备份导入/合并、0.4.6 出包
 │   ├── 14-小窗圆形气泡与笔记行按钮.md ← 本机定制改动：笔记行去掉跳转、小窗改圆形气泡、0.4.7 出包
 │   ├── 15-离开播放页自动暂停小窗.md ← 本机定制改动：离开播放页自动缩成暂停小圆、点回继续播、0.4.8 出包
+│   ├── 16-删除首页.md            ← 本机定制删减：删除首页、启动即学习页、0.4.9 出包
 │   └── audit/                    ← 5 份分模块核对报告（样式/数据/视图/store/播放内核）
 └── .work/                        ← APK 原始解包目录（ground truth，勿改）
 ```
@@ -114,10 +118,10 @@ http://localhost:4173/?mock=1     # preview/build 产物：必须手动加 ?mock
 **想在真机上跑**：安装包已经构建好，直接在仓库根取：
 
 ```bash
-adb install -r BiliLite-0.4.8-debug.apk
+adb install -r BiliLite-0.4.9-debug.apk
 ```
 
-它是用 `app/android/` 这个完整 Gradle 工程在本机 `assembleDebug` 出来的（package `com.bililite.app`、versionCode 12、versionName 0.4.8、debug 签名）。0.4.4 = 0.4.3 + 剧场模式「退出剧场」CSS 修复（[docs/11](docs/11-0.4.4同步记录.md)）；0.4.5 = 0.4.4 + 本机定制「笔记按分P独立 + 回车换行」（[docs/12](docs/12-笔记按分P独立.md)）；0.4.6 = 0.4.5 + 备份交互修正与「打开 JSON 备份」导入恢复（[docs/13](docs/13-备份打开与导入恢复.md)）；0.4.7 = 0.4.6 + 笔记行按钮调整与小窗圆形气泡（[docs/14](docs/14-小窗圆形气泡与笔记行按钮.md)）；0.4.8 = 0.4.7 + 离开播放页自动缩成暂停小圆（点回继续播，[docs/15](docs/15-离开播放页自动暂停小窗.md)）。重新出包：
+它是用 `app/android/` 这个完整 Gradle 工程在本机 `assembleDebug` 出来的（package `com.bililite.app`、versionCode 13、versionName 0.4.9、debug 签名）。0.4.4 = 0.4.3 + 剧场模式「退出剧场」CSS 修复（[docs/11](docs/11-0.4.4同步记录.md)）；0.4.5 = 0.4.4 + 本机定制「笔记按分P独立 + 回车换行」（[docs/12](docs/12-笔记按分P独立.md)）；0.4.6 = 0.4.5 + 备份交互修正与「打开 JSON 备份」导入恢复（[docs/13](docs/13-备份打开与导入恢复.md)）；0.4.7 = 0.4.6 + 笔记行按钮调整与小窗圆形气泡（[docs/14](docs/14-小窗圆形气泡与笔记行按钮.md)）；0.4.8 = 0.4.7 + 离开播放页自动缩成暂停小圆（点回继续播，[docs/15](docs/15-离开播放页自动暂停小窗.md)）；0.4.9 = 0.4.8 + 删除首页（打开即学习页，[docs/16](docs/16-删除首页.md)）。重新出包：
 
 ```bash
 cd app
@@ -133,15 +137,15 @@ cd android && ./gradlew assembleDebug
 
 - `npm run build`：成功，Vite 产物 ≈ 690 KB（gzip ≈ 220 KB，含 mpegts.js 懒加载 chunk）。
 - `npm run typecheck`（vue-tsc）：0 错误。
-- 无头 Chromium 打开 mock 模式，**12 个路由全部正常渲染**，截图见 `reference/screenshots/`（1180×820 平板横屏布局），控制台报错只有两类**预期内**的：
+- 无头 Chromium 打开 mock 模式，**11 个路由全部正常渲染**（本机 0.4.9 删掉首页后），截图见 `reference/screenshots/`（1180×820 平板横屏布局），控制台报错只有两类**预期内**的：
   1. 播放页：mock 的 `mock://` 假媒体地址被原 CSP 拦截（`connect-src`），播放器进入「这条线路暂时拿不到数据」错误态——页面其余部分（信息、分 P、清晰度、收藏、相关推荐）都正常；
   2. 本地播放：`mock://` 媒体地址被 `media-src` 拦截，属于同一原因。
 
   两者都不影响布局/交互还原度的验证，详见 [docs/07-构建验收与开发者工具.md](docs/07-构建验收与开发者工具.md)。
 
-| 首页 | 学习 |
+| 学习（0.4.9 起启动页） | 学习页 |
 |---|---|
-| ![首页](reference/screenshots/首页.png) | ![学习](reference/screenshots/学习.png) |
+| ![启动页](reference/screenshots/首页已删除-启动进学习页.png) | ![学习](reference/screenshots/学习.png) |
 
 ---
 
@@ -154,7 +158,7 @@ cd android && ./gradlew assembleDebug
 | 外壳 | `App.vue` | `main-CoY7YGNA.js` | ~97% |
 | 外壳组件 | `Toasts/PageFloat/ConfirmModal` | 同上 | 1:1 |
 | 登录/小窗 | `LoginModal.vue` / `MiniPlayer.vue` | 同上 | ~96% / ~93% |
-| 信息流 | `HomeView/SearchView/UpView/FavView/FavFolderView`、`VideoCard/SkeletonGrid` | 各自 chunk | 97–100% |
+| 信息流 | `SearchView/UpView/FavView/FavFolderView`、`VideoCard/SkeletonGrid`（`HomeView` 已于本机构建 0.4.9 删除） | 各自 chunk | 97–100% |
 | 播放 | `VideoView.vue`、`PartList`、`CollectModal`、`player/dash.ts`、`player/quality.ts` | `VideoView-B4FS9Q24.js`、`dash-C8KLxT-Q.js` | ~95%（弹幕层原版就没有，见下） |
 | 学习 | `LearnView` + `FocusPanel/FocusTargets/FocusRecords/FocusOverview/HabitHome` + `stores/pomodoro.ts` | `LearnView-ByneIRdr.js` | 95–100% |
 | 习惯 | `HabitView.vue` | `HabitView-Dj73W_T2.js` | ~97% |
@@ -191,10 +195,10 @@ cd android && ./gradlew assembleDebug
 
 ## 与原 APK 的已知差异（诚实清单）
 
-1. ~~不含完整安卓工程~~ → **已补全并实测出包**：`app/android/` 是官方 tag v0.4.3 的 `mobile/android/` 原样复制（55 个文件，3 个 Java 插件为真源码），仅 `capacitor.settings.gradle` 由 `cap sync` 按 npm 布局重新生成；本机已跑通 `gradlew assembleDebug`，0.4.4 产物 `BiliLite-0.4.4-debug.apk`（4,107,559 B，apksigner/zipalign 校验通过；原生侧与官方 0.4.4 APK **逐字节相同**，见 [docs/09](docs/09-生成可安装APK.md) 与 [docs/11](docs/11-0.4.4同步记录.md)）；当前 0.4.8 产物 `BiliLite-0.4.8-debug.apk`（4,108,755 B）额外含本机定制的笔记、备份导入、小窗圆形气泡与「离开自动暂停小圆」改动（[docs/12](docs/12-笔记按分P独立.md)、[docs/13](docs/13-备份打开与导入恢复.md)、[docs/14](docs/14-小窗圆形气泡与笔记行按钮.md)、[docs/15](docs/15-离开播放页自动暂停小窗.md)）。
+1. ~~不含完整安卓工程~~ → **已补全并实测出包**：`app/android/` 是官方 tag v0.4.3 的 `mobile/android/` 原样复制（55 个文件，3 个 Java 插件为真源码），仅 `capacitor.settings.gradle` 由 `cap sync` 按 npm 布局重新生成；本机已跑通 `gradlew assembleDebug`，0.4.4 产物 `BiliLite-0.4.4-debug.apk`（4,107,559 B，apksigner/zipalign 校验通过；原生侧与官方 0.4.4 APK **逐字节相同**，见 [docs/09](docs/09-生成可安装APK.md) 与 [docs/11](docs/11-0.4.4同步记录.md)）；当前 0.4.9 产物 `BiliLite-0.4.9-debug.apk`（4,105,445 B）额外含本机定制的笔记、备份导入、小窗圆形气泡、「离开自动暂停小圆」与「删除首页」改动（[docs/12](docs/12-笔记按分P独立.md)、[docs/13](docs/13-备份打开与导入恢复.md)、[docs/14](docs/14-小窗圆形气泡与笔记行按钮.md)、[docs/15](docs/15-离开播放页自动暂停小窗.md)、[docs/16](docs/16-删除首页.md)）。
 2. **原始源码没有 sourcemap**：本工程是「行为等价重写」，不是原始 TS 源码；变量名、注释、文件切分与原作者不同。
 3. **弹幕层没实现**：0.4.3 的播放页 chunk 里 `danmaku/弹幕` 出现 0 次（`dm-layer/dm-item/dm-bar` 只有 `global.css` 残留样式），数据桥虽然有 `video:danmaku/sendDanmaku` 通道但没有任何视图调用——忠实还原 = 没有弹幕 UI，故未凭空实现。
-4. **首页没有推荐流**：`home:feed` / `home:popular` 只有桌面端桥（`index-B576k3Hi.js`）暴露，所有视图都没有调用；首页实际是「继续学习 + 关注的 UP 更新」。
+4. **首页没有推荐流**：`home:feed` / `home:popular` 只有桌面端桥（`index-B576k3Hi.js`）暴露，所有视图都没有调用；原版首页实际是「继续学习 + 关注的 UP 更新」。本机构建 0.4.9 起**首页整个删除**（[docs/16](docs/16-删除首页.md)）。
 5. **浏览器 mock 模式下播放器报错**：mock 没有真实媒体流，`mock://` 又被原 CSP 拦，属于预期；真机上换真接口即可。
 6. **接口需要外网 + 登录**：真实模式下所有数据来自 `api.bilibili.com`/`passport.bilibili.com`，且部分接口需要 WBI 签名与登录 cookie（桥里已实现）。
 7. 若要让整体行为在浏览器里完全等同原生，还需要 Electron 桌面桥（本仓库不含，原 APK 也没有）；`bridge/index.ts` 已支持「已有 `window.bili` 直接复用」。
@@ -210,16 +214,16 @@ cd android && ./gradlew assembleDebug
 - `reference/decompiled/`：美化后的 41 个 JS chunk + 12 个 CSS；
 - `app/node_modules/`、`tools/browser/chromium-libs/` 等依赖与浏览器缓存。
 
-仓库里保留的是：还原后的 `app/` 源码与安卓工程、`reference/upstream-v0.4.3/` 与 `reference/upstream-v0.4.4/`（MIT 上游源码快照，各带 `PROVENANCE.md`）、文档、审计脚本、构建脚本，以及构建好的 `BiliLite-0.4.8-debug.apk`、`BiliLite-0.4.7-debug.apk`、`BiliLite-0.4.6-debug.apk`、`BiliLite-0.4.5-debug.apk`、`BiliLite-0.4.4-debug.apk`、`BiliLite-0.4.3-debug.apk`。若你要复跑审计脚本对比反编译产物，请把原始 APK 放回 `.work/` 并按 [docs/03](docs/03-还原方法与还原度.md) 重新解包。
+仓库里保留的是：还原后的 `app/` 源码与安卓工程、`reference/upstream-v0.4.3/` 与 `reference/upstream-v0.4.4/`（MIT 上游源码快照，各带 `PROVENANCE.md`）、文档、审计脚本、构建脚本，以及构建好的 `BiliLite-0.4.9-debug.apk`、`BiliLite-0.4.8-debug.apk`、`BiliLite-0.4.7-debug.apk`、`BiliLite-0.4.6-debug.apk`、`BiliLite-0.4.5-debug.apk`、`BiliLite-0.4.4-debug.apk`、`BiliLite-0.4.3-debug.apk`。若你要复跑审计脚本对比反编译产物，请把原始 APK 放回 `.work/` 并按 [docs/03](docs/03-还原方法与还原度.md) 重新解包。
 
 ## 发布（GitHub Release）
 
 已发布：
-- [Releases · v0.4.8-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.8-restore)（当前版本，对应 `BiliLite-0.4.8-debug.apk`，4,108,755 B，sha256 `bb61006c654f1d49eb04bee9fe9cdc8a3fd35ffc51310d9c45c94de041e20ca1`）
+- [Releases · v0.4.8-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.8-restore)（最新已发布版本，对应 `BiliLite-0.4.8-debug.apk`，4,108,755 B，sha256 `bb61006c654f1d49eb04bee9fe9cdc8a3fd35ffc51310d9c45c94de041e20ca1`）
 - [Releases · v0.4.7-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.7-restore)（历史版本，对应 `BiliLite-0.4.7-debug.apk`，4,108,456 B，sha256 `bee3d816…`）
 - [Releases · v0.4.3-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.3-restore)（历史版本，对应 `BiliLite-0.4.3-debug.apk`）
 
-0.4.4–0.4.6 的产物在仓库根（`BiliLite-0.4.4-debug.apk` / `0.4.5` / `0.4.6`），需要单独发布时按同一套流程打 `v0.4.x-restore` tag 即可。
+0.4.9 的产物 `BiliLite-0.4.9-debug.apk` 目前只在仓库根（**还没发 Release**）；0.4.4–0.4.6 的产物同样只在仓库根。需要发布时按同一套流程打 `v0.4.x-restore` tag 即可（workflow 已支持 0.4.3 / 0.4.4 / 0.4.7 / 0.4.8 的前缀，0.4.9 需先按 docs/09 的说明补一个 `v0.4.9-restore*` 分支）。
 
 Release 不是手工点的：本地只有该仓库的账号级 SSH key（可 push），没有带 `repo` 写权限的 API token，所以用 `.github/workflows/release-restore.yml` 让 GitHub 自己的 `GITHUB_TOKEN`（`permissions: contents: write`）在 CI 里 `gh release create` 建 Release 并上传 APK。复现方式：
 

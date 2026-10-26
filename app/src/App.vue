@@ -68,7 +68,6 @@ watch(
 const MORE_PATHS = ['/fav', '/ups', '/settings']
 
 const NAV_ITEMS: NavItem[] = [
-  { to: '/', icon: 'home', label: '首页' },
   { to: '/ups', icon: 'users', label: 'UP 管理' },
   { to: '/fav', icon: 'star', label: '收藏' },
   { to: '/learn', icon: 'book', label: '学习' },

@@ -5,7 +5,6 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
 
 // 页面全部懒加载（原构建里同样是动态 import，按路由拆 chunk）
-const HomeView = () => import('@/views/HomeView.vue')
 const SearchView = () => import('@/views/SearchView.vue')
 const VideoView = () => import('@/views/VideoView.vue')
 const FavView = () => import('@/views/FavView.vue')
@@ -19,7 +18,8 @@ const UpView = () => import('@/views/UpView.vue')
 const SettingsView = () => import('@/views/SettingsView.vue')
 
 export const routes: RouteRecordRaw[] = [
-  { path: '/', name: 'home', component: HomeView, meta: { title: '首页' } },
+  // 本机构建 0.4.9：首页整个删掉，「/」直接进学习页
+  { path: '/', redirect: '/learn' },
   { path: '/search', name: 'search', component: SearchView, meta: { title: '搜索' } },
   { path: '/video/:bvid', name: 'video', component: VideoView, meta: { title: '播放' } },
   { path: '/fav', name: 'fav', component: FavView, meta: { title: '收藏' } },

@@ -126,7 +126,7 @@ async function importFollowings() {
 
 /** 从名单移除 */
 async function removeUp(up: any) {
-  const yes = await ui.confirm('从名单中移除？', `「${up.name}」将不再出现在首页`, '移除')
+  const yes = await ui.confirm('从名单中移除？', `「${up.name}」将从你的关注名单里移除`, '移除')
   if (!yes) return
   await ups.removeUp(up.mid)
   ui.ok(`已移除：${up.name}`)
@@ -192,7 +192,7 @@ onMounted(async () => {
       <h1>UP 管理</h1>
       <p>
         {{ ups.count }} 个关注
-        <template v-if="ups.count"> · 首页只显示这批 UP 的最新投稿</template>
+        <template v-if="ups.count"> · 播放页可一键加入名单</template>
       </p>
       <span class="grow" />
       <button class="btn sm" @click="importFollowings">
@@ -239,7 +239,7 @@ onMounted(async () => {
       v-else
       icon="users"
       title="名单还是空的"
-      desc="添加你想专心学习的 UP 主（UID、空间链接或昵称都行），首页就只显示他们的最新投稿；登录后还能一键导入 B 站关注。"
+      desc="把想专心跟的 UP 主加进来（UID、空间链接或昵称都行），集中管理；登录后还能一键导入 B 站关注。"
     >
       <button class="btn primary" @click="openAdd">
         <Icon name="plus" :size="15" /> 添加 UP

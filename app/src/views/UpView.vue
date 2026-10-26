@@ -112,7 +112,7 @@ async function addToList() {
 async function removeFromList() {
   const ok = await ui.confirm(
     '从 UP 管理名单移除？',
-    `移除后首页不再显示「${info.value?.name}」的更新。`,
+    `移除后不再跟踪「${info.value?.name}」的更新。`,
   )
   if (!ok) return
   await ups.removeUp(mid.value)

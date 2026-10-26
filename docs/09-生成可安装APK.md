@@ -1,10 +1,28 @@
 # 09 生成可安装 APK（2026-10-25 实测通过）
 
-本工程的源码**已经真正构建出可安装的 debug APK**。当前产物是 0.4.8（2026-10-26 为「离开播放页时视频自动缩成暂停小圆」第六次出包），0.4.7 / 0.4.6 / 0.4.5 / 0.4.4 / 0.4.3 的历史出包记录保留在下面。
+本工程的源码**已经真正构建出可安装的 debug APK**。当前产物是 0.4.9（2026-10-26 为「删除首页」第七次出包），0.4.8 / 0.4.7 / 0.4.6 / 0.4.5 / 0.4.4 / 0.4.3 的历史出包记录保留在下面。
 
-当前产物已发布到 GitHub Release：[v0.4.8-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.8-restore)（资产 `BiliLite-0.4.8-debug.apk`，4,108,755 B，sha256 `bb61006c…`；生成方式是打 `v0.4.8-restore` tag 触发 `.github/workflows/release-restore.yml`）。
+0.4.8 已发布到 GitHub Release：[v0.4.8-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.8-restore)（资产 `BiliLite-0.4.8-debug.apk`，4,108,755 B，sha256 `bb61006c…`）。**0.4.9 还没发 Release**——需要发布时打 `v0.4.9-restore` tag 触发 `.github/workflows/release-restore.yml`。
 
-## 当前产物：`BiliLite-0.4.8-debug.apk`（本机构建）
+## 当前产物：`BiliLite-0.4.9-debug.apk`（本机构建）
+
+| 项目 | 值 |
+|---|---|
+| 文件 | `BiliLite-0.4.9-debug.apk` |
+| 大小 | 4,105,445 B（0.4.8 是 4,108,755 B，少了一个首页 chunk） |
+| SHA-256 | `37e15de561925ca4ab53c643d456f9a2017e4a4c27af21ed0dd07db93fec0c3f` |
+| package | `com.bililite.app` |
+| versionCode / versionName | `13` / `0.4.9` |
+| minSdk / targetSdk / compileSdk | 22 / 34 / 34 |
+| 签名 | debug，CN=Android Debug，APK Signature Scheme v1 + v2（v3/v4 false） |
+| 构建 | web `npm run build` 7.90s + `cap sync` 0.96s；增量 `assembleDebug` **57s**（264 tasks / 29 executed）；`clean assembleDebug` 冷构建 **54s**（275 tasks / 230 executed） |
+| 可复现 | `clean` 后重建的 APK 与增量构建 sha256 **完全相同** |
+
+0.4.9 = 0.4.8 + 一处本机删减（上游没有）：**删除「首页」**——左侧导航条目、`/` 路由、`views/HomeView.vue` 文件全删，打开 App 直接进「学习」页；`#/` 与旧地址 `#/home` 都自动落到 `#/learn`。改动、影响与 10/10 验证见 [16-删除首页.md](16-删除首页.md)。
+
+校验：`aapt2 dump badging` = package `com.bililite.app` / versionCode 13 / versionName 0.4.9 / minSdk 22 / target 34；`apksigner verify` v1+v2 通过；`zipalign -c -p 4` 通过；APK 内 `assets/public` 与 `app/dist` 逐字节一致（`diff -r` 只多 `cordova.js` / `cordova_plugins.js`）；包内**没有** HomeView chunk、没有 `HomeView` 字样，版本串只有 0.4.9；`LearnView` chunk 含「去搜索找视频」、`VideoView` chunk 含「回学习」；原生侧仍与 0.4.4 官方产物逐字节相同（只有 web 层与版本号变）。
+
+## 上一版产物：`BiliLite-0.4.8-debug.apk`（本机构建）
 
 | 项目 | 值 |
 |---|---|
@@ -22,7 +40,7 @@
 
 校验：`aapt2 dump badging` = package `com.bililite.app` / versionCode 12 / versionName 0.4.8 / minSdk 22 / target 34；`apksigner verify` v1+v2 通过；`zipalign -c -p 4` 通过；APK 内 `assets/public` 与 `app/dist` 逐字节一致（`diff -r` 只多 `cordova.js` / `cordova_plugins.js`）；包内无 `jumpNote`，含「视频已缩到右下角小圆圈并暂停」「已暂停 · 点一下回到视频页继续看」，版本串只有 0.4.8；原生侧与 0.4.4 产物仍逐字节相同（只有 web 层与版本号变）。
 
-## 上一版产物：`BiliLite-0.4.7-debug.apk`（本机构建）
+## 更早的产物：`BiliLite-0.4.7-debug.apk`（本机构建）
 
 | 项目 | 值 |
 |---|---|
@@ -183,7 +201,8 @@ apksigner sign --ks debug.keystore --ks-pass pass:android --key-pass pass:androi
 **浏览器直接下载**（本机 DSH Web 上装了 `@local/download-route` 插件，源码在 `tools/dsh-download-route/`，把工作目录做成只读下载路由；只在回环地址下用）：
 
 ```
-http://127.0.0.1:3080/dl/BiliLite-0.4.8-debug.apk   # 最新
+http://127.0.0.1:3080/dl/BiliLite-0.4.9-debug.apk   # 最新
+http://127.0.0.1:3080/dl/BiliLite-0.4.8-debug.apk   # 上一版
 http://127.0.0.1:3080/dl/BiliLite-0.4.7-debug.apk   # 旧版本也留着
 http://127.0.0.1:3080/dl/BiliLite-0.4.6-debug.apk
 http://127.0.0.1:3080/dl/BiliLite-0.4.5-debug.apk
@@ -194,11 +213,11 @@ http://127.0.0.1:3080/dl/BiliLite-0.4.5-debug.apk
 **adb / 拷贝**：
 
 ```bash
-adb install -r BiliLite-0.4.8-debug.apk
+adb install -r BiliLite-0.4.9-debug.apk
 # 或拷到手机点安装（需允许「安装未知来源应用」）
 ```
 
-注意：与官方 APK **包名相同、签名不同**，手机上已装官方 0.4.3/0.4.4 的话会报 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`，需要先卸载官方版（卸载会清掉该应用本地数据）；装的是本仓库 0.4.3–0.4.7 产物的可以直接覆盖升级（同 debug 签名，versionCode 12 > 11 > 10 > 9 > 8 > 7）。
+注意：与官方 APK **包名相同、签名不同**，手机上已装官方 0.4.3/0.4.4 的话会报 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`，需要先卸载官方版（卸载会清掉该应用本地数据）；装的是本仓库 0.4.3–0.4.8 产物的可以直接覆盖升级（同 debug 签名，versionCode 13 > 12 > 11 > 10 > 9 > 8 > 7）。
 
 ## 未验证
 

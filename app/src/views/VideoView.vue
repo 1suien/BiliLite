@@ -951,7 +951,7 @@ function onPageUnload() {
 /**
  * 离开播放页时自动把视频缩成右下角小圆圈并暂停（本机定制 0.4.8）
  *
- * 触发：点左侧导航（学习/习惯/本地/首页/UP 管理/收藏/设置）、首页卡片、返回等任何页面切换；
+ * 触发：点左侧导航（学习/习惯/本地/UP 管理/收藏/设置）、任意视频卡、返回等任何页面切换；
  * 不触发：切到另一个视频、换分P（路由还是 video，属于同页重建）、刷新/关闭窗口、视频没加载成功。
  * 点小圆圈回到播放页后会自动从暂停处继续播（见 MiniPlayer 的 backToVideo / fromMini）。
  */
@@ -1555,7 +1555,7 @@ onBeforeUnmount(() => {
           <button
             v-if="upMid && !upFollowed"
             class="btn sm"
-            title="加入 UP 管理名单，首页就会显示 TA 的更新"
+            title="加入 UP 管理名单，集中管理关注的 UP 主"
             @click="followUp"
           >
             <Icon name="users" :size="14" /> 关注
@@ -1703,6 +1703,6 @@ onBeforeUnmount(() => {
   <!-- 打不开 -->
   <EmptyBlock v-else icon="film" title="无法打开这个视频" :desc="errorText">
     <button class="btn" @click="loadAll">重试</button>
-    <RouterLink to="/" class="btn ghost">回首页</RouterLink>
+    <RouterLink to="/learn" class="btn ghost">回学习</RouterLink>
   </EmptyBlock>
 </template>

@@ -185,7 +185,7 @@ onMounted(async () => {
           title="还没有学习记录"
           desc="打开任意视频播放几秒，进度就会自动记录在这里。"
         >
-          <button class="btn primary" @click="router.push('/')">去首页找视频</button>
+          <button class="btn primary" @click="router.push('/search')">去搜索找视频</button>
         </EmptyBlock>
       </template>
 

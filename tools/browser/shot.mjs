@@ -26,7 +26,7 @@ const BASE = process.argv[2] || `http://127.0.0.1:${PORT}/`
 
 /** 路由 → 截图名（mock 数据里会有对应内容） */
 const ROUTES = [
-  ['首页', '#/'],
+  ['学习', '#/learn'],
   ['搜索', '#/search?q=线性代数'],
   ['播放', '#/video/BV1mock0001'],
   ['收藏', '#/fav'],
