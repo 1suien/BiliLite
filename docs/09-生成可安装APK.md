@@ -2,7 +2,7 @@
 
 本工程的源码**已经真正构建出可安装的 debug APK**。当前产物是 0.4.11（2026-10-26 为「退出播放页后再次播放接着上次进度」第九次出包），0.4.10 / 0.4.9 / 0.4.8 / 0.4.7 / 0.4.6 / 0.4.5 / 0.4.4 / 0.4.3 的历史出包记录保留在下面。
 
-> 0.4.11 的 GitHub Release 还没发：需要发布时打 `v0.4.11-restore` tag（先在 workflow 里补 0.4.11 分支并准备 `docs/RELEASE-v0.4.11-restore.md`）。已发布的上一版是 [v0.4.10-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.10-restore)（资产 `BiliLite-0.4.10-debug.apk`，4,105,161 B，sha256 `ff69103d…`）与 [v0.4.9-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.9-restore)（4,105,445 B，sha256 `37e15de5…`）、[v0.4.8-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.8-restore)（4,108,755 B，sha256 `bb61006c…`）。
+> 当前产物已发布到 GitHub Release：[v0.4.11-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.11-restore)（资产 `BiliLite-0.4.11-debug.apk`，4,105,236 B，sha256 `36210b14…`；打 `v0.4.11-restore` tag 触发 `.github/workflows/release-restore.yml`，workflow 默认版本已同步改成 0.4.11）。上一版 [v0.4.10-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.10-restore)（4,105,161 B，sha256 `ff69103d…`）、[v0.4.9-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.9-restore)（4,105,445 B，sha256 `37e15de5…`）、[v0.4.8-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.8-restore)（4,108,755 B，sha256 `bb61006c…`）保留。
 
 ## 当前产物：`BiliLite-0.4.11-debug.apk`（本机构建）
 
