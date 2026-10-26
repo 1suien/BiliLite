@@ -2,7 +2,7 @@
 
 本工程的源码**已经真正构建出可安装的 debug APK**。当前产物是 0.4.10（2026-10-26 为「删掉自带的专注目标」第八次出包），0.4.9 / 0.4.8 / 0.4.7 / 0.4.6 / 0.4.5 / 0.4.4 / 0.4.3 的历史出包记录保留在下面。
 
-**0.4.10 还没发 Release**——需要发布时打 `v0.4.10-restore` tag 触发 `.github/workflows/release-restore.yml`（workflow 默认版本当前仍是 0.4.9）。已发布的上一版是 [v0.4.9-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.9-restore)（资产 `BiliLite-0.4.9-debug.apk`，4,105,445 B，sha256 `37e15de5…`），再上一版 [v0.4.8-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.8-restore)（4,108,755 B，sha256 `bb61006c…`）。
+当前产物已发布到 GitHub Release：[v0.4.10-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.10-restore)（资产 `BiliLite-0.4.10-debug.apk`，4,105,161 B，sha256 `ff69103d…`；打 `v0.4.10-restore` tag 触发 `.github/workflows/release-restore.yml`，workflow 默认版本同步改成 0.4.10）。上一版 [v0.4.9-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.9-restore)（4,105,445 B，sha256 `37e15de5…`）、[v0.4.8-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.8-restore)（4,108,755 B，sha256 `bb61006c…`）保留。
 
 ## 当前产物：`BiliLite-0.4.10-debug.apk`（本机构建）
 
