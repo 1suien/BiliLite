@@ -1,6 +1,6 @@
 # BiliLite 0.4.4 — Android APK 前端源码还原工程（本机构建 0.4.9）
 
-**下载 APK**：`BiliLite-0.4.9-debug.apk`（本仓库根，4,105,445 B，sha256 `37e15de561925ca4ab53c643d456f9a2017e4a4c27af21ed0dd07db93fec0c3f`）—— 由本工程源码构建，versionCode 13 / versionName 0.4.9，含本机定制改动「笔记按分P独立 + 回车换行」（[docs/12](docs/12-笔记按分P独立.md)）、「备份导入恢复 + 修正『打开』变『保存』」（[docs/13](docs/13-备份打开与导入恢复.md)）、「笔记行按钮调整 + 小窗播放改成右下角小圆圈」（[docs/14](docs/14-小窗圆形气泡与笔记行按钮.md)）、「离开播放页时视频自动缩成暂停小圆、点回继续播」（[docs/15](docs/15-离开播放页自动暂停小窗.md)）与「删除首页（打开即学习页）」（[docs/16](docs/16-删除首页.md)）。**0.4.9 还没发 Release**，需要时打 `v0.4.9-restore` tag 即可。上一版 `BiliLite-0.4.8-debug.apk`（4,108,755 B，sha256 `bb61006c654f1d49eb04bee9fe9cdc8a3fd35ffc51310d9c45c94de041e20ca1`，[Release v0.4.8-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.8-restore)）、`BiliLite-0.4.7-debug.apk`（4,108,456 B，sha256 `bee3d8169cc0d0db914c12b51799dfbb76a4138ac588a78501e43017e5d9f8bc`）、`BiliLite-0.4.6-debug.apk`（4,109,055 B，sha256 `b34d26d539fa93c62032c661ac5147c681dbe846d27472e381fa74f5c7da16c8`）、`BiliLite-0.4.5-debug.apk`（4,107,722 B，sha256 `9f0bda8d9e9a74810dd55815fb74b4f2169a539c2b67da18ba15a6890186e6c4`）、`BiliLite-0.4.4-debug.apk`（4,107,559 B，sha256 `d7ceccfe86aa17e582b7b380c26f337acb62e1dd0e09bf4ad031004e5fcc81c0`）与 0.4.3 的历史产物 `BiliLite-0.4.3-debug.apk`（4,107,542 B，sha256 `b4fd3333abe25a1e2881ca142ee187ad7bca0d015398c4cd81babb0e7350abe3`，[Release v0.4.3-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.3-restore)）保留在仓库根作对照。
+**下载 APK**：`BiliLite-0.4.9-debug.apk`（本仓库根，4,105,445 B，sha256 `37e15de561925ca4ab53c643d456f9a2017e4a4c27af21ed0dd07db93fec0c3f`）—— 由本工程源码构建，versionCode 13 / versionName 0.4.9，含本机定制改动「笔记按分P独立 + 回车换行」（[docs/12](docs/12-笔记按分P独立.md)）、「备份导入恢复 + 修正『打开』变『保存』」（[docs/13](docs/13-备份打开与导入恢复.md)）、「笔记行按钮调整 + 小窗播放改成右下角小圆圈」（[docs/14](docs/14-小窗圆形气泡与笔记行按钮.md)）、「离开播放页时视频自动缩成暂停小圆、点回继续播」（[docs/15](docs/15-离开播放页自动暂停小窗.md)）与「删除首页（打开即学习页）」（[docs/16](docs/16-删除首页.md)）。已发布 [Release v0.4.9-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.9-restore)。上一版 `BiliLite-0.4.8-debug.apk`（4,108,755 B，sha256 `bb61006c654f1d49eb04bee9fe9cdc8a3fd35ffc51310d9c45c94de041e20ca1`，[Release v0.4.8-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.8-restore)）、`BiliLite-0.4.7-debug.apk`（4,108,456 B，sha256 `bee3d8169cc0d0db914c12b51799dfbb76a4138ac588a78501e43017e5d9f8bc`）、`BiliLite-0.4.6-debug.apk`（4,109,055 B，sha256 `b34d26d539fa93c62032c661ac5147c681dbe846d27472e381fa74f5c7da16c8`）、`BiliLite-0.4.5-debug.apk`（4,107,722 B，sha256 `9f0bda8d9e9a74810dd55815fb74b4f2169a539c2b67da18ba15a6890186e6c4`）、`BiliLite-0.4.4-debug.apk`（4,107,559 B，sha256 `d7ceccfe86aa17e582b7b380c26f337acb62e1dd0e09bf4ad031004e5fcc81c0`）与 0.4.3 的历史产物 `BiliLite-0.4.3-debug.apk`（4,107,542 B，sha256 `b4fd3333abe25a1e2881ca142ee187ad7bca0d015398c4cd81babb0e7350abe3`，[Release v0.4.3-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.3-restore)）保留在仓库根作对照。
 
 把 `BiliLite-0.4.3-android-debug.apk`（4.1 MB）里的**前端部分完整解包、还原成可读、可构建、可继续开发的 Vue 3 + TypeScript 工程**，并把「原始产物」与「还原结果」并排放好，方便逐项对照。
 
@@ -221,20 +221,21 @@ cd android && ./gradlew assembleDebug
 ## 发布（GitHub Release）
 
 已发布：
-- [Releases · v0.4.8-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.8-restore)（最新已发布版本，对应 `BiliLite-0.4.8-debug.apk`，4,108,755 B，sha256 `bb61006c654f1d49eb04bee9fe9cdc8a3fd35ffc51310d9c45c94de041e20ca1`）
+- [Releases · v0.4.9-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.9-restore)（**当前版本**，对应 `BiliLite-0.4.9-debug.apk`，4,105,445 B，sha256 `37e15de561925ca4ab53c643d456f9a2017e4a4c27af21ed0dd07db93fec0c3f`）
+- [Releases · v0.4.8-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.8-restore)（历史版本，对应 `BiliLite-0.4.8-debug.apk`，4,108,755 B，sha256 `bb61006c654f1d49eb04bee9fe9cdc8a3fd35ffc51310d9c45c94de041e20ca1`）
 - [Releases · v0.4.7-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.7-restore)（历史版本，对应 `BiliLite-0.4.7-debug.apk`，4,108,456 B，sha256 `bee3d816…`）
 - [Releases · v0.4.3-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.3-restore)（历史版本，对应 `BiliLite-0.4.3-debug.apk`）
 
-0.4.9 的产物 `BiliLite-0.4.9-debug.apk` 目前只在仓库根（**还没发 Release**）；0.4.4–0.4.6 的产物同样只在仓库根。需要发布时按同一套流程打 `v0.4.x-restore` tag 即可（workflow 已支持 0.4.3 / 0.4.4 / 0.4.7 / 0.4.8 的前缀，0.4.9 需先按 docs/09 的说明补一个 `v0.4.9-restore*` 分支）。
+0.4.4–0.4.6 的产物只在仓库根（未发 Release）。需要发布时按同一套流程打 `v0.4.x-restore` tag 即可（workflow 已支持 0.4.3 / 0.4.4 / 0.4.7 / 0.4.8 / 0.4.9 的前缀，手动 dispatch 默认 0.4.9）。
 
 Release 不是手工点的：本地只有该仓库的账号级 SSH key（可 push），没有带 `repo` 写权限的 API token，所以用 `.github/workflows/release-restore.yml` 让 GitHub 自己的 `GITHUB_TOKEN`（`permissions: contents: write`）在 CI 里 `gh release create` 建 Release 并上传 APK。复现方式：
 
 ```bash
-git tag v0.4.8-restore-ci1 "$(git rev-parse HEAD~N)"   # 指向含 APK 与 docs/RELEASE-v0.4.8-restore.md 的 commit
-git push origin v0.4.8-restore-ci1                      # 触发 workflow；也可在 Actions 页面 workflow_dispatch
+git tag v0.4.9-restore-ci1 "$(git rev-parse HEAD~N)"   # 指向含 APK 与 docs/RELEASE-v0.4.9-restore.md 的 commit
+git push origin v0.4.9-restore-ci1                      # 触发 workflow；也可在 Actions 页面 workflow_dispatch
 ```
 
-workflow 幂等：`gh release view v0.4.7-restore` 已存在时覆盖资产与说明；tag 名带 `v0.4.3-restore` / `v0.4.4-restore` 前缀则走对应版本的资产与说明（历史入口保留）。
+workflow 幂等：`gh release view <tag>` 已存在时覆盖资产与说明；tag 名带 `v0.4.3-restore` / `v0.4.4-restore` / `v0.4.7-restore` / `v0.4.8-restore` 前缀则走对应版本的资产与说明（历史入口保留，其余默认 0.4.9）。
 
 ## 免责声明
 
