@@ -1,11 +1,12 @@
 name: Create Release (restore APK)
 
 # 由 CI 用 GITHUB_TOKEN 建 Release 并上传 APK 资产（本地无 GitHub 写权限时使用）
-# 支持四个还原版本：
+# 支持的还原版本：
 #   v0.4.3-restore* → BiliLite-0.4.3-debug.apk（历史产物）
 #   v0.4.4-restore* → BiliLite-0.4.4-debug.apk（官方 0.4.4 同源产物）
 #   v0.4.7-restore* → BiliLite-0.4.7-debug.apk（笔记行按钮 + 小窗圆形气泡）
-#   v0.4.8-restore* → BiliLite-0.4.8-debug.apk（当前产物，手动 dispatch 时的默认值）
+#   v0.4.8-restore* → BiliLite-0.4.8-debug.apk（离开播放页自动缩成暂停小圆）
+#   v0.4.9-restore* → BiliLite-0.4.9-debug.apk（删除首页，当前产物 / 手动 dispatch 默认值）
 on:
   push:
     tags:
@@ -13,6 +14,7 @@ on:
       - 'v0.4.4-restore*'
       - 'v0.4.7-restore*'
       - 'v0.4.8-restore*'
+      - 'v0.4.9-restore*'
   workflow_dispatch:
 
 permissions:
@@ -50,11 +52,17 @@ jobs:
               echo "notes=docs/RELEASE-v0.4.7-restore.md"                  >> "$GITHUB_OUTPUT"
               echo "title=BiliLite 0.4.7（本机构建）—— 还原工程 + 可安装 APK" >> "$GITHUB_OUTPUT"
               ;;
-            *)
+            v0.4.8-restore*)
               echo "tag=v0.4.8-restore"                                    >> "$GITHUB_OUTPUT"
               echo "apk=BiliLite-0.4.8-debug.apk"                          >> "$GITHUB_OUTPUT"
               echo "notes=docs/RELEASE-v0.4.8-restore.md"                  >> "$GITHUB_OUTPUT"
               echo "title=BiliLite 0.4.8（本机构建）—— 还原工程 + 可安装 APK" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "tag=v0.4.9-restore"                                    >> "$GITHUB_OUTPUT"
+              echo "apk=BiliLite-0.4.9-debug.apk"                          >> "$GITHUB_OUTPUT"
+              echo "notes=docs/RELEASE-v0.4.9-restore.md"                  >> "$GITHUB_OUTPUT"
+              echo "title=BiliLite 0.4.9（本机构建）—— 还原工程 + 可安装 APK" >> "$GITHUB_OUTPUT"
               ;;
           esac
           cat "$GITHUB_OUTPUT"
