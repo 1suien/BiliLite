@@ -162,6 +162,133 @@ function openBackupDir() {
   bili.sys.revealPath(conf.value.backupPath).catch((e: any) => ui.err(e.message))
 }
 
+/** 是否安卓：安卓没有真正的目录选择，导出位置由系统「保存到」面板决定 */
+const isAndroid = computed(() => bili.platform === 'android')
+
+/** 导入备份用的隐藏 file input 与进度标记 */
+const importEl = ref<HTMLInputElement | null>(null)
+const importing = ref(false)
+
+function pickImportFile() {
+  importEl.value?.click()
+}
+
+/**
+ * 把备份数据合并进本地库。
+ * 合并规则：进度同 key 取 updatedAt 较新、每日时长同一天取较大值、清单同 bvid 取较新、笔记按 bvid+cid+at+text 去重补齐。
+ */
+async function mergeBackup(payload: any) {
+  const added = { progress: 0, daily: 0, notes: 0, shelf: 0 }
+
+  if (Array.isArray(payload.progress)) {
+    for (const row of payload.progress) {
+      if (!row || !row.key || !row.bvid) continue
+      const key = String(row.key)
+      const old = await db.progress.get(key)
+      if (!old || (Number(row.updatedAt) || 0) > (Number(old.updatedAt) || 0)) {
+        await db.progress.put({ ...row, key })
+        added.progress++
+      }
+    }
+  }
+
+  if (Array.isArray(payload.daily)) {
+    for (const row of payload.daily) {
+      if (!row || !row.date) continue
+      const date = String(row.date)
+      const old = await db.daily.get(date)
+      const next = {
+        date,
+        seconds: Math.max(Number(old?.seconds) || 0, Number(row.seconds) || 0),
+        videos: Math.max(Number(old?.videos) || 0, Number(row.videos) || 0),
+      }
+      if (!old || next.seconds !== old.seconds || next.videos !== old.videos) {
+        await db.daily.put(next)
+        added.daily++
+      }
+    }
+  }
+
+  if (Array.isArray(payload.shelf)) {
+    for (const row of payload.shelf) {
+      if (!row || !row.bvid) continue
+      const bvid = String(row.bvid)
+      const old = await db.shelf.get(bvid)
+      if (!old || (Number(row.at) || 0) >= (Number(old.at) || 0)) {
+        await db.shelf.put({ ...row, bvid })
+        added.shelf++
+      }
+    }
+  }
+
+  if (Array.isArray(payload.notes)) {
+    const exist = await db.notes.toArray()
+    const seen = new Set(
+      exist.map(
+        (n) => `${n.bvid}|${Number(n.cid) || 0}|${Number(n.at) || 0}|${String(n.text || '')}`,
+      ),
+    )
+    for (const row of payload.notes) {
+      if (!row || !row.bvid) continue
+      const bvid = String(row.bvid)
+      const cid = Number(row.cid) || 0
+      const at = Number(row.at) || Date.now()
+      const stamp = `${bvid}|${cid}|${at}|${String(row.text || '')}`
+      if (seen.has(stamp)) continue
+      await db.notes.add({ ...row, bvid, cid, at })
+      seen.add(stamp)
+      added.notes++
+    }
+  }
+
+  return added
+}
+
+/** 选一份导出的 JSON 备份 → 确认 → 合并恢复 */
+async function onImportFile(e: Event) {
+  const el = e.target as HTMLInputElement
+  const file = el.files && el.files[0]
+  el.value = ''
+  if (!file) return
+  if (!/\.json$/i.test(file.name)) return ui.err('请选择 .json 备份文件')
+  if (file.size > 32 * 1024 * 1024) return ui.err('备份文件太大（上限 32MB）')
+
+  let payload: any
+  try {
+    payload = JSON.parse(await file.text())
+  } catch {
+    return ui.err('备份文件不是合法 JSON')
+  }
+  if (!payload || payload.app !== 'study-bili') {
+    return ui.err('这不是 BiliLite 的学习数据备份（缺少 app 标记）')
+  }
+  const p = Array.isArray(payload.progress) ? payload.progress.length : 0
+  const d = Array.isArray(payload.daily) ? payload.daily.length : 0
+  const n = Array.isArray(payload.notes) ? payload.notes.length : 0
+  const s = Array.isArray(payload.shelf) ? payload.shelf.length : 0
+  if (!p && !d && !n && !s) return ui.err('备份文件里没有可恢复的数据')
+
+  const yes = await ui.confirm(
+    '打开这份备份？',
+    `${file.name}\n进度 ${p} 条 · 每日时长 ${d} 条 · 笔记 ${n} 条 · 清单 ${s} 条。\n与现有数据合并：同一条取较新/较大值，不会删除现有记录。`,
+  )
+  if (!yes) return
+
+  importing.value = true
+  try {
+    const added = await mergeBackup(payload)
+    // force=true：学习页 store 可能已缓存旧数据，这里必须重读
+    await learn.init(true).catch(() => {})
+    ui.ok(
+      `已恢复：进度 +${added.progress} · 每日时长 +${added.daily} · 笔记 +${added.notes} · 清单 +${added.shelf}`,
+    )
+  } catch (err: any) {
+    ui.err(err.message || '恢复失败')
+  } finally {
+    importing.value = false
+  }
+}
+
 /** 恢复默认设置（只重置播放/外观，不动学习数据） */
 function resetSettings() {
   ui.confirm('恢复默认设置？', '播放、外观设置会回到初始值，学习数据不受影响。').then((yes) => {
@@ -318,7 +445,7 @@ onMounted(() => {
 
     <section class="panel" style="margin-bottom: 16px">
       <h2 class="sec">数据</h2>
-      <div class="field">
+      <div v-if="!isAndroid" class="field">
         <label>备份目录</label>
         <div class="row" style="gap: 8px">
           <input class="input mono grow" :value="conf.backupPath || '（未设置）'" readonly />
@@ -329,6 +456,12 @@ onMounted(() => {
             <Icon name="external" :size="14" /> 打开
           </button>
         </div>
+      </div>
+      <div v-else class="field">
+        <label>备份位置</label>
+        <p class="hint">
+          安卓上不用先选目录：点「写入 JSON 备份」后由系统「保存到」面板决定存哪（文档 / 网盘 / 微信都行）。
+        </p>
       </div>
       <div class="field">
         <label>导出学习数据</label>
@@ -342,6 +475,23 @@ onMounted(() => {
             {{ (learn.totalSeconds / 3600).toFixed(2) }} h
           </span>
         </div>
+      </div>
+      <div class="field">
+        <label>恢复学习数据</label>
+        <div class="row" style="gap: 8px">
+          <button class="btn" :disabled="importing" @click="pickImportFile">
+            <span v-if="importing" class="spinner" />
+            <Icon v-else name="folder" :size="14" /> 打开 JSON 备份…
+          </button>
+          <span class="hint">选一份导出的 .json，与现有数据合并恢复（进度 / 笔记 / 清单都在）。</span>
+        </div>
+        <input
+          ref="importEl"
+          type="file"
+          accept=".json,application/json"
+          style="display: none"
+          @change="onImportFile"
+        />
       </div>
       <div class="field">
         <label>恢复默认</label>

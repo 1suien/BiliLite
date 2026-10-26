@@ -1,6 +1,6 @@
-# BiliLite 0.4.4 — Android APK 前端源码还原工程（本机构建 0.4.5）
+# BiliLite 0.4.4 — Android APK 前端源码还原工程（本机构建 0.4.6）
 
-**下载 APK**：`BiliLite-0.4.5-debug.apk`（本仓库根，4,107,722 B，sha256 `9f0bda8d9e9a74810dd55815fb74b4f2169a539c2b67da18ba15a6890186e6c4`）—— 由本工程源码构建，versionCode 9 / versionName 0.4.5，含本机定制改动「笔记按分P独立 + 回车换行」（见 [docs/12](docs/12-笔记按分P独立.md)）。前一版 `BiliLite-0.4.4-debug.apk`（4,107,559 B，sha256 `d7ceccfe86aa17e582b7b380c26f337acb62e1dd0e09bf4ad031004e5fcc81c0`）与 0.4.3 的历史产物 `BiliLite-0.4.3-debug.apk`（4,107,542 B，sha256 `b4fd3333abe25a1e2881ca142ee187ad7bca0d015398c4cd81babb0e7350abe3`，[Release v0.4.3-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.3-restore)）保留在仓库根作对照。
+**下载 APK**：`BiliLite-0.4.6-debug.apk`（本仓库根，4,109,055 B，sha256 `b34d26d539fa93c62032c661ac5147c681dbe846d27472e381fa74f5c7da16c8`）—— 由本工程源码构建，versionCode 10 / versionName 0.4.6，含本机定制改动「笔记按分P独立 + 回车换行」（[docs/12](docs/12-笔记按分P独立.md)）与「备份导入恢复 + 修正『打开』变『保存』」（[docs/13](docs/13-备份打开与导入恢复.md)）。上一版 `BiliLite-0.4.5-debug.apk`（4,107,722 B，sha256 `9f0bda8d9e9a74810dd55815fb74b4f2169a539c2b67da18ba15a6890186e6c4`）、`BiliLite-0.4.4-debug.apk`（4,107,559 B，sha256 `d7ceccfe86aa17e582b7b380c26f337acb62e1dd0e09bf4ad031004e5fcc81c0`）与 0.4.3 的历史产物 `BiliLite-0.4.3-debug.apk`（4,107,542 B，sha256 `b4fd3333abe25a1e2881ca142ee187ad7bca0d015398c4cd81babb0e7350abe3`，[Release v0.4.3-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.3-restore)）保留在仓库根作对照。
 
 把 `BiliLite-0.4.3-android-debug.apk`（4.1 MB）里的**前端部分完整解包、还原成可读、可构建、可继续开发的 Vue 3 + TypeScript 工程**，并把「原始产物」与「还原结果」并排放好，方便逐项对照。
 
@@ -14,7 +14,9 @@
 
 > **本机定制改动（2026-10-25，0.4.5）**：修了两件用户反馈的事——① 视频笔记**按分P独立**（`db.notes` 读取从「只按 `bvid`」改成 `bvid + cid`，同一个 199 分P的课程不再共用一份笔记）；② 笔记输入框从单行 `<input>` 改成多行 `<textarea>`，**回车换行**、`Ctrl+Enter` 或「保存」按钮写入。这是本仓库自己的改动，上游 0.4.4 没有；改动清单、端到端验证与升级说明见 [docs/12](docs/12-笔记按分P独立.md)。
 >
-> **已经能出安装包**：`app/` 源码 → `npm run build` → `cap sync` → `gradlew assembleDebug` 在本机实测通过，当前产物 `BiliLite-0.4.5-debug.apk`（4,107,722 B，签名/对齐校验通过；0.4.4 的 4,107,559 B 与 0.4.3 的 4,107,542 B 也保留在仓库里），见 [docs/09](docs/09-生成可安装APK.md)。
+> **本机定制改动（2026-10-25，0.4.6）**：① 设置页「备份目录 → 打开」在安卓上实际弹的是系统「保存到…」面板（按钮名与行为对不上），安卓上已隐藏这行、改为「备份位置」说明；② 新增「恢复学习数据 → 打开 JSON 备份…」，选一份导出的 `.json` 与现有数据**合并**恢复（进度按 `updatedAt` 取新、每日时长取大、清单按 `bvid` 取新、笔记按 `bvid+cid+at+text` 去重）。详见 [docs/13](docs/13-备份打开与导入恢复.md)。
+>
+> **已经能出安装包**：`app/` 源码 → `npm run build` → `cap sync` → `gradlew assembleDebug` 在本机实测通过，当前产物 `BiliLite-0.4.6-debug.apk`（4,109,055 B，签名/对齐校验通过；0.4.5 的 4,107,722 B、0.4.4 的 4,107,559 B 与 0.4.3 的 4,107,542 B 也保留在仓库里），见 [docs/09](docs/09-生成可安装APK.md)。
 
 ---
 
@@ -23,7 +25,8 @@
 ```
 /root/学习软件
 ├── README.md                     ← 本文件
-├── BiliLite-0.4.5-debug.apk      ← ★ 由本工程源码构建出的可安装 APK（4.11 MB，本机 0.4.5 定制版，见 docs/09、docs/12）
+├── BiliLite-0.4.6-debug.apk      ← ★ 由本工程源码构建出的可安装 APK（4.11 MB，本机 0.4.6 定制版，见 docs/09、docs/13）
+├── BiliLite-0.4.5-debug.apk      ← 本机 0.4.5 产物（笔记按分P独立，见 docs/12）
 ├── BiliLite-0.4.4-debug.apk      ← 官方 0.4.4 同源产物（保留作对照）
 ├── BiliLite-0.4.3-debug.apk      ← 上一版产物（0.4.3 源码构建，保留作对照）
 ├── CONTRACT.md                   ← 还原时的内部契约（公共 API 速查 / 模板反推规则）
@@ -63,6 +66,7 @@
 │   ├── 10-播放方式对比.md          ← 0.4.3（WebView/MSE）vs 0.6.25（原生 ExoPlayer）播放实现对比
 │   ├── 11-0.4.4同步记录.md        ← 0.4.3→0.4.4 增量、APK 产物比对、二次出包校验
 │   ├── 12-笔记按分P独立.md        ← 本机定制改动：笔记按 bvid+cid 独立、回车换行、0.4.5 出包
+│   ├── 13-备份打开与导入恢复.md    ← 本机定制改动：安卓备份行修正、打开 JSON 备份导入/合并、0.4.6 出包
 │   └── audit/                    ← 5 份分模块核对报告（样式/数据/视图/store/播放内核）
 └── .work/                        ← APK 原始解包目录（ground truth，勿改）
 ```
@@ -100,10 +104,10 @@ http://localhost:4173/?mock=1     # preview/build 产物：必须手动加 ?mock
 **想在真机上跑**：安装包已经构建好，直接在仓库根取：
 
 ```bash
-adb install -r BiliLite-0.4.5-debug.apk
+adb install -r BiliLite-0.4.6-debug.apk
 ```
 
-它是用 `app/android/` 这个完整 Gradle 工程在本机 `assembleDebug` 出来的（package `com.bililite.app`、versionCode 9、versionName 0.4.5、debug 签名）。0.4.4 = 0.4.3 + 剧场模式「退出剧场」CSS 修复（[docs/11](docs/11-0.4.4同步记录.md)）；0.4.5 = 0.4.4 + 本机定制「笔记按分P独立 + 回车换行」（[docs/12](docs/12-笔记按分P独立.md)）。重新出包：
+它是用 `app/android/` 这个完整 Gradle 工程在本机 `assembleDebug` 出来的（package `com.bililite.app`、versionCode 10、versionName 0.4.6、debug 签名）。0.4.4 = 0.4.3 + 剧场模式「退出剧场」CSS 修复（[docs/11](docs/11-0.4.4同步记录.md)）；0.4.5 = 0.4.4 + 本机定制「笔记按分P独立 + 回车换行」（[docs/12](docs/12-笔记按分P独立.md)）；0.4.6 = 0.4.5 + 备份交互修正与「打开 JSON 备份」导入恢复（[docs/13](docs/13-备份打开与导入恢复.md)）。重新出包：
 
 ```bash
 cd app
@@ -177,7 +181,7 @@ cd android && ./gradlew assembleDebug
 
 ## 与原 APK 的已知差异（诚实清单）
 
-1. ~~不含完整安卓工程~~ → **已补全并实测出包**：`app/android/` 是官方 tag v0.4.3 的 `mobile/android/` 原样复制（55 个文件，3 个 Java 插件为真源码），仅 `capacitor.settings.gradle` 由 `cap sync` 按 npm 布局重新生成；本机已跑通 `gradlew assembleDebug`，0.4.4 产物 `BiliLite-0.4.4-debug.apk`（4,107,559 B，apksigner/zipalign 校验通过；原生侧与官方 0.4.4 APK **逐字节相同**，见 [docs/09](docs/09-生成可安装APK.md) 与 [docs/11](docs/11-0.4.4同步记录.md)）；当前 0.4.5 产物 `BiliLite-0.4.5-debug.apk`（4,107,722 B）额外含本机定制笔记改动（[docs/12](docs/12-笔记按分P独立.md)）。
+1. ~~不含完整安卓工程~~ → **已补全并实测出包**：`app/android/` 是官方 tag v0.4.3 的 `mobile/android/` 原样复制（55 个文件，3 个 Java 插件为真源码），仅 `capacitor.settings.gradle` 由 `cap sync` 按 npm 布局重新生成；本机已跑通 `gradlew assembleDebug`，0.4.4 产物 `BiliLite-0.4.4-debug.apk`（4,107,559 B，apksigner/zipalign 校验通过；原生侧与官方 0.4.4 APK **逐字节相同**，见 [docs/09](docs/09-生成可安装APK.md) 与 [docs/11](docs/11-0.4.4同步记录.md)）；当前 0.4.6 产物 `BiliLite-0.4.6-debug.apk`（4,109,055 B）额外含本机定制笔记与备份导入改动（[docs/12](docs/12-笔记按分P独立.md)、[docs/13](docs/13-备份打开与导入恢复.md)）。
 2. **原始源码没有 sourcemap**：本工程是「行为等价重写」，不是原始 TS 源码；变量名、注释、文件切分与原作者不同。
 3. **弹幕层没实现**：0.4.3 的播放页 chunk 里 `danmaku/弹幕` 出现 0 次（`dm-layer/dm-item/dm-bar` 只有 `global.css` 残留样式），数据桥虽然有 `video:danmaku/sendDanmaku` 通道但没有任何视图调用——忠实还原 = 没有弹幕 UI，故未凭空实现。
 4. **首页没有推荐流**：`home:feed` / `home:popular` 只有桌面端桥（`index-B576k3Hi.js`）暴露，所有视图都没有调用；首页实际是「继续学习 + 关注的 UP 更新」。
@@ -196,7 +200,7 @@ cd android && ./gradlew assembleDebug
 - `reference/decompiled/`：美化后的 41 个 JS chunk + 12 个 CSS；
 - `app/node_modules/`、`tools/browser/chromium-libs/` 等依赖与浏览器缓存。
 
-仓库里保留的是：还原后的 `app/` 源码与安卓工程、`reference/upstream-v0.4.3/` 与 `reference/upstream-v0.4.4/`（MIT 上游源码快照，各带 `PROVENANCE.md`）、文档、审计脚本、构建脚本，以及构建好的 `BiliLite-0.4.5-debug.apk`、`BiliLite-0.4.4-debug.apk`、`BiliLite-0.4.3-debug.apk`。若你要复跑审计脚本对比反编译产物，请把原始 APK 放回 `.work/` 并按 [docs/03](docs/03-还原方法与还原度.md) 重新解包。
+仓库里保留的是：还原后的 `app/` 源码与安卓工程、`reference/upstream-v0.4.3/` 与 `reference/upstream-v0.4.4/`（MIT 上游源码快照，各带 `PROVENANCE.md`）、文档、审计脚本、构建脚本，以及构建好的 `BiliLite-0.4.6-debug.apk`、`BiliLite-0.4.5-debug.apk`、`BiliLite-0.4.4-debug.apk`、`BiliLite-0.4.3-debug.apk`。若你要复跑审计脚本对比反编译产物，请把原始 APK 放回 `.work/` 并按 [docs/03](docs/03-还原方法与还原度.md) 重新解包。
 
 ## 发布（GitHub Release）
 

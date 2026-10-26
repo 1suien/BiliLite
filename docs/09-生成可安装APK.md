@@ -1,8 +1,24 @@
 # 09 生成可安装 APK（2026-10-25 实测通过）
 
-本工程的源码**已经真正构建出可安装的 debug APK**。当前产物是 0.4.5（2026-10-25 为「笔记按分P独立 + 回车换行」这项本机改动第三次出包），0.4.4 / 0.4.3 的历史出包记录保留在下面。
+本工程的源码**已经真正构建出可安装的 debug APK**。当前产物是 0.4.6（2026-10-25 为「备份『打开』变『保存』修正 + 新增导入恢复」第四次出包），0.4.5 / 0.4.4 / 0.4.3 的历史出包记录保留在下面。
 
-## 当前产物：`BiliLite-0.4.5-debug.apk`（本机构建）
+## 当前产物：`BiliLite-0.4.6-debug.apk`（本机构建）
+
+| 项目 | 值 |
+|---|---|
+| 文件 | `BiliLite-0.4.6-debug.apk` |
+| 大小 | 4,109,055 B（官方 0.4.4 APK 是 4,104,456 B） |
+| SHA-256 | `b34d26d539fa93c62032c661ac5147c681dbe846d27472e381fa74f5c7da16c8` |
+| package | `com.bililite.app` |
+| versionCode / versionName | `10` / `0.4.6` |
+| minSdk / targetSdk / compileSdk | 22 / 34 / 34 |
+| 签名 | debug，CN=Android Debug，APK Signature Scheme v1 + v2 |
+| 构建 | 增量 `assembleDebug` 1m03s；`clean assembleDebug` 冷构建 **1m49s**（275 tasks，230 executed） |
+| 可复现 | `clean` 后重建的 APK 与增量构建 sha256 **完全相同** |
+
+0.4.6 = 0.4.5 + 备份交互修正与导入恢复（上游没有）：安卓上不再显示名不副实的「备份目录 / 打开」（隐藏后改成「备份位置」说明），新增「恢复学习数据 → 打开 JSON 备份…」，选一份导出的 `.json` 与现有数据**合并**恢复（进度按 `updatedAt` 取新、每日时长取大、清单按 `bvid` 取新、笔记按 `bvid+cid+at+text` 去重）。改动与验证见 [13-备份打开与导入恢复.md](13-备份打开与导入恢复.md)。校验：`aapt dump badging` versionCode 10 / versionName 0.4.6 / minSdk 22 / target 34；`apksigner verify` v1+v2 通过；`zipalign -c -p 4` 通过；APK 内 `assets/public` 与 `app/dist` 逐字节一致（`diff -r` 只多 `cordova.js` / `cordova_plugins.js`）；原生侧与 0.4.4 产物相同（只有 web 层与版本号变）。
+
+## 上一版产物：`BiliLite-0.4.5-debug.apk`（本机构建）
 
 | 项目 | 值 |
 |---|---|
@@ -18,7 +34,7 @@
 
 0.4.5 = 0.4.4 + 两项本机改动（上游没有）：笔记按 `bvid + cid`（分P）独立、输入框改多行 textarea（回车换行，Ctrl+Enter 或「保存」按钮写入）。改动、验证与升级说明见 [12-笔记按分P独立.md](12-笔记按分P独立.md)。校验：`aapt dump badging` versionCode 9 / versionName 0.4.5 / minSdk 22 / target 34；`apksigner verify` v1+v2 通过；`zipalign -c -p 4` 通过；APK 内 `assets/public` 与 `app/dist` 逐字节一致（`diff -r` 只多 `cordova.js` / `cordova_plugins.js`）；原生侧与 0.4.4 产物相同（只有 web 层与版本号变）。
 
-## 上一版产物：`BiliLite-0.4.4-debug.apk`
+## 更早的产物：`BiliLite-0.4.4-debug.apk`
 
 | 项目 | 值 |
 |---|---|
