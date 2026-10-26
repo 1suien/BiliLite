@@ -2,6 +2,8 @@
 
 本工程的源码**已经真正构建出可安装的 debug APK**。当前产物是 0.4.8（2026-10-26 为「离开播放页时视频自动缩成暂停小圆」第六次出包），0.4.7 / 0.4.6 / 0.4.5 / 0.4.4 / 0.4.3 的历史出包记录保留在下面。
 
+当前产物已发布到 GitHub Release：[v0.4.8-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.8-restore)（资产 `BiliLite-0.4.8-debug.apk`，4,108,755 B，sha256 `bb61006c…`；生成方式是打 `v0.4.8-restore` tag 触发 `.github/workflows/release-restore.yml`）。
+
 ## 当前产物：`BiliLite-0.4.8-debug.apk`（本机构建）
 
 | 项目 | 值 |
