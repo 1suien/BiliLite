@@ -1,0 +1,6 @@
+- insert:
+    - id: download-route
+      name: '@local/download-route'
+      config:
+        prefix: /dl
+        dir: /root/学习软件

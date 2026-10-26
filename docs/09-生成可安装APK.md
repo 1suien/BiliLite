@@ -142,12 +142,23 @@ apksigner sign --ks debug.keystore --ks-pass pass:android --key-pass pass:androi
 
 ## 安装
 
+**浏览器直接下载**（本机 DSH Web 上装了 `@local/download-route` 插件，源码在 `tools/dsh-download-route/`，把工作目录做成只读下载路由；只在回环地址下用）：
+
+```
+http://127.0.0.1:3080/dl/BiliLite-0.4.6-debug.apk
+http://127.0.0.1:3080/dl/BiliLite-0.4.5-debug.apk   # 旧版本也留着
+```
+
+地址栏回车即下载（`Content-Disposition: attachment`，MIME `application/vnd.android.package-archive`，4,109,055 B，sha256 `b34d26d5…`）。路由只允许 `config.dir`（默认 `/root/学习软件`）内的相对路径，`..` 穿越返回 403。
+
+**adb / 拷贝**：
+
 ```bash
-adb install -r BiliLite-0.4.4-debug.apk
+adb install -r BiliLite-0.4.6-debug.apk
 # 或拷到手机点安装（需允许「安装未知来源应用」）
 ```
 
-注意：与官方 APK **包名相同、签名不同**，手机上已装官方 0.4.3/0.4.4 的话会报 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`，需要先卸载官方版（卸载会清掉该应用本地数据）；装的是本仓库 0.4.3 产物的可以直接覆盖升级（同签名、versionCode 8 > 7）。
+注意：与官方 APK **包名相同、签名不同**，手机上已装官方 0.4.3/0.4.4 的话会报 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`，需要先卸载官方版（卸载会清掉该应用本地数据）；装的是本仓库 0.4.3/0.4.4/0.4.5 产物的可以直接覆盖升级（同 debug 签名，versionCode 10 > 9 > 8 > 7）。
 
 ## 未验证
 

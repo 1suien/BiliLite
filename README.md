@@ -16,6 +16,8 @@
 >
 > **本机定制改动（2026-10-25，0.4.6）**：① 设置页「备份目录 → 打开」在安卓上实际弹的是系统「保存到…」面板（按钮名与行为对不上），安卓上已隐藏这行、改为「备份位置」说明；② 新增「恢复学习数据 → 打开 JSON 备份…」，选一份导出的 `.json` 与现有数据**合并**恢复（进度按 `updatedAt` 取新、每日时长取大、清单按 `bvid` 取新、笔记按 `bvid+cid+at+text` 去重）。详见 [docs/13](docs/13-备份打开与导入恢复.md)。
 >
+> **浏览器直接下载**：本机 DSH Web 装了一个只读下载路由（`tools/dsh-download-route/`，`@local/download-route`），打开 `http://127.0.0.1:3080/dl/BiliLite-0.4.6-debug.apk` 即下载（`Content-Disposition: attachment`，MIME `application/vnd.android.package-archive`）。路由只允许工作目录内的相对路径，`..` 穿越返回 403；详见 [docs/09](docs/09-生成可安装APK.md) 的「安装」一节。
+
 > **已经能出安装包**：`app/` 源码 → `npm run build` → `cap sync` → `gradlew assembleDebug` 在本机实测通过，当前产物 `BiliLite-0.4.6-debug.apk`（4,109,055 B，签名/对齐校验通过；0.4.5 的 4,107,722 B、0.4.4 的 4,107,559 B 与 0.4.3 的 4,107,542 B 也保留在仓库里），见 [docs/09](docs/09-生成可安装APK.md)。
 
 ---

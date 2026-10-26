@@ -1,0 +1,15 @@
+{
+  "name": "@local/download-route",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Serve files from a local directory as browser downloads (e.g. built APKs).",
+  "exports": {
+    ".": "./index.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
