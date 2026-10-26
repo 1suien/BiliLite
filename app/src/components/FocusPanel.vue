@@ -5,7 +5,7 @@ import Icon from '@/components/Icon.vue'
 import FocusTargets from '@/components/FocusTargets.vue'
 import FocusOverview from '@/components/FocusOverview.vue'
 import FocusRecords from '@/components/FocusRecords.vue'
-import { useSettingsStore, makeFocusTarget, DEFAULT_FOCUS_TASKS } from '@/stores/settings'
+import { useSettingsStore, makeFocusTarget } from '@/stores/settings'
 import { usePomodoroStore } from '@/stores/pomodoro'
 import { useLearnStore } from '@/stores/learn'
 import { useUiStore } from '@/stores/ui'
@@ -127,11 +127,6 @@ async function removeTarget(i: number) {
   const name = targetNames.value[i]
   if (!name) return
   await settings.setFocusTargets(targets.value.filter((t) => t.name !== name))
-  cancelEdit()
-}
-
-async function restoreDefaults() {
-  await settings.setFocusTargets(DEFAULT_FOCUS_TASKS.map((n, i) => makeFocusTarget(n, i)))
   cancelEdit()
 }
 
@@ -374,9 +369,6 @@ onBeforeUnmount(() => {
               {{ editIndex >= 0 ? '保存' : '添加' }}
             </button>
             <button v-if="editIndex >= 0" class="btn sm ghost" @click="cancelEdit()">取消</button>
-            <button class="btn sm ghost" title="恢复成默认的四个" @click="restoreDefaults()">
-              恢复默认
-            </button>
           </div>
           <p v-if="chipEdit" class="muted" style="font-size: 11.5px; margin: 6px 0 0">
             点目标名可以改名，点 ✕ 删除，最多 {{ MAX_TARGETS }} 个、每个 {{ NAME_MAX }} 字。

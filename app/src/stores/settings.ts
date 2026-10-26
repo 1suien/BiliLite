@@ -38,8 +38,8 @@ export const FOCUS_COLORS: Record<string, { label: string; dark: string; light: 
 
 export const FOCUS_COLOR_KEYS = Object.keys(FOCUS_COLORS)
 
-/** 默认的专注任务 */
-export const DEFAULT_FOCUS_TASKS = ['阅读', '刷题', '看课', '整理笔记']
+/** 默认的专注任务：本机构建 0.4.10 起不再「自带」目标，列表由用户自己加 */
+export const DEFAULT_FOCUS_TASKS: string[] = []
 
 /** 主题 -> 颜色值 */
 export function accentColor(key: string, theme: string): string {
@@ -109,7 +109,7 @@ export const DEFAULT_SETTINGS: Settings = {
   subFontSize: 22,
   subBg: true,
   subBottom: 8,
-  focusTasks: [...DEFAULT_FOCUS_TASKS],
+  focusTasks: [],
   focusTargets: [],
 }
 
@@ -146,14 +146,17 @@ export const useSettingsStore = defineStore('settings', {
         }
       } catch {}
       this.applyTheme()
-      // 首次启动：把默认专注任务写成专注目标
-      if (!Array.isArray(this.settings.focusTargets) || !this.settings.focusTargets.length) {
-        const tasks =
-          Array.isArray(this.settings.focusTasks) && this.settings.focusTasks.length
-            ? this.settings.focusTasks
-            : DEFAULT_FOCUS_TASKS
-        const targets = tasks.map((t, i) => makeFocusTarget(t, i)).filter((t) => t.name)
-        if (targets.length) await this.setFocusTargets(targets)
+      // 本机构建 0.4.10：不再自动创建「自带的目标」（阅读 / 刷题 / 看课 / 整理笔记）。
+      // 旧版本首次启动会把这四个预设写成目标列表，升级后一次性清掉；
+      // 之后不会再执行（focusPresetsCleared 一旦为 true 就跳过），用户自己加的目标不受影响。
+      if (!this.settings.focusPresetsCleared) {
+        const legacy = ['阅读', '刷题', '看课', '整理笔记']
+        const list = Array.isArray(this.settings.focusTargets) ? this.settings.focusTargets : []
+        const names = list.map((t: any) => String((t && t.name) || '').trim())
+        const isLegacyPresets =
+          names.length === legacy.length && names.every((n: string) => legacy.includes(n))
+        if (isLegacyPresets) await this.setFocusTargets([])
+        await this.patch({ focusPresetsCleared: true })
       }
       this.loaded = true
     },

@@ -6,7 +6,7 @@
 import { ref, computed, nextTick } from 'vue'
 import Icon from '@/components/Icon.vue'
 import { usePomodoroStore } from '@/stores/pomodoro'
-import { useSettingsStore, accentColor, makeFocusTarget, pickBrandFg, FOCUS_COLOR_KEYS, DEFAULT_FOCUS_TASKS } from '@/stores/settings'
+import { useSettingsStore, accentColor, makeFocusTarget, pickBrandFg, FOCUS_COLOR_KEYS } from '@/stores/settings'
 import { useUiStore } from '@/stores/ui'
 import { formatClock } from '@/utils/format'
 import type { FocusTarget } from '@/types'
@@ -149,19 +149,6 @@ async function removeTarget(t: FocusTarget) {
   }
 }
 
-async function restoreDefaults() {
-  if (
-    await ui.confirm(
-      '恢复成默认的四个目标？',
-      '当前列表会被替换成 阅读 / 刷题 / 看课 / 整理笔记。',
-      '恢复默认',
-    )
-  ) {
-    await save(DEFAULT_FOCUS_TASKS.map((n, i) => makeFocusTarget(n, i)))
-    ui.toast('已恢复默认目标')
-  }
-}
-
 /** 点行尾 ▶ 开始这一轮专注 */
 async function startFocus(t: FocusTarget) {
   const name = t.name
@@ -205,9 +192,6 @@ async function startFocus(t: FocusTarget) {
       <span class="grow" />
       <button class="btn sm ghost" title="新建目标" aria-label="新建目标" @click="startAdd">
         <Icon name="plus" :size="15" />
-      </button>
-      <button class="btn sm ghost" title="恢复默认目标" aria-label="恢复默认目标" @click="restoreDefaults">
-        <Icon name="refresh" :size="15" />
       </button>
     </div>
 

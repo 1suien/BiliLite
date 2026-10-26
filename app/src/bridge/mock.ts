@@ -286,7 +286,7 @@ const DEFAULT_SETTINGS: Record<string, any> = {
   subFontSize: 22,
   subBg: true,
   subBottom: 8,
-  focusTasks: ['阅读', '刷题', '看课', '整理笔记'],
+  focusTasks: [],
   focusTargets: [],
 }
 

@@ -48,7 +48,7 @@ export const DEFAULT_SETTINGS: Record<string, any> = {
   subFontSize: 22,
   subBg: true,
   subBottom: 8,
-  focusTasks: ['阅读', '刷题', '看课', '整理笔记'],
+  focusTasks: [],
 }
 
 /** secure 字段编码：JSON -> UTF-8 -> base64，加 "raw:" 前缀。还原 `Ht()` */
