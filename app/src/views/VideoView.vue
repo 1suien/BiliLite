@@ -51,6 +51,12 @@ const mini = useMiniStore()
  * 本机定制 0.4.8
  */
 let openedBvid = ''
+/**
+ * 从小窗收回本页时续播的位置（本机定制 0.4.11）。
+ * 小窗里就是本页这条视频时，直接把视频收回本页并从离开的位置继续，
+ * 而不是停在一个「视频正在小窗播放」的占位画面上。
+ */
+let resumeOverride = 0
 
 /** 视频正在小窗里播（本页这时只显示占位，不重复拉流） */
 const miniHere = computed(() => mini.open && mini.bvid === bvid.value)
@@ -753,7 +759,10 @@ function progressData() {
   const d = video.value as any
   const page = pages.value[pageIndex.value]
   return {
-    bvid: bvid.value,
+    // 本机定制 0.4.11：离开播放页时当前路由的 params.bvid 已经变成空串，
+    // 这里必须用本页实例打开时的 bvid，否则 flushProgress() 写库会被 learn.save 当成脏数据丢掉，
+    // 导致「退出后再次播放」只能退回到上一次 5 秒定时存的旧进度（或从 0 开始）。
+    bvid: openedBvid || bvid.value,
     cid: cid.value,
     title: partLabel.value || d.title || '',
     cover: d.cover || '',
@@ -771,8 +780,13 @@ function upInfo() {
   return !name && !mid ? null : { mid, name }
 }
 
-/** 起播时间点：query.t > 本地进度（进度接近末尾或太靠前就从 0 开始） */
+/** 起播时间点：收回小窗的续播点 > query.t > 本地进度（进度接近末尾或太靠前就从 0 开始） */
 function startTime() {
+  if (resumeOverride > 0) {
+    const at = resumeOverride
+    resumeOverride = 0
+    return at
+  }
   const t = Number(route.query.t || 0)
   if (t > 0) return t
   const saved = learn.get(bvid.value, cid.value)
@@ -794,10 +808,13 @@ async function loadPlayurl() {
   addrMs = 0
   firstFrameMs = 0
   perfText.value = ''
-  // 小窗里正在播同一条视频：本页先不重复拉流
+  // 小窗里正在播同一条视频（本机定制 0.4.11）：把视频收回本页，从离开时的位置继续播，
+  // 不再只留一个占位画面——否则「退出播放页后再打开」看起来就像进度丢了。
   if (mini.open && mini.bvid === bvid.value) {
+    const at = Number(mini.currentTime) || Number(mini.startTime) || 0
+    mini.close()
+    if (at > 0.5) resumeOverride = at
     status.value = ''
-    return
   }
   ;(window as any).__playLog = { source: 'online', bvid: bvid.value, cid: String(cid.value) }
 
