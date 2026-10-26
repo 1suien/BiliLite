@@ -23,6 +23,8 @@
 > **本机定制改动（2026-10-26，0.4.9）**：**删除「首页」**——左侧导航的「首页」条目、`/` 路由与 `views/HomeView.vue`（219 行）全部删除，打开 App 直接进「学习」页；`#/` 与旧地址 `#/home` 都自动落到 `#/learn`。连带把「回首页」「去首页找视频」等文案改成「回学习」「去搜索找视频」，UP 管理相关文案去掉「首页会显示…」的说法。首页原来的「继续学习 / 关注 UP 更新」入口随之消失（UP 名单仍保留、仍能管理，只是不再有页面消费它）。这是本仓库自己的删减，上游没有；细节与 10/10 验收见 [docs/16](docs/16-删除首页.md)。
 
 > **浏览器直接下载**：本机 DSH Web 装了一个只读下载路由（`tools/dsh-download-route/`，`@local/download-route`），打开 `http://127.0.0.1:3080/dl/BiliLite-0.4.9-debug.apk` 即下载（`Content-Disposition: attachment`，MIME `application/vnd.android.package-archive`）。路由只允许工作目录内的相对路径，`..` 穿越返回 403；详见 [docs/09](docs/09-生成可安装APK.md) 的「安装」一节。
+>
+> **想覆盖本地那份旧 APK**：用固定文件名入口 `http://127.0.0.1:3080/dl/BiliLite-latest.apk`——它指向仓库根软链 `BiliLite-latest.apk` → 最新产物，重复下载得到同名文件，浏览器/文件管理器里选「替换」就覆盖了本地那份；出完新包跑 `tools/build/link-latest-apk.sh` 刷新软链。
 
 > **已经能出安装包**：`app/` 源码 → `npm run build` → `cap sync` → `gradlew assembleDebug` 在本机实测通过，当前产物 `BiliLite-0.4.9-debug.apk`（4,105,445 B，签名/对齐校验通过；0.4.8 的 4,108,755 B、0.4.7 的 4,108,456 B、0.4.6 的 4,109,055 B、0.4.5 的 4,107,722 B、0.4.4 的 4,107,559 B 与 0.4.3 的 4,107,542 B 也保留在仓库里），见 [docs/09](docs/09-生成可安装APK.md)。
 

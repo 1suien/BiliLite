@@ -200,8 +200,11 @@ apksigner sign --ks debug.keystore --ks-pass pass:android --key-pass pass:androi
 
 **浏览器直接下载**（本机 DSH Web 上装了 `@local/download-route` 插件，源码在 `tools/dsh-download-route/`，把工作目录做成只读下载路由；只在回环地址下用）：
 
+**固定文件名入口（推荐，方便覆盖本地那份）**：`http://127.0.0.1:3080/dl/BiliLite-latest.apk`。它指向仓库根的软链 `BiliLite-latest.apk` → 版本号最大的产物，重复下载得到的是同名文件（选「替换」就覆盖了旧的）。每次出完新包跑一次 `tools/build/link-latest-apk.sh` 刷新软链即可。
+
 ```
-http://127.0.0.1:3080/dl/BiliLite-0.4.9-debug.apk   # 最新
+http://127.0.0.1:3080/dl/BiliLite-latest.apk        # ★ 固定名，指向最新版本（软链）
+http://127.0.0.1:3080/dl/BiliLite-0.4.9-debug.apk   # 最新（带版本号）
 http://127.0.0.1:3080/dl/BiliLite-0.4.8-debug.apk   # 上一版
 http://127.0.0.1:3080/dl/BiliLite-0.4.7-debug.apk   # 旧版本也留着
 http://127.0.0.1:3080/dl/BiliLite-0.4.6-debug.apk
