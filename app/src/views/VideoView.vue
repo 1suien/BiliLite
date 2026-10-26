@@ -1188,10 +1188,6 @@ async function removeNote(id: number) {
   await loadNotes()
 }
 
-function jumpNote(note: any) {
-  player && player.seek(note.sec)
-}
-
 /* ------------------------------- 其它 ------------------------------- */
 
 function openExternal() {
@@ -1523,21 +1519,22 @@ onBeforeUnmount(() => {
           <RouterLink to="/learn" class="btn sm ghost">
             <Icon name="book" :size="14" /> 学习面板
           </RouterLink>
+          <!-- 小窗播放入口：圆形图标按钮（本机定制；点一下把视频缩成右下角的小圆圈） -->
           <button
             v-if="miniHere"
-            class="btn sm primary"
-            title="把视频收回本页继续播"
+            class="btn sm primary mini-entry"
+            title="正在小窗播放：点一下收回本页继续看"
             @click="fromMini"
           >
-            <Icon name="pip" :size="14" /> 正在小窗播放
+            <Icon name="pip" :size="16" />
           </button>
           <button
             v-else
-            class="btn sm"
-            title="小窗播放：视频缩到右下角的小窗里，接着翻别的页面"
+            class="btn sm mini-entry"
+            title="小窗播放：视频缩成右下角的小圆圈，点圆圈回到本页继续看"
             @click="toMini"
           >
-            <Icon name="pip" :size="14" /> 小窗播放
+            <Icon name="pip" :size="16" />
           </button>
         </div>
       </div>
@@ -1593,17 +1590,12 @@ onBeforeUnmount(() => {
         <div v-if="!notes.length" class="muted" style="font-size: 12.5px">
           还没有笔记。笔记按分P独立保存：「回车」换行，点「保存」把「时间点 + 想法」存到本地。
         </div>
-        <div v-for="n in notes" :key="n.id" class="field">
+        <div v-for="n in notes" :key="n.id" class="field note-row">
           <label class="mono" style="width: 62px">{{ formatClock(n.sec) }}</label>
           <div class="ctrl" style="white-space: pre-wrap">{{ n.text }}</div>
-          <div class="row" style="flex: none">
-            <button class="btn sm ghost" title="跳转" @click="jumpNote(n)">
-              <Icon name="play" :size="13" />
-            </button>
-            <button class="btn sm danger" title="删除" @click="removeNote(n.id)">
-              <Icon name="trash" :size="13" />
-            </button>
-          </div>
+          <button class="btn sm danger note-del" title="删除这条笔记" @click="removeNote(n.id)">
+            <Icon name="trash" :size="13" />
+          </button>
         </div>
       </div>
 

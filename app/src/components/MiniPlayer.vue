@@ -58,23 +58,23 @@ let dragOffset: { dx: number; dy: number } | null = null
 /** 上一次 tap 的时间（pointerup + click 去重） */
 let lastTap = 0
 
-const size = computed(() => mini.size)
+/** 圆形气泡直径（px）；进度环半径 47（viewBox 100，描边 3，留 2px 边距） */
+const BUBBLE = 112
+const RING_LEN = 2 * Math.PI * 47
+
 const rootStyle = computed(() => {
   const left = mini.x >= 0 ? mini.x : null
   const top = mini.y >= 0 ? mini.y : null
   return {
-    width: size.value.w + 'px',
-    ...(left == null ? { right: '22px' } : { left: left + 'px' }),
-    ...(top == null ? { bottom: '84px' } : { top: top + 'px' }),
+    ...(left == null ? { right: '18px' } : { left: left + 'px' }),
+    ...(top == null ? { bottom: '96px' } : { top: top + 'px' }),
   }
 })
 
-/** 把坐标夹到可视区内（整窗含底栏的高度也要算进去） */
+/** 把坐标夹到可视区内（圆形气泡是正方形） */
 function clampPos(x: number, y: number) {
-  const w = size.value.w
-  const h = size.value.h + 30
-  const maxX = Math.max(8, window.innerWidth - w - 8)
-  const maxY = Math.max(8, window.innerHeight - h - 8)
+  const maxX = Math.max(8, window.innerWidth - BUBBLE - 8)
+  const maxY = Math.max(8, window.innerHeight - BUBBLE - 8)
   return {
     x: Math.min(maxX, Math.max(8, x)),
     y: Math.min(maxY, Math.max(8, y)),
@@ -296,42 +296,6 @@ function scheduleResume() {
   }, 1500)
 }
 
-/** 播放/暂停（视频区双击、底栏按钮） */
-function togglePlay() {
-  const v = videoEl.value
-  if (!player || !v) {
-    ensureLoad()
-    return
-  }
-  if (v.paused) {
-    userPaused = false
-    ensurePlay()
-  } else {
-    userPaused = true
-    player.pause()
-  }
-}
-
-/** 点进度条跳转 */
-function seekTo(e: MouseEvent) {
-  if (!player) return
-  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-  const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width))
-  player.seek(ratio * (mini.duration || 0))
-  if (videoEl.value && videoEl.value.paused) ensurePlay()
-}
-
-/** 静音开关 */
-function toggleMute() {
-  muted.value = !muted.value
-  applyAudio()
-  if (!muted.value && (!Number.isFinite(volume) || volume <= 0.01)) {
-    volume = 0.8
-    if (player) player.setVolume(volume)
-  }
-  if (!muted.value && videoEl.value && videoEl.value.paused) ensurePlay()
-}
-
 /** 回到视频页（带上当前进度） */
 function backToVideo() {
   if (!mini.bvid) return mini.close()
@@ -340,38 +304,44 @@ function backToVideo() {
   router.push(target)
 }
 
-// ---- 拖动 ----
+// ---- 拖动（整个圆圈都能拖；松手时位移小才算「点」） ----
+let dragFrom: { x: number; y: number } | null = null
+let justDraggedAt = 0
+
 function endDrag() {
   window.removeEventListener('pointermove', onDragMove)
   window.removeEventListener('pointerup', endDrag)
   window.removeEventListener('pointercancel', endDrag)
-  if (dragOffset) {
-    dragOffset = null
+  if (dragging.value) {
     dragging.value = false
+    justDraggedAt = Date.now()
     mini.persist()
   }
+  dragFrom = null
+  dragOffset = null
 }
 
 function onDragMove(e: PointerEvent) {
-  if (!dragOffset) return
+  if (!dragOffset || !dragFrom) return
+  if (!dragging.value) {
+    const moved = Math.hypot(e.clientX - dragFrom.x, e.clientY - dragFrom.y)
+    if (moved < 8) return
+    dragging.value = true
+  }
   moveTo(e.clientX - dragOffset.dx, e.clientY - dragOffset.dy)
 }
 
 function startDrag(e: PointerEvent) {
   if (e.button !== 0) return
-  const target = e.target as HTMLElement | null
-  // 头部按钮自己处理点击，不让它触发拖动
-  if (target && target.closest && target.closest('button')) return
   const rect = rootEl.value ? rootEl.value.getBoundingClientRect() : { left: mini.x, top: mini.y }
+  dragFrom = { x: e.clientX, y: e.clientY }
   dragOffset = { dx: e.clientX - rect.left, dy: e.clientY - rect.top }
-  dragging.value = true
   window.addEventListener('pointermove', onDragMove)
   window.addEventListener('pointerup', endDrag)
   window.addEventListener('pointercancel', endDrag)
-  e.preventDefault()
 }
 
-/** 窗口尺寸变化 / 换大小后重新夹住位置 */
+/** 窗口尺寸变化后重新夹住位置 */
 function onResize() {
   if (mini.x < 0) return
   moveTo(mini.x, mini.y)
@@ -379,14 +349,14 @@ function onResize() {
 
 /**
  * tap 去重：WebView 里 pointerup 和 click 都会来，500ms 内只执行一次；
- * 拖动过程中（dragging）直接忽略。原实现还会写 window.__tapLog，属于调试埋点，这里去掉。
+ * 刚拖动过（<350ms）忽略，避免拖完顺带点到。
  */
 function tap(e: Event | undefined, fn: () => void) {
-  if (dragging.value) return
+  if (dragging.value || Date.now() - justDraggedAt < 350) return
   const now = Date.now()
   if (e && e.type === 'click' && lastTap && now - lastTap < 500) return
   lastTap = now
-  if (e && typeof e.stopPropagation === 'function') e.stopPropagation()
+  // 注意：这里不能 stopPropagation，否则 window 上的 pointerup（endDrag）收不到，拖动监听会泄漏
   fn()
 }
 
@@ -394,10 +364,7 @@ onMounted(() => {
   // 第一次出现：没存过位置就摆到右下角，然后落盘
   if (mini.x < 0) {
     nextTick(() => {
-      moveTo(
-        window.innerWidth - size.value.w - 26,
-        window.innerHeight - size.value.h - 110,
-      )
+      moveTo(window.innerWidth - BUBBLE - 22, window.innerHeight - BUBBLE - 104)
       mini.persist()
     })
   }
@@ -415,267 +382,181 @@ watch([() => mini.open, () => mini.seq], ([open]) => {
   if (open) ensureLoad()
   else stop()
 })
-
-watch(
-  () => mini.sizeIndex,
-  () => {
-    if (mini.x >= 0) onResize()
-  },
-)
 </script>
 
 <template>
   <div
     v-if="mini.open"
     ref="rootEl"
-    :class="['mini-player', { dragging, collapsed: mini.minimized }]"
+    :class="['mini-player', { dragging }]"
     :style="rootStyle"
+    @pointerdown="startDrag"
   >
-    <div class="mp-head" title="按住拖动小窗" @pointerdown="startDrag">
-      <Icon name="pip" :size="14" />
-      <span class="mp-title clamp-1">{{ mini.title || '小窗播放' }}</span>
-      <button
-        class="mp-btn"
-        draggable="false"
-        :title="mini.minimized ? '展开小窗' : '收起成一条'"
-        @pointerdown.stop="() => {}"
-        @pointerup="tap($event, mini.toggleMinimize)"
-        @click="tap($event, mini.toggleMinimize)"
-      >
-        <Icon :name="mini.minimized ? 'up' : 'down'" :size="13" />
-      </button>
-      <button
-        class="mp-btn"
-        draggable="false"
-        title="换大小"
-        @pointerdown.stop="() => {}"
-        @pointerup="tap($event, mini.cycleSize)"
-        @click="tap($event, mini.cycleSize)"
-      >
-        <!-- 原实现写的是 name="size"，icons.ts 里没有这个图标（APK 里渲染为空），这里用 expand -->
-        <Icon name="expand" :size="13" />
-      </button>
-      <button
-        class="mp-btn"
-        draggable="false"
-        title="回到视频页"
-        @pointerdown.stop="() => {}"
-        @pointerup="tap($event, backToVideo)"
-        @click="tap($event, backToVideo)"
-      >
-        <Icon name="external" :size="13" />
-      </button>
-      <button
-        class="mp-btn danger"
-        draggable="false"
-        title="关闭小窗"
-        @pointerdown.stop="() => {}"
-        @pointerup="tap($event, mini.close)"
-        @click="tap($event, mini.close)"
-      >
-        <Icon name="x" :size="13" />
-      </button>
+    <video ref="videoEl" class="mp-video" playsinline></video>
+    <div class="mp-shade"></div>
+
+    <!-- 进度环：沿圆圈一圈显示播放进度 -->
+    <svg class="mp-ring" viewBox="0 0 100 100" aria-hidden="true">
+      <circle class="mp-ring-bg" cx="50" cy="50" r="47" />
+      <circle
+        class="mp-ring-fg"
+        cx="50"
+        cy="50"
+        r="47"
+        :style="{ strokeDashoffset: String(RING_LEN * (1 - mini.pct / 100)) }"
+      />
+    </svg>
+
+    <div v-if="!mini.playing" class="mp-badge">
+      <Icon :name="mini.error ? 'refresh' : 'play'" :size="24" />
     </div>
 
-    <div v-show="!mini.minimized" class="mp-body">
-      <video
-        ref="videoEl"
-        class="mp-video"
-        playsinline
-        @dblclick="togglePlay"
-      ></video>
-      <div v-if="mini.error" class="mp-overlay">
-        <div class="mp-err">{{ mini.error }}</div>
-        <button
-          class="btn sm"
-          draggable="false"
-          @pointerup="tap($event, ensureLoad)"
-          @click="tap($event, ensureLoad)"
-        >
-          重试
-        </button>
-      </div>
-      <template v-else-if="mini.playing">
-        <div v-if="mini.status" class="mp-status mono">{{ mini.status }}</div>
-        <div v-else-if="muted" class="mp-status mono">已静音播放，点右下角开声音</div>
-      </template>
-      <div
-        v-else
-        class="mp-overlay soft"
-        @pointerup="tap($event, ensurePlay)"
-        @click="tap($event, ensurePlay)"
-      >
-        <Icon name="play" :size="30" />
-        <span class="mp-tip">{{
-          mini.status || (blocked ? '点了播放但被系统拦下，再点一下这里' : '点一下继续播放')
-        }}</span>
-      </div>
-    </div>
+    <button
+      class="mp-close"
+      draggable="false"
+      title="关闭小窗"
+      @pointerdown.stop="() => {}"
+      @pointerup="tap($event, mini.close)"
+      @click="tap($event, mini.close)"
+    >
+      <Icon name="x" :size="11" />
+    </button>
 
-    <div v-show="!mini.minimized" class="mp-foot">
-      <button
-        class="mp-btn"
-        draggable="false"
-        :title="mini.playing ? '暂停' : '播放'"
-        @pointerdown.stop="() => {}"
-        @pointerup="tap($event, togglePlay)"
-        @click="tap($event, togglePlay)"
-      >
-        <Icon :name="mini.playing ? 'pause' : 'play'" :size="14" />
-      </button>
-      <span class="mp-time mono">{{ mini.clock }}</span>
-      <div class="mp-bar" title="点一下跳转" @click="seekTo">
-        <div class="mp-track">
-          <i :style="{ width: mini.pct + '%' }"></i>
-        </div>
-      </div>
-      <button
-        class="mp-btn"
-        draggable="false"
-        :title="mini.error ? '重新加载' : '静音开关'"
-        @pointerdown.stop="() => {}"
-        @pointerup="tap($event, toggleMute)"
-        @click="tap($event, toggleMute)"
-      >
-        <Icon :name="muted ? 'mute' : 'volume'" :size="14" />
-      </button>
-    </div>
+    <button
+      class="mp-tap"
+      draggable="false"
+      :title="
+        mini.error
+          ? `播放出错：${mini.error}（点一下回到视频页）`
+          : '点一下回到视频页继续看；按住可拖动位置'
+      "
+      @pointerup="tap($event, backToVideo)"
+      @click="tap($event, backToVideo)"
+    >
+      <span v-if="mini.error" class="mp-tip">出错了，点一下回视频页</span>
+      <span v-else-if="mini.status" class="mp-tip">{{ mini.status }}</span>
+      <span v-else class="mp-clock mono">{{ mini.clock }}</span>
+    </button>
   </div>
 </template>
 
 <style scoped>
+/* 圆形气泡小窗（本机定制：原来的长方形小窗改成右下角的小圆圈，点圆圈回到视频页继续看） */
 .mini-player {
   position: fixed;
   z-index: 60;
-  background: var(--card);
-  border: 1px solid var(--line-strong);
-  border-radius: 12px;
-  box-shadow: 0 18px 46px #0000006b;
-  overflow: hidden;
+  width: 112px;
+  height: 112px;
+  border-radius: 50%;
+  /* 不裁切根元素：右上角关闭按钮要能被点到（圆的角落会被 overflow:hidden 裁掉命中区） */
+  overflow: visible;
+  background: #000;
+  border: 2px solid var(--line-strong);
+  box-shadow: 0 14px 34px #0000008c;
   user-select: none;
+  touch-action: none;
+  cursor: grab;
 }
 .mini-player.dragging {
   opacity: 0.92;
   cursor: grabbing;
 }
-.mp-head {
-  height: 32px;
+.mp-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background: #000;
+  border-radius: 50%;
+  overflow: hidden;
+}
+.mp-shade {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, #0000 52%, #00000038 100%);
+  pointer-events: none;
+}
+.mp-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+  pointer-events: none;
+}
+.mp-ring circle {
+  fill: none;
+  stroke-width: 3;
+}
+.mp-ring-bg {
+  stroke: #ffffff2e;
+}
+.mp-ring-fg {
+  stroke: var(--brand);
+  stroke-linecap: round;
+  stroke-dasharray: 295.31;
+  transition: stroke-dashoffset 0.25s linear;
+}
+.mp-badge {
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 6px 0 10px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--line);
-  cursor: grab;
-  color: var(--t2);
+  justify-content: center;
+  background: #00000066;
+  color: #fff;
+  pointer-events: none;
 }
-.mini-player.collapsed .mp-head {
-  border-bottom: none;
-}
-.mp-title {
-  flex: 1;
-  min-width: 0;
-  font-size: 12px;
-  color: var(--t1);
-}
-.mp-btn {
-  width: 26px;
-  height: 26px;
+.mp-close {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 3;
+  width: 24px;
+  height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: 6px;
-  background: none;
-  color: var(--t2);
-  cursor: pointer;
-  flex: none;
-}
-.mp-btn:hover {
-  background: var(--line);
-  color: var(--t1);
-}
-.mp-btn.danger:hover {
-  background: var(--danger);
+  border-radius: 50%;
+  background: #000000a8;
   color: #fff;
+  cursor: pointer;
 }
-.mp-body {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  background: #000;
-}
-.mp-video {
-  width: 100%;
-  height: 100%;
-  display: block;
-  background: #000;
-}
-.mp-overlay {
+.mp-tap {
   position: absolute;
-  inset: 0;
+  inset: 7px;
+  z-index: 2;
   display: flex;
-  flex-direction: column;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
-  gap: 8px;
-  background: #0000008c;
-  color: #fff;
-  text-align: center;
-  padding: 10px;
-}
-.mp-overlay.soft {
-  background: #00000059;
+  padding: 0 0 9px;
+  border: none;
+  border-radius: 50%;
+  background: none;
   cursor: pointer;
-}
-.mp-err {
-  font-size: 12px;
-  line-height: 1.5;
-}
-.mp-tip {
-  font-size: 11.5px;
-  color: #ffffffd9;
-}
-.mp-status {
-  position: absolute;
-  left: 8px;
-  bottom: 8px;
-  font-size: 11px;
-  color: #fff;
-  background: #00000080;
-  border-radius: 6px;
-  padding: 2px 6px;
-}
-.mp-foot {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 8px;
-  height: 30px;
-  border-top: 1px solid var(--line);
-}
-.mp-time {
-  font-size: 11px;
-  color: var(--t3);
-  flex: none;
-}
-.mp-bar {
-  flex: 1;
-  height: 16px;
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-}
-.mp-track {
-  width: 100%;
-  height: 4px;
-  border-radius: 999px;
-  background: var(--line-strong);
   overflow: hidden;
 }
-.mp-track i {
-  display: block;
-  height: 100%;
-  background: var(--accent);
+.mp-tip {
+  font-size: 10px;
+  line-height: 1.25;
+  color: #fff;
+  background: #000000a8;
+  border-radius: 6px;
+  padding: 1px 5px;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mp-clock {
+  font-size: 10px;
+  color: #fff;
+  background: #000000a8;
+  border-radius: 6px;
+  padding: 1px 5px;
 }
 </style>

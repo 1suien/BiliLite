@@ -350,6 +350,30 @@ textarea.input {
   resize: vertical;
   min-height: 54px;
 }
+/* 笔记条目（本机定制）：时间点 + 正文 + 最右侧删除；不再放「跳转」按钮 */
+.field.note-row {
+  grid-template-columns: 62px minmax(0, 1fr) auto;
+  align-items: start;
+}
+.field.note-row > label {
+  width: 62px;
+  padding-top: 2px;
+}
+.field.note-row .note-del {
+  justify-self: end;
+  align-self: start;
+  margin-top: -2px;
+}
+/* 小窗播放入口（本机定制）：圆形图标按钮，替代原来的文字按钮 */
+.btn.sm.mini-entry {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  min-height: 34px; /* .btn.sm 的 min-height: var(--tap) 会把它撑成 36，这里压回去 */
+  padding: 0;
+  border-radius: 50%;
+  justify-content: center;
+}
 input[type="range"] {
   accent-color: var(--brand);
   cursor: pointer;
