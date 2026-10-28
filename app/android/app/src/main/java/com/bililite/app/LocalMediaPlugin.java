@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.ClipData;
 import android.content.ContentResolver;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
@@ -127,20 +128,47 @@ public class LocalMediaPlugin extends Plugin {
     }
   }
 
-  /** 选择「文件夹」导入（本机构建 0.4.23）：SAF 目录选择 → 递归收集音视频 → 复制进私有目录 */
+  /**
+   * 选择「文件夹」导入（0.4.23 起，0.4.24 加固）：SAF 目录选择 → 递归收集音视频 → 复制进私有目录。
+   *
+   * 0.4.24 修复：不再先用 resolveActivity() 预判——Android 11+ 的包可见性会让它误报「没有选择器」，
+   * 用户看到的就是「无法导入文件夹」。现在直接 startActivity，真失败再抛；错误文案里带诊断信息。
+   */
   @PluginMethod
   public void pickFolderAndImport(PluginCall call) {
     Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-    if (!canHandle(intent)) {
-      // 个别 ROM 把 DocumentsUI 裁了：让 JS 回退到「本地导入」选文件
-      call.reject("这台设备没有可用的系统文件夹选择器，可以改用「本地导入」选文件");
-      return;
-    }
+    intent.addFlags(
+      Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+    );
     try {
       startActivityForResult(call, intent, "folderPickResult");
+    } catch (android.content.ActivityNotFoundException e) {
+      call.reject("这台设备没有可用的系统文件夹选择器，可以改用「本地导入」选文件（" + pickerDiag() + "）");
     } catch (Throwable e) {
-      call.reject("打开文件夹选择器失败：" + e.getMessage());
+      call.reject("打开文件夹选择器失败：" + e.getMessage() + "（" + pickerDiag() + "）");
+    }
+  }
+
+  /** 记录选择器相关环境（0.4.24）：出问题时错误文案里带上，便于判断是包可见性还是 ROM 裁了 DocumentsUI */
+  private String pickerDiag() {
+    try {
+      PackageManager pm = getContext().getPackageManager();
+      Intent tree = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+      Intent doc = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+      return (
+        "sdk=" +
+        Build.VERSION.SDK_INT +
+        " resolveTree=" +
+        (pm.resolveActivity(tree, 0) == null ? "no" : "yes") +
+        " treeActivities=" +
+        pm.queryIntentActivities(tree, 0).size() +
+        " resolveDoc=" +
+        (pm.resolveActivity(doc, 0) == null ? "no" : "yes") +
+        " docActivities=" +
+        pm.queryIntentActivities(doc, 0).size()
+      );
+    } catch (Throwable e) {
+      return "diag读取失败:" + e;
     }
   }
 
@@ -180,7 +208,7 @@ public class LocalMediaPlugin extends Plugin {
           }
           importUris(call, uris);
         } catch (Throwable e) {
-          call.reject("导入文件夹失败：" + e.getMessage());
+          call.reject("导入文件夹失败：" + e.getMessage() + "（" + pickerDiag() + "）");
         }
       },
       "local-media-folder"

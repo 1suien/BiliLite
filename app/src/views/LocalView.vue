@@ -216,7 +216,7 @@ async function importEntries(entries: any[]) {
  * 之后刷新/重启都还能播。
  */
 /**
- * 选「文件夹」导入（本机构建 0.4.23）
+ * 选「文件夹」导入（本机构建 0.4.23 起，0.4.24 加固：选择器打不开时自动退化成选文件）
  *
  * 安卓走原生 SAF 目录选择（ACTION_OPEN_DOCUMENT_TREE），把目录树里的音视频递归复制进
  * App 私有目录；没有目录选择器的 ROM / 浏览器里回退成普通选文件。
@@ -225,9 +225,19 @@ async function importFolder() {
   if (busy.value) return
   busy.value = true
   try {
-    const res: any = bili.local.pickFolderImport
-      ? await bili.local.pickFolderImport()
-      : await bili.local.pickFolder()
+    let res: any = null
+    if (bili.local.pickFolderImport) {
+      try {
+        res = await bili.local.pickFolderImport()
+      } catch (e: any) {
+        // 0.4.24：文件夹选择器打不开（ROM 裁了 DocumentsUI / 包可见性误判）时自动退化成「选文件」，
+        // 至少能让用户把视频导进来，别卡在按不动的按钮上。
+        ui.toast(`${(e && e.message) || '文件夹选择器不可用'}，已改为选文件（可多选）`, 'info', 4200)
+        res = await bili.local.pickFolder()
+      }
+    } else {
+      res = await bili.local.pickFolder()
+    }
     if (res && res.canceled) return
     const entries = (res && res.entries) || []
     if (!entries.length) {

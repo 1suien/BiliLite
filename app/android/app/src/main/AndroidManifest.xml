@@ -1,6 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- 本机定制 0.4.24：Android 11+ 的包可见性。声明后 resolveActivity 才能看到系统选择器；
+         实际启动走 startActivity，本来就不受可见性限制，这里只是让诊断/预判也准。 -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.OPEN_DOCUMENT_TREE" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.OPEN_DOCUMENT" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.GET_CONTENT" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
