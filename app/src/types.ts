@@ -234,6 +234,35 @@ export interface FocusTarget {
   color: string
   archived: boolean
   createdAt: number
+  /** 本机定制 0.4.12：这个目标每天要提醒的时间点（HH:MM，可多个） */
+  reminders?: string[]
+}
+
+/** 课表课程（Dexie: courses 表，本机定制 0.4.12） */
+export interface Course {
+  id?: number
+  /** 课程名 */
+  name: string
+  /** 星期：1=周一 … 7=周日 */
+  weekday: number
+  /** 开始 / 结束时间，HH:MM */
+  start: string
+  end: string
+  location: string
+  teacher: string
+  /** 色板 key，见 stores/settings.ts 的 FOCUS_COLOR_KEYS */
+  color: string
+  /** 关联的专注目标名（可空） */
+  targetName: string
+  /** 关联的 B 站视频 BV 号（可空） */
+  bvid: string
+  videoTitle: string
+  /** 到点提醒 */
+  remindOn: boolean
+  /** 提前几分钟提醒：0 / 5 / 10 / 15 */
+  remindLead: number
+  note: string
+  createdAt: number
 }
 
 /** 专注记录（Dexie: focus 表） */

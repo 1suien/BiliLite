@@ -12,6 +12,7 @@ import { useRoute, useRouter } from 'vue-router'
 import Icon from '@/components/Icon.vue'
 import BiliImage from '@/components/BiliImage.vue'
 import PageFloat from '@/components/PageFloat.vue'
+import ReminderCards from '@/components/ReminderCards.vue'
 import MiniPlayer from '@/components/MiniPlayer.vue'
 import Toasts from '@/components/Toasts.vue'
 import LoginModal from '@/components/LoginModal.vue'
@@ -21,6 +22,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useSettingsStore } from '@/stores/settings'
 import { useLearnStore } from '@/stores/learn'
 import { useHabitsStore } from '@/stores/habits'
+import { useRemindStore } from '@/stores/remind'
 import { useUpsStore } from '@/stores/ups'
 import { toHours } from '@/utils/format'
 
@@ -36,6 +38,7 @@ const auth = useAuthStore()
 const settings = useSettingsStore()
 const learn = useLearnStore()
 const habits = useHabitsStore()
+const remind = useRemindStore()
 const ups = useUpsStore()
 const ui = useUiStore()
 
@@ -72,6 +75,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/fav', icon: 'star', label: '收藏' },
   { to: '/learn', icon: 'book', label: '学习' },
   { to: '/habit', icon: 'check', label: '习惯' },
+  { to: '/schedule', icon: 'grid', label: '课表' },
   { to: '/local', icon: 'film', label: '本地' },
   { to: '/settings', icon: 'settings', label: '设置' },
 ]
@@ -199,6 +203,12 @@ onMounted(async () => {
   } catch (e: any) {
     console.warn('[habit] 习惯数据初始化失败：', e && e.message)
   }
+  // 本机构建 0.4.12：专注目标 / 课表的到点提醒（习惯提醒走 habits.startReminders）
+  try {
+    remind.start()
+  } catch (e: any) {
+    console.warn('[remind] 提醒中心启动失败：', e && e.message)
+  }
 
   keyHandler = onKeydown
   window.addEventListener('keydown', keyHandler)
@@ -208,6 +218,7 @@ onUnmounted(() => {
   // 原实现没有解绑（单例外壳不会卸载），这里补上以便 HMR 不叠加监听
   if (keyHandler) window.removeEventListener('keydown', keyHandler)
   keyHandler = null
+  remind.stop()
 })
 </script>
 
@@ -353,6 +364,7 @@ onUnmounted(() => {
 
     <PageFloat />
     <MiniPlayer />
+    <ReminderCards />
     <Toasts />
     <LoginModal />
     <ConfirmModal />

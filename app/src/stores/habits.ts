@@ -184,6 +184,8 @@ export const useHabitsStore = defineStore('habits', {
           id: Number(log.habitId) || 0,
           name: names.get(Number(log.habitId)) || '（已删除的习惯）',
           at: Number(log.at) || 0,
+          // 本机构建 0.4.12：打卡时可以顺手写一句心得，记录里要能看到
+          note: String((log as any).note || '').trim(),
         })
       }
       return [...groups.entries()]
@@ -252,19 +254,29 @@ export const useHabitsStore = defineStore('habits', {
       ui.ok('已保存')
       return rec
     },
-    /** 切换今天（或指定日）打卡 */
-    async toggle(id: number | string, date = dayKey(new Date())) {
+    /** 切换今天（或指定日）打卡；note 是这一天的打卡心得（可选，本机构建 0.4.12） */
+    async toggle(id: number | string, date = dayKey(new Date()), note = '') {
       const done = !this.isDone(id, date)
-      await db.setHabitLog(Number(id), date, done)
+      await db.setHabitLog(Number(id), date, done, done ? note : '')
       await this.reload()
       const ui = useUiStore()
       if (done) {
         const stats = this.statsOf(id)
-        ui.ok(stats.streak > 1 ? `已打卡 · 连续 ${stats.streak} 天` : '已打卡')
+        const text = String(note || '').trim()
+        ui.ok(text ? '已打卡，心得也存下了' : stats.streak > 1 ? `已打卡 · 连续 ${stats.streak} 天` : '已打卡')
       } else {
         ui.toast('已取消打卡')
       }
       return done
+    },
+
+    /** 给已打卡的那天补/改心得（不改打卡状态） */
+    async setLogNote(id: number | string, date: string, note = '') {
+      const habitId = Number(id) || 0
+      if (!habitId || !this.isDone(habitId, date)) return false
+      await db.setHabitLog(habitId, date, true, note)
+      await this.reload()
+      return true
     },
     async setDay(id: number | string, date: string, done: boolean) {
       await db.setHabitLog(Number(id), date, done)
@@ -345,11 +357,18 @@ export const useHabitsStore = defineStore('habits', {
       const names = due.map((h) => h.name)
       let pushed = false
       if (opts.notify !== false) {
+        // 系统通知（安卓 WebView 拿不到权限时静默失败）
         pushed = notify(
           names.length === 1 ? `该打卡了 · ${names[0]}` : `该打卡了 · ${names.length} 个习惯`,
           names.join('、'),
         )
-        useUiStore().toast(`该打卡了：${names.join('、')}`, 'info', 6000)
+        // 本机构建 0.4.12：右下角常驻卡片（不自动消失，点「去打卡」直接跳过去）
+        try {
+          const { useRemindStore } = await import('@/stores/remind')
+          useRemindStore().pushHabits(due, day)
+        } catch {
+          useUiStore().toast(`该打卡了：${names.join('、')}`, 'info', 6000)
+        }
       }
       this.lastReminder = { day, at: now, due: names, notified: names.length, pushed }
       return this.lastReminder

@@ -171,12 +171,20 @@ export const useSettingsStore = defineStore('settings', {
     /** 规范化并保存专注目标（最多 24 个，focusTasks 最多 8 个） */
     async setFocusTargets(list: FocusTarget[]) {
       const targets = (Array.isArray(list) ? list : [])
-        .map((t: any) => ({
-          name: String((t && t.name) || '').trim().slice(0, 12),
-          color: FOCUS_COLORS[t && t.color] ? t.color : FOCUS_COLOR_KEYS[0],
-          archived: !!(t && t.archived),
-          createdAt: Number(t && t.createdAt) || Date.now(),
-        }))
+        .map((t: any) => {
+          // 本机构建 0.4.12：一个目标可以设多个提醒时间（每天重复）
+          const reminders = (Array.isArray(t && t.reminders) ? t.reminders : [])
+            .map((x: any) => String(x || '').trim())
+            .filter((x: string) => /^\d{2}:\d{2}$/.test(x))
+          const times = [...new Set(reminders)].sort().slice(0, 8)
+          return {
+            name: String((t && t.name) || '').trim().slice(0, 12),
+            color: FOCUS_COLORS[t && t.color] ? t.color : FOCUS_COLOR_KEYS[0],
+            archived: !!(t && t.archived),
+            createdAt: Number(t && t.createdAt) || Date.now(),
+            ...(times.length ? { reminders: times } : {}),
+          }
+        })
         .filter((t) => t.name)
         .slice(0, 24)
       await this.patch({
@@ -184,6 +192,20 @@ export const useSettingsStore = defineStore('settings', {
         focusTasks: targets.filter((t) => !t.archived).map((t) => t.name).slice(0, 8),
       })
       return targets
+    },
+    /** 设置某个专注目标的多提醒时间（本机构建 0.4.12） */
+    async setTargetReminders(name: string, times: string[]) {
+      const key = String(name || '').trim()
+      if (!key) return false
+      const list = Array.isArray(this.settings.focusTargets) ? [...this.settings.focusTargets] : []
+      const idx = list.findIndex((t: any) => String(t && t.name) === key)
+      if (idx < 0) return false
+      const clean = [...new Set((Array.isArray(times) ? times : [])
+        .map((x: any) => String(x || '').trim())
+        .filter((x: string) => /^\d{2}:\d{2}$/.test(x)))].sort().slice(0, 8)
+      list[idx] = { ...list[idx], ...(clean.length ? { reminders: clean } : { reminders: [] }) } as any
+      await this.setFocusTargets(list)
+      return true
     },
   },
 })

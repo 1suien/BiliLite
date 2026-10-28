@@ -11,6 +11,8 @@ const FavView = () => import('@/views/FavView.vue')
 const FavFolderView = () => import('@/views/FavFolderView.vue')
 const LearnView = () => import('@/views/LearnView.vue')
 const HabitView = () => import('@/views/HabitView.vue')
+// 本机构建 0.4.12：周课表
+const ScheduleView = () => import('@/views/ScheduleView.vue')
 const LocalView = () => import('@/views/LocalView.vue')
 const LocalPlayerView = () => import('@/views/LocalPlayerView.vue')
 const UpManageView = () => import('@/views/UpManageView.vue')
@@ -26,6 +28,7 @@ export const routes: RouteRecordRaw[] = [
   { path: '/fav/:mediaId', name: 'fav-folder', component: FavFolderView, meta: { title: '收藏夹' } },
   { path: '/learn', name: 'learn', component: LearnView, meta: { title: '学习' } },
   { path: '/habit', name: 'habit', component: HabitView, meta: { title: '习惯' } },
+  { path: '/schedule', name: 'schedule', component: ScheduleView, meta: { title: '课表' } },
   { path: '/local', name: 'local', component: LocalView, meta: { title: '本地' } },
   { path: '/local/:id', name: 'local-player', component: LocalPlayerView, meta: { title: '播放' } },
   { path: '/ups', name: 'ups', component: UpManageView, meta: { title: 'UP 管理' } },

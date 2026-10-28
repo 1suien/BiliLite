@@ -181,6 +181,42 @@ async function startFocus(t: FocusTarget) {
   pomo.setTask({ name })
   pomo.start()
 }
+
+/* -------------------- 多提醒时间（本机构建 0.4.12） -------------------- */
+/** 正在编辑提醒的目标名（空 = 没开弹层） */
+const remindFor = ref('')
+const remindDraft = ref('08:00')
+const remindTimes = computed<string[]>(() => {
+  const t = targets.value.find((x) => x.name === remindFor.value)
+  return t && Array.isArray(t.reminders) ? (t.reminders as string[]) : []
+})
+
+function openRemind(t: FocusTarget) {
+  remindFor.value = t.name
+  remindDraft.value = remindTimes.value[0] || '08:00'
+}
+
+async function addRemind() {
+  const v = String(remindDraft.value || '').trim()
+  if (!/^\d{2}:\d{2}$/.test(v)) {
+    ui.err('时间格式是 HH:MM')
+    return
+  }
+  if (remindTimes.value.includes(v)) {
+    ui.toast('这个时间已经加过了')
+    return
+  }
+  await settings.setTargetReminders(remindFor.value, [...remindTimes.value, v])
+  ui.ok(`已加提醒 ${v}`)
+}
+
+async function removeRemind(time: string) {
+  await settings.setTargetReminders(remindFor.value, remindTimes.value.filter((x) => x !== time))
+}
+
+function closeRemind() {
+  remindFor.value = ''
+}
 </script>
 
 <template>
@@ -267,6 +303,16 @@ async function startFocus(t: FocusTarget) {
           </button>
         </template>
         <template v-else>
+          <button
+            class="ft-remind"
+            :class="{ on: (t.reminders || []).length > 0 }"
+            :title="(t.reminders || []).length ? `已设 ${(t.reminders || []).length} 个提醒时间` : '设置到点提醒'"
+            aria-label="提醒时间"
+            @click="openRemind(t)"
+          >
+            <Icon name="clock" :size="14" />
+            <span v-if="(t.reminders || []).length" class="ft-remind-n">{{ (t.reminders || []).length }}</span>
+          </button>
           <button class="ft-arch" title="归档（历史记录都留着）" aria-label="归档" @click="archive(t)">
             <Icon name="archive" :size="14" />
           </button>
@@ -287,6 +333,37 @@ async function startFocus(t: FocusTarget) {
       <p class="muted">
         {{ tab === 'archived' ? '还没有归档的目标。' : '还没有目标，点右上角 ＋ 加一个。' }}
       </p>
+    </div>
+
+    <!-- 多提醒时间弹层（本机构建 0.4.12） -->
+    <div v-if="remindFor" class="ft-mask" @click.self="closeRemind">
+      <div class="ft-dialog" role="dialog" aria-label="提醒时间">
+        <div class="row" style="align-items: center; gap: 8px">
+          <Icon name="clock" :size="15" />
+          <b>「{{ remindFor }}」的提醒</b>
+          <span class="grow" />
+          <button class="btn sm ghost" title="关闭" aria-label="关闭" @click="closeRemind">
+            <Icon name="x" :size="14" />
+          </button>
+        </div>
+        <p class="muted ft-dialog-tip">每天到点弹一张右下角提醒卡片，可以设多个时间（最多 8 个）。</p>
+        <div class="ft-remind-list">
+          <span v-for="time in remindTimes" :key="time" class="chip plain ft-chip">
+            {{ time }}
+            <button class="ft-chip-x" :aria-label="`删除 ${time}`" :title="`删除 ${time}`" @click="removeRemind(time)">
+              <Icon name="x" :size="11" />
+            </button>
+          </span>
+          <span v-if="!remindTimes.length" class="muted">还没有提醒时间</span>
+        </div>
+        <div class="row" style="gap: 8px; margin-top: 12px">
+          <input v-model="remindDraft" class="input" type="time" style="max-width: 132px" />
+          <button class="btn sm primary" @click="addRemind">添加时间</button>
+        </div>
+        <div class="row" style="justify-content: flex-end; margin-top: 12px">
+          <button class="btn sm ghost" @click="closeRemind">完成</button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -400,6 +477,98 @@ async function startFocus(t: FocusTarget) {
 }
 .ft-row.on {
   background: var(--brand-soft);
+}
+.ft-remind {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--t2);
+  cursor: pointer;
+}
+.ft-remind:hover {
+  background: var(--soft);
+  color: var(--t1);
+}
+.ft-remind.on {
+  color: var(--brand);
+  background: var(--brand-soft);
+  border-color: var(--brand-line);
+}
+.ft-remind-n {
+  position: absolute;
+  right: -3px;
+  top: -4px;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--brand);
+  color: var(--brand-fg, #fff);
+  font-size: 9px;
+  font-family: var(--mono);
+  line-height: 13px;
+  text-align: center;
+}
+.ft-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(0, 0, 0, 0.42);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.ft-dialog {
+  width: min(360px, 100%);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+}
+.ft-dialog-tip {
+  margin: 8px 0 12px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.ft-remind-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 26px;
+  align-items: center;
+}
+.ft-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono);
+}
+.ft-chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+  padding: 0;
+}
+.ft-chip-x:hover {
+  opacity: 1;
+  background: rgba(128, 128, 128, 0.2);
 }
 .ft-row.on:before {
   content: "";

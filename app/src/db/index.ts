@@ -11,6 +11,7 @@ import type {
   FocusSession,
   Habit,
   HabitLog,
+  Course,
   LocalSub,
   LocalVideo,
   ProgressRecord,
@@ -93,6 +94,8 @@ export class BiliLiteDB extends Dexie {
   locals!: Table<LocalVideo, string>
   habits!: Table<Habit, number>
   habitLogs!: Table<HabitLog, string>
+  /** 本机定制 0.4.12：课表 */
+  courses!: Table<Course, number>
 
   constructor() {
     super('study-bili')
@@ -207,6 +210,29 @@ export class BiliLiteDB extends Dexie {
       locals: 'id, path, addedAt, playedAt',
       habits: '++id, name, archived, createdAt',
       habitLogs: 'key, habitId, date',
+    })
+    // 本机定制 0.4.12：新增课表
+    this.version(8).stores({
+      progress: 'key, bvid, updatedAt, completed',
+      daily: 'date',
+      marks: '++id, bvid, cid, sec',
+      notes: '++id, bvid, cid, at',
+      shelf: 'bvid, at',
+      ups: 'mid, group, addedAt',
+      upgroups: 'name, at',
+      collect: '++id, bvid, folder, at',
+      collectfolders: 'name, at',
+      checkins: 'date, at',
+      upTime: 'key, mid, name',
+      books: 'id, addedAt, lastReadAt, format',
+      bookmarks: '++id, bookId, chapterIndex, at',
+      highlights: '++id, bookId, chapterIndex, at',
+      focus: '++id, day, startedAt, task',
+      subs: 'key, bvid, cid, at',
+      locals: 'id, path, addedAt, playedAt',
+      habits: '++id, name, archived, createdAt',
+      habitLogs: 'key, habitId, date',
+      courses: '++id, weekday, start',
     })
   }
 }
@@ -547,6 +573,85 @@ export async function clearHabits() {
     await db.habits.clear()
   } catch (e: any) {
     console.warn('[habit] 习惯数据清空失败：', e && e.message)
+  }
+}
+
+/* ------------------------------- 课表（本机定制 0.4.12） ------------------------------- */
+
+/** HH:MM 加分钟（超过 24 点就截到 23:59） */
+function addMinutes(hhmm: string, minutes: number) {
+  const m = /^(\d{2}):(\d{2})$/.exec(String(hhmm || ''))
+  if (!m) return '08:45'
+  const total = Math.min(23 * 60 + 59, Number(m[1]) * 60 + Number(m[2]) + Number(minutes || 0))
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
+}
+
+export async function listCourses(): Promise<Course[]> {
+  try {
+    const rows = await db.courses.toArray()
+    return rows.sort((a, b) => (a.weekday - b.weekday) || String(a.start).localeCompare(String(b.start)))
+  } catch (e: any) {
+    console.warn('[course] 课表读取失败：', e && e.message)
+    return []
+  }
+}
+
+export async function putCourse(p: Partial<Course> = {}) {
+  const name = String(p.name || '').trim()
+  if (!name) return null
+  const weekday = Math.min(7, Math.max(1, Number(p.weekday) || 1))
+  const start = /^\d{2}:\d{2}$/.test(String(p.start || '')) ? String(p.start) : '08:00'
+  let end = /^\d{2}:\d{2}$/.test(String(p.end || '')) ? String(p.end) : '08:45'
+  if (end <= start) end = addMinutes(start, 45)
+  const rec: Course = {
+    id: Number(p.id) || 0,
+    name: name.slice(0, 40),
+    weekday,
+    start,
+    end,
+    location: String(p.location || '').slice(0, 40),
+    teacher: String(p.teacher || '').slice(0, 40),
+    color: String(p.color || 'blue'),
+    targetName: String(p.targetName || ''),
+    bvid: String(p.bvid || ''),
+    videoTitle: String(p.videoTitle || ''),
+    remindOn: !!p.remindOn,
+    remindLead: [0, 5, 10, 15].includes(Number(p.remindLead)) ? Number(p.remindLead) : 5,
+    note: String(p.note || '').slice(0, 200),
+    createdAt: Number(p.createdAt) || Date.now(),
+  }
+  try {
+    if (rec.id) {
+      await db.courses.put(rec)
+      return rec
+    }
+    // 新增时必须不带 id 字段：带 id: 0 会被 Dexie 当成显式主键写进去，之后一直拿不到自增 id
+    const { id: _drop, ...rest } = rec
+    const id = await db.courses.add(rest as Course)
+    return { ...rec, id: Number(id) }
+  } catch (e: any) {
+    console.warn('[course] 课表保存失败：', e && e.message)
+    return null
+  }
+}
+
+export async function removeCourse(id: number) {
+  const n = Number(id) || 0
+  if (!n) return false
+  try {
+    await db.courses.delete(n)
+    return true
+  } catch (e: any) {
+    console.warn('[course] 课表删除失败：', e && e.message)
+    return false
+  }
+}
+
+export async function clearCourses() {
+  try {
+    await db.courses.clear()
+  } catch (e: any) {
+    console.warn('[course] 课表清空失败：', e && e.message)
   }
 }
 

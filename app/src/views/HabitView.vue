@@ -8,11 +8,13 @@
  * 状态与业务逻辑都在 useHabitsStore 里，这里只负责呈现。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useHabitsStore, WEEKDAYS } from '@/stores/habits'
 import Icon from '@/components/Icon.vue'
 import { todayStr } from '@/utils/format'
 
 const store = useHabitsStore()
+const route = useRoute()
 
 /** 习惯没有头像，用名字哈希稳定挑一个 emoji 当"脸" */
 const EMOJI = ['🙂', '📖', '🏃', '🧘', '✍️', '🎧', '🌙', '☀️', '💪', '🍵', '🧹', '🎹']
@@ -106,8 +108,39 @@ async function toggleDay(cell: any) {
   await store.toggle(selectedId.value, cell.day)
 }
 
+/* -------------------- 打卡心得（本机构建 0.4.12） -------------------- */
+/** 打卡心得弹窗：点「打卡」先弹这个，心得可留空 */
+const noteOpen = ref(false)
+const noteHabitId = ref(0)
+const noteDraft = ref('')
+const noteHabitName = computed(() => {
+  const hit = store.habits.find((h: any) => Number(h.id) === Number(noteHabitId.value))
+  return hit ? hit.name : ''
+})
+
+function openCheckin(id: number | string) {
+  noteHabitId.value = Number(id) || 0
+  noteDraft.value = ''
+  noteOpen.value = true
+}
+
+/** 点「打卡」：今天没打过 → 弹心得；已打过 → 直接取消打卡 */
 async function toggleToday(id: number | string) {
-  await store.toggle(id, todayStr())
+  const target = store.habits.find((h: any) => Number(h.id) === Number(id))
+  if (target && store.daysOf(Number(id)).has(todayStr())) {
+    await store.toggle(id, todayStr())
+    return
+  }
+  openCheckin(id)
+}
+
+async function submitCheckin() {
+  const id = noteHabitId.value
+  if (!id) return
+  const note = noteDraft.value.trim().slice(0, 200)
+  noteOpen.value = false
+  await store.toggle(id, todayStr(), note)
+  noteDraft.value = ''
 }
 
 // 切到没有月份的习惯时（比如刚建完），把月历拉回本月
@@ -121,6 +154,9 @@ watch(
 onMounted(async () => {
   await store.init()
   store.focusMonthOf(todayStr())
+  // 从提醒卡片「去打卡」跳进来时带 ?h=<id>，直接选中那个习惯
+  const want = Number(route.query.h || 0)
+  if (want && store.habits.some((h: any) => Number(h.id) === want)) store.select(want)
 
   // 原构建里留给自动化的探针（APK 中同样存在，保留）
   const raw = (value: any) => JSON.parse(JSON.stringify(value === undefined ? null : value))
@@ -388,8 +424,9 @@ onBeforeUnmount(() => {
             <div v-for="group in logGroups" :key="group.date" class="hb-log-day">
               <span class="hb-log-date mono">{{ group.date }} {{ weekdayOf(group.date) }}</span>
               <span class="hb-log-items">
-                <span v-for="item in group.items" :key="item.id + '-' + item.at" class="chip plain">
+                <span v-for="item in group.items" :key="item.id + '-' + item.at" class="chip plain hb-log-chip">
                   {{ item.name }}
+                  <em v-if="item.note" class="hb-log-note" :title="item.note">{{ item.note }}</em>
                 </span>
               </span>
             </div>
@@ -397,6 +434,33 @@ onBeforeUnmount(() => {
         </template>
 
         <div v-else class="card empty">左边选一个习惯，这里看它的月历和统计。</div>
+      </div>
+    </div>
+
+    <div v-if="noteOpen" class="overlay" @click.self="noteOpen = false">
+      <div class="modal" style="width: 400px" role="dialog" aria-label="打卡心得">
+        <h3>打卡心得</h3>
+        <p class="muted hb-note-tip">
+          给「{{ noteHabitName }}」今天的打卡写一句心得（可以不写，直接打卡也行）。
+        </p>
+        <label class="field hb-note-field">
+          <span>心得</span>
+          <textarea
+            v-model="noteDraft"
+            class="input hb-note-input"
+            name="checkinNote"
+            rows="3"
+            maxlength="200"
+            placeholder="今天做得怎么样？比如：读完 20 页，有点卡在第三题"
+            @keydown.ctrl.enter.prevent="submitCheckin"
+            @keydown.meta.enter.prevent="submitCheckin"
+          ></textarea>
+        </label>
+        <div class="row" style="justify-content: flex-end">
+          <button class="btn" @click="noteOpen = false">取消</button>
+          <button class="btn ghost" name="checkin-bare" @click="submitCheckin">直接打卡</button>
+          <button class="btn primary" name="checkin-save" @click="submitCheckin">打卡并保存</button>
+        </div>
       </div>
     </div>
 
@@ -683,6 +747,38 @@ onBeforeUnmount(() => {
   color: var(--t2);
   min-width: 108px;
   font-size: 12px;
+}
+.hb-log-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+.hb-log-note {
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--muted);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.field.hb-note-field {
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+.hb-note-tip {
+  margin: 6px 0 12px;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.hb-note-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 74px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  font-family: inherit;
 }
 .hb-log-items {
   display: flex;
