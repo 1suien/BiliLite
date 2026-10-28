@@ -1,14 +1,17 @@
 package com.bililite.app;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.ClipData;
 import android.content.ContentResolver;
 import android.content.Intent;
+import android.content.ContentUris;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.DocumentsContract;
+import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 import android.webkit.MimeTypeMap;
 
@@ -21,6 +24,8 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -32,8 +37,11 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 import java.util.Set;
 
@@ -52,7 +60,14 @@ import java.util.Set;
  *
  * 文件全部放在应用私有目录，卸载 App 时随之删除。
  */
-@CapacitorPlugin(name = "LocalMedia")
+@CapacitorPlugin(
+  name = "LocalMedia",
+  permissions = {
+    @Permission(alias = "mediaVideo", strings = { Manifest.permission.READ_MEDIA_VIDEO }),
+    @Permission(alias = "mediaAudio", strings = { Manifest.permission.READ_MEDIA_AUDIO }),
+    @Permission(alias = "mediaStorage", strings = { Manifest.permission.READ_EXTERNAL_STORAGE })
+  }
+)
 public class LocalMediaPlugin extends Plugin {
 
   /** 私有目录下的子目录名 */
@@ -299,6 +314,203 @@ public class LocalMediaPlugin extends Plugin {
     importUris(call, uris);
   }
 
+  /**
+   * 列媒体库里的视频文件夹（本机构建 0.4.26）
+   *
+   * 为什么不用系统「选择文件夹」界面：部分平板/ROM 上 ACTION_OPEN_DOCUMENT_TREE 启动后
+   * 既不显示界面、也不返回结果（0.4.23–0.4.25 的现场故障，界面卡在「正在打开系统选择文件夹」）。
+   * 这里改成直接查 MediaStore（系统媒体库）里的视频，按文件夹（bucket）聚合，
+   * 只请求「照片和视频」读权限，完全不拉起任何外部界面。
+   */
+  @PluginMethod
+  public void listMediaFolders(PluginCall call) {
+    if (missingMediaPermissions().length > 0) {
+      requestPermissionForAliases(aliasesFor(missingMediaPermissions()), call, "listMediaFoldersAfterPerm");
+      return;
+    }
+    doListMediaFolders(call);
+  }
+
+  @PermissionCallback
+  private void listMediaFoldersAfterPerm(PluginCall call) {
+    if (call == null) return;
+    if (missingMediaPermissions().length > 0) {
+      call.reject("没有「照片和视频」权限，读不到媒体库文件夹；可以去系统设置-应用-权限里手动允许后重试");
+      return;
+    }
+    doListMediaFolders(call);
+  }
+
+  /** 把媒体库里的视频按文件夹聚合（视频多的文件夹在前） */
+  private void doListMediaFolders(PluginCall call) {
+    ContentResolver cr = getContext().getContentResolver();
+    Map<String, JSObject> map = new LinkedHashMap<>();
+    Cursor cursor = null;
+    try {
+      String[] projection = new String[] {
+        MediaStore.Video.Media.BUCKET_ID,
+        MediaStore.Video.Media.BUCKET_DISPLAY_NAME,
+        MediaStore.Video.Media.DISPLAY_NAME,
+        MediaStore.Video.Media.SIZE,
+      };
+      cursor =
+        cr.query(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, projection, null, null, MediaStore.Video.Media.DATE_ADDED + " DESC");
+      if (cursor != null) {
+        int bucketCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.BUCKET_ID);
+        int nameCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.BUCKET_DISPLAY_NAME);
+        int fileCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME);
+        int sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE);
+        while (cursor.moveToNext()) {
+          String bucketId = cursor.getString(bucketCol);
+          if (bucketId == null) bucketId = "";
+          String bucketName = cursor.getString(nameCol);
+          if (bucketName == null || bucketName.isEmpty()) bucketName = "全部视频";
+          JSObject folder = map.get(bucketId);
+          if (folder == null) {
+            folder = new JSObject();
+            folder.put("bucketId", bucketId);
+            folder.put("name", bucketName);
+            folder.put("count", 0);
+            folder.put("size", 0L);
+            folder.put("samples", new JSArray());
+            map.put(bucketId, folder);
+          }
+          folder.put("count", folder.getInteger("count", 0) + 1);
+          folder.put("size", folder.optLong("size", 0L) + cursor.getLong(sizeCol));
+          Object raw = folder.opt("samples");
+          if (raw instanceof JSArray) {
+            JSArray samples = (JSArray) raw;
+            if (samples.length() < 3) {
+              try {
+                samples.put(cursor.getString(fileCol));
+              } catch (Throwable ignored) {
+                // ignore
+              }
+            }
+          }
+        }
+      }
+    } catch (Throwable e) {
+      call.reject("读取媒体库失败：" + e.getMessage());
+      return;
+    } finally {
+      if (cursor != null) {
+        try {
+          cursor.close();
+        } catch (Throwable ignored) {
+          // ignore
+        }
+      }
+    }
+    List<JSObject> folders = new ArrayList<>(map.values());
+    Collections.sort(folders, (a, b) -> b.getInteger("count", 0) - a.getInteger("count", 0));
+    JSArray list = new JSArray();
+    for (JSObject folder : folders) list.put(folder);
+    JSObject res = new JSObject();
+    res.put("folders", list);
+    call.resolve(res);
+  }
+
+  /** 导入某个媒体库文件夹里的全部视频（复制进 App 私有目录） */
+  @PluginMethod
+  public void importMediaFolder(PluginCall call) {
+    if (missingMediaPermissions().length > 0) {
+      requestPermissionForAliases(aliasesFor(missingMediaPermissions()), call, "importMediaFolderAfterPerm");
+      return;
+    }
+    doImportMediaFolder(call);
+  }
+
+  @PermissionCallback
+  private void importMediaFolderAfterPerm(PluginCall call) {
+    if (call == null) return;
+    if (missingMediaPermissions().length > 0) {
+      call.reject("没有「照片和视频」权限，导不了媒体库文件夹；可以去系统设置-应用-权限里手动允许后重试");
+      return;
+    }
+    doImportMediaFolder(call);
+  }
+
+  private void doImportMediaFolder(PluginCall call) {
+    String bucketId = call.getString("bucketId", "");
+    ContentResolver cr = getContext().getContentResolver();
+    List<Uri> uris = new ArrayList<>();
+    Cursor cursor = null;
+    try {
+      String selection = null;
+      String[] args = null;
+      if (bucketId != null && !bucketId.isEmpty()) {
+        selection = MediaStore.Video.Media.BUCKET_ID + " = ?";
+        args = new String[] { bucketId };
+      }
+      cursor =
+        cr.query(
+          MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+          new String[] { MediaStore.Video.Media._ID },
+          selection,
+          args,
+          MediaStore.Video.Media.DATE_ADDED + " DESC"
+        );
+      if (cursor != null) {
+        int idCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID);
+        while (cursor.moveToNext() && uris.size() < 300) {
+          uris.add(ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, cursor.getLong(idCol)));
+        }
+      }
+    } catch (Throwable e) {
+      call.reject("读取媒体库文件夹失败：" + e.getMessage());
+      return;
+    } finally {
+      if (cursor != null) {
+        try {
+          cursor.close();
+        } catch (Throwable ignored) {
+          // ignore
+        }
+      }
+    }
+    if (uris.isEmpty()) {
+      JSObject empty = new JSObject();
+      empty.put("entries", new JSArray());
+      empty.put("failed", new JSArray());
+      empty.put("skipped", new JSArray());
+      empty.put("count", 0);
+      call.resolve(empty);
+      return;
+    }
+    importUris(call, uris);
+  }
+
+  /** 读媒体库需要的权限：Android 13+ 用细分媒体权限，12 及以下读外置存储 */
+  private String[] mediaReadPermissions() {
+    if (Build.VERSION.SDK_INT >= 33) {
+      return new String[] { Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.READ_MEDIA_AUDIO };
+    }
+    return new String[] { Manifest.permission.READ_EXTERNAL_STORAGE };
+  }
+
+  private String[] missingMediaPermissions() {
+    List<String> missing = new ArrayList<>();
+    for (String permission : mediaReadPermissions()) {
+      try {
+        if (getContext().checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) missing.add(permission);
+      } catch (Throwable ignored) {
+        missing.add(permission);
+      }
+    }
+    return missing.toArray(new String[0]);
+  }
+
+  private String[] aliasesFor(String[] permissions) {
+    List<String> aliases = new ArrayList<>();
+    for (String permission : permissions) {
+      if (Manifest.permission.READ_MEDIA_VIDEO.equals(permission)) aliases.add("mediaVideo");
+      else if (Manifest.permission.READ_MEDIA_AUDIO.equals(permission)) aliases.add("mediaAudio");
+      else aliases.add("mediaStorage");
+    }
+    return aliases.toArray(new String[0]);
+  }
+
   /** 取「分享 / 用其他应用打开」传进来的文件（取一次就清空） */
   @PluginMethod
   public void sharedPending(PluginCall call) {
@@ -490,8 +702,12 @@ public class LocalMediaPlugin extends Plugin {
   private void importUris(PluginCall call, List<Uri> uris, JSArray skipped) {
     JSArray entries = new JSArray();
     JSArray failed = new JSArray();
+    int total = uris.size();
+    int done = 0;
     for (Uri uri : uris) {
+      String label = null;
       try {
+        label = queryName(getContext().getContentResolver(), uri);
         File file = copyToMedia(uri);
         if (file != null) {
           entries.put(describe(file, mimeOf(uri, file.getName())));
@@ -499,6 +715,13 @@ public class LocalMediaPlugin extends Plugin {
       } catch (Throwable e) {
         failed.put(String.valueOf(uri));
       }
+      done++;
+      // 0.4.26：文件夹导入可能一次几十个文件，把进度推给 JS（没有监听者时会自动忽略）
+      JSObject progress = new JSObject();
+      progress.put("done", done);
+      progress.put("total", total);
+      progress.put("name", label == null ? "" : label);
+      notifyListeners("importProgress", progress);
     }
     JSObject out = new JSObject();
     out.put("entries", entries);

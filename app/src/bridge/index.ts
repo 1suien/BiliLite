@@ -102,6 +102,17 @@ export const bili: WbiBridge = {
     // 本机定制 0.4.25：原生多选文件（文件夹选择器打不开时的退路）
     pickMediaMultiple: () =>
       impl().local.pickMediaMultiple ? impl().local.pickMediaMultiple!() : impl().local.pickFolder(),
+    // 本机定制 0.4.26：媒体库文件夹（不拉起系统选择器，直接读 MediaStore）
+    listMediaFolders: () =>
+      impl().local.listMediaFolders
+        ? impl().local.listMediaFolders!()
+        : Promise.reject(new Error('当前环境不支持媒体库文件夹')),
+    importMediaFolder: (options: { bucketId: string }) =>
+      impl().local.importMediaFolder
+        ? impl().local.importMediaFolder!(options)
+        : Promise.reject(new Error('当前环境不支持媒体库文件夹')),
+    onImportProgress: (cb: (p: { done: number; total: number; name?: string }) => void) =>
+      impl().local.onImportProgress ? impl().local.onImportProgress!(cb) : Promise.resolve(() => {}),
     diagnose: () =>
       impl().local.diagnose ? impl().local.diagnose!() : Promise.resolve({ openDocument: false, getContent: false, sdk: 0 }),
     onDownloadProgress: (cb: (p: { received: number; total: number; name?: string }) => void) =>
