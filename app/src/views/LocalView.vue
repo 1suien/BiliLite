@@ -9,12 +9,13 @@
  * 上次看到哪儿（pos）都存在本机 Dexie 的 locals 表里。文件被移走后列表里仍保留
  * 一条记录，标记 missing 后按钮置灰。
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import Icon from '@/components/Icon.vue'
 import EmptyBlock from '@/components/EmptyBlock.vue'
 import { useUiStore } from '@/stores/ui'
 import { bili } from '@/bridge'
+import { downloadPart, qualitiesOf } from '@/download/bvDownload'
 import { listLocals, putLocal, removeLocal } from '@/db'
 import { formatClock, relativeTime } from '@/utils/format'
 import type { LocalVideo } from '@/types'
@@ -252,6 +253,32 @@ const bvBvid = ref('')
 const bvTitle = ref('')
 const bvPages = ref<BvPage[]>([])
 const bvPageIdx = ref(0)
+const bvQualities = ref<{ qn: number; label: string }[]>([])
+const bvQn = ref(80)
+
+/** 拉当前分 P 的可选清晰度（拿不到就按默认 qn，不影响下载） */
+async function loadQualities() {
+  const bvid = bvBvid.value
+  const page = bvPages.value[bvPageIdx.value]
+  bvQualities.value = []
+  bvQn.value = 80
+  if (!bvid || !page) return
+  try {
+    const play: any = await bili.video.playurl(bvid, page.cid, 80)
+    const list = qualitiesOf(play)
+    bvQualities.value = list
+    if (list.length) bvQn.value = list[0].qn
+  } catch {
+    // 列表拿不到就按默认清晰度下载（下载时还会再请求一次 playurl）
+  }
+}
+
+watch(
+  () => bvPageIdx.value,
+  () => {
+    void loadQualities()
+  },
+)
 
 function openBv() {
   bvOpen.value = true
@@ -286,6 +313,7 @@ async function parseBv() {
     bvTitle.value = (detail && detail.title) || bvid
     bvPages.value = pages.map((p: any) => ({ cid: p.cid, page: Number(p.page) || 1, part: String(p.part || '') }))
     bvPageIdx.value = 0
+    void loadQualities()
   } catch (e: any) {
     bvError.value = e.message || '解析失败：BV 号可能不对，或需要登录'
   } finally {
@@ -299,36 +327,34 @@ async function downloadBv() {
   if (!bvid || !page || bvDownloading.value) return
   bvDownloading.value = true
   bvError.value = ''
-  bvProgress.value = '正在获取下载地址…'
-  let off: (() => void) | null = null
+  bvProgress.value = '正在获取播放地址…'
   try {
-    const info = await bili.video.downloadUrl!(bvid, page.cid, 0)
-    const safe = `${bvid}-P${page.page}-${page.part || 'video'}`
-      .replace(/[\\/:*?"<>|\s]+/g, '_')
-      .slice(0, 80)
-    const ext = info.format === 'flv' ? 'flv' : 'mp4'
-    const name = `${safe}.${ext}`
-    bvProgress.value = info.size ? `正在下载…（约 ${formatSize(info.size)}）` : '正在下载…'
-    off =
-      (await bili.local.onDownloadProgress?.((prog) => {
+    const res = await downloadPart({
+      bvid,
+      page,
+      title: bvTitle.value,
+      qn: bvQn.value || 80,
+      onProgress: (prog) => {
         const pct = prog.total ? Math.min(100, Math.round((prog.received / prog.total) * 100)) : 0
+        const tag = prog.stage === 'video' ? '视频流' : prog.stage === 'audio' ? '音频流' : prog.stage === 'mux' ? '合成中' : '下载'
         bvProgress.value = prog.total
-          ? `正在下载 ${pct}%（${formatSize(prog.received)} / ${formatSize(prog.total)}）`
-          : `正在下载 ${formatSize(prog.received)}`
-      })) || null
-    const entry: any = await bili.local.download!({ url: info.url, name, referer: 'https://www.bilibili.com/' })
-    await upsert([entry])
-    ui.ok(`已下载「${page.part || bvTitle.value}」`)
+          ? `${tag} ${pct}%（${formatSize(prog.received)} / ${formatSize(prog.total)}）`
+          : `${tag} ${formatSize(prog.received)}`
+      },
+    })
+    await upsert([res.entry])
+    if (res.note) ui.toast(res.note, 'info', 4200)
+    ui.ok(res.mode === 'dash' ? `已下载并合成「${page.part || bvTitle.value}」` : `已下载「${page.part || bvTitle.value}」`)
     bvOpen.value = false
     bvInput.value = ''
     bvBvid.value = ''
     bvTitle.value = ''
     bvPages.value = []
+    bvQualities.value = []
   } catch (e: any) {
     bvError.value = e.message || '下载失败'
     bvProgress.value = ''
   } finally {
-    if (off) off()
     bvDownloading.value = false
   }
 }
@@ -425,7 +451,8 @@ onMounted(() => {
           </button>
         </div>
         <p class="muted" style="margin: 0 0 10px; font-size: 12.5px">
-          粘贴视频链接或 BV 号，选一个分P下载成 MP4 存到 App 私有目录，之后在本地列表里就能直接播。
+          粘贴视频链接或 BV 号，选清晰度后下载（DASH 双流由原生合成 MP4，失败自动回退单文件），
+          存到 App 私有目录，之后在本地列表里就能直接播。
         </p>
         <div class="row" style="gap: 8px">
           <input
@@ -456,6 +483,19 @@ onMounted(() => {
           </div>
           <div v-else-if="bvPages.length" class="muted" style="margin-top: 6px; font-size: 12.5px">
             单 P：{{ bvPages[0].part || bvTitle }}
+          </div>
+          <div v-if="bvQualities.length" class="row" style="flex-wrap: wrap; gap: 6px; margin-top: 10px">
+            <span class="muted" style="font-size: 12.5px">清晰度</span>
+            <button
+              v-for="q in bvQualities"
+              :key="q.qn"
+              :class="['btn', 'sm', q.qn === bvQn ? 'primary' : 'ghost']"
+              :disabled="bvDownloading"
+              :data-bv-quality="q.qn"
+              @click="bvQn = q.qn"
+            >
+              {{ q.label }}
+            </button>
           </div>
           <div class="row" style="margin-top: 12px; gap: 8px">
             <button class="btn sm primary" :disabled="bvDownloading || !bvPages.length" @click="downloadBv" data-bv-start>

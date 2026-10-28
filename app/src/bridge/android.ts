@@ -445,6 +445,9 @@ const handlers: Record<string, Handler> = {
   'local:sharedPending': async () => (await localMedia()).sharedPending(),
   /** 下载 URL 到 App 私有目录（0.4.20：BV 下载） */
   'local:download': async ({ url, name, referer }: any) => (await localMedia()).downloadFromUrl({ url, name, referer }),
+  /** DASH 双流下载 + 原生合成 MP4（0.4.21：高清/大会员画质） */
+  'local:downloadDash': async ({ videoUrl, audioUrl, videoBackups, audioBackups, name, referer }: any) =>
+    (await localMedia()).downloadDash({ videoUrl, audioUrl, videoBackups, audioBackups, name, referer }),
   /** 按绝对路径还原条目（重启后） */
   'local:probe': async ({ paths }: any) => (await localMedia()).probe({ paths }),
   /** 删除私有目录里的导入文件 */
@@ -639,14 +642,23 @@ const bridge: WbiBridge & { invoke: typeof invoke; call: typeof call } = {
     diagnose: () => call('local:diagnose'),
     sharedPending: () => call('local:sharedPending'),
     download: (options: { url: string; name?: string; referer?: string }) => call('local:download', options),
-    /** 订阅原生下载进度（0.4.20）；返回取消订阅函数 */
-    onDownloadProgress: async (cb: (p: { received: number; total: number; name?: string }) => void) => {
+    downloadDash: (options: {
+      videoUrl: string
+      audioUrl: string
+      videoBackups?: string[]
+      audioBackups?: string[]
+      name?: string
+      referer?: string
+    }) => call('local:downloadDash', options),
+    /** 订阅原生下载进度（0.4.20；0.4.21 起带 stage） */
+    onDownloadProgress: async (cb: (p: { received: number; total: number; name?: string; stage?: string }) => void) => {
       const plugin: any = await localMedia()
       const handle = await plugin.addListener('downloadProgress', (data: any) => {
         cb({
           received: Number(data && data.received) || 0,
           total: Number(data && data.total) || 0,
           name: data && data.name,
+          stage: data && data.stage,
         })
       })
       return () => {

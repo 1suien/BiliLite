@@ -1,7 +1,7 @@
 {
   "name": "bililite-app",
   "private": true,
-  "version": "0.4.20",
+  "version": "0.4.21",
   "description": "BiliLite —— 从 debug APK 还原的 Vue 3 + Capacitor 前端工程",
   "type": "module",
   "scripts": {
