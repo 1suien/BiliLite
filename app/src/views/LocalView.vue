@@ -19,6 +19,9 @@ import { listLocals, putLocal, removeLocal } from '@/db'
 import { formatClock, relativeTime } from '@/utils/format'
 import type { LocalVideo } from '@/types'
 
+/** 当前构建版本：页面右上角与状态行都会显示，便于从截图确认装的是哪一版 */
+const APP_VERSION = '0.4.27'
+
 /** 原实现额外用了 pos / thumb / missing 三个字段（types.ts 里没有），此处本地扩展 */
 interface LocalRecord extends LocalVideo {
   pos?: number
@@ -238,25 +241,31 @@ async function importEntries(entries: any[]) {
  */
 async function openFolderDialog() {
   if (busy.value) return
-  // 浏览器 / 旧版本没有这个原生方法：退回原来的系统选择器链路
-  if (!bili.local.listMediaFolders) {
-    await pickFolderViaSystem()
-    return
-  }
+  const diag = `v${APP_VERSION} · 平台=${bili.platform} · 桥=${!!(bili.local && bili.local.listMediaFolders)}`
   folderOpen.value = true
   folderErr.value = ''
   folderLoading.value = true
-  folderStatus.value = '正在读取系统媒体库里的视频文件夹…'
+  folderStatus.value = `${diag} · 正在读取系统媒体库里的视频文件夹…`
   try {
-    const res: any = await bili.local.listMediaFolders!()
+    // 0.4.27：不再默默退化成系统选择器，而是把「哪个接口缺失」直接显示出来
+    const localApi: any = bili.local || {}
+    let listFn: any = typeof localApi.listMediaFolders === 'function' ? localApi.listMediaFolders : null
+    const raw: any = (typeof window !== 'undefined' && (window as any).bili) || null
+    if (!listFn && raw && raw.local && typeof raw.local.listMediaFolders === 'function') {
+      listFn = raw.local.listMediaFolders.bind(raw.local)
+    }
+    if (!listFn) {
+      throw new Error(`安装包里没有媒体库接口 listMediaFolders（window.bili=${!!raw}）——可能是旧包，请装 0.4.27`)
+    }
+    const res: any = await listFn()
     folders.value = (res && res.folders) || []
     folderStatus.value = folders.value.length
-      ? `媒体库里找到 ${folders.value.length} 个视频文件夹`
-      : '媒体库里没有视频文件夹（也可能是「照片和视频」权限没给）'
+      ? `${diag} · 媒体库里找到 ${folders.value.length} 个视频文件夹`
+      : `${diag} · 媒体库里没有视频文件夹（也可能是「照片和视频」权限没给）`
   } catch (e: any) {
     const msg = (e && (e.message || e)) || '未知错误'
     folderErr.value = msg
-    folderStatus.value = `读取媒体库失败：${msg}`
+    folderStatus.value = `${diag} · 读取媒体库失败：${msg}`
   } finally {
     folderLoading.value = false
   }
@@ -441,7 +450,8 @@ onMounted(() => {
           {{ folderStatus }}
         </p>
       </div>
-      <div class="row" style="flex: none">
+      <div class="row" style="flex: none; align-items: center">
+        <span class="dim" style="font-size: 12px; margin-right: 4px" title="当前安装包版本">{{ 'v' + APP_VERSION }}</span>
         <button class="btn sm" :disabled="busy" @click="importLocal" data-local-import>
           <Icon name="folder" :size="14" /> 本地导入
         </button>
