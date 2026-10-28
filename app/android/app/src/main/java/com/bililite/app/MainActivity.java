@@ -1,5 +1,6 @@
 package com.bililite.app;
 
+import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
 import android.webkit.WebSettings;
@@ -11,8 +12,9 @@ import com.getcapacitor.BridgeActivity;
  * 安卓端 Activity。
  *
  * 相比 Capacitor 默认实现加了三件事：
- * 1. 注册自己写的三个插件：{@link PipPlugin}（画中画）、{@link ImmersivePlugin}（沉浸式全屏）、
- *    {@link ReminderChannelPlugin}（提醒通知通道 + 测试通知 + 通知设置，本机定制 0.4.14）；
+ * 1. 注册自己写的四个插件：{@link PipPlugin}（画中画）、{@link ImmersivePlugin}（沉浸式全屏）、
+ *    {@link ReminderChannelPlugin}（提醒通知通道 + 测试通知 + 通知设置，本机定制 0.4.14）、
+ *    {@link LocalMediaPlugin}（本地媒体导入 / 分享接收，本机定制 0.4.15）；
  * 2. 覆写 onUserLeaveHint()：用户按 Home / 切走时，如果视频正在播就缩成小窗继续播。
  *    这是 Android 的惯例做法，不需要页面里再放个「小窗」按钮。
  * 3. 把 WebView 的 User-Agent 换成桌面 Chrome 的。
@@ -25,6 +27,9 @@ import com.getcapacitor.BridgeActivity;
  */
 public class MainActivity extends BridgeActivity {
 
+  /** 别的 App「分享 / 用其他应用打开」传进来的 intent：等渲染层来取（取一次就清空） */
+  private static volatile Intent pendingSharedIntent = null;
+
   /** 与 `src/main/bili/http.js` 里的 UA 保持一致，curl 实测这个串能拿到 206。 */
   private static final String DESKTOP_UA =
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
@@ -35,8 +40,53 @@ public class MainActivity extends BridgeActivity {
     registerPlugin(PipPlugin.class);
     registerPlugin(ImmersivePlugin.class);
     registerPlugin(ReminderChannelPlugin.class);
+    registerPlugin(LocalMediaPlugin.class);
     super.onCreate(savedInstanceState);
     applyDesktopUserAgent();
+    captureSharedIntent(getIntent());
+  }
+
+  /**
+   * singleTask 模式下 App 已经开着时收到分享，会走这里（onCreate 不会再跑）。
+   * 存下 intent，再通知渲染层来取（页面里监听 window 的 `localShare` 事件）。
+   */
+  @Override
+  protected void onNewIntent(Intent intent) {
+    super.onNewIntent(intent);
+    setIntent(intent);
+    if (captureSharedIntent(intent)) {
+      try {
+        if (getBridge() != null && getBridge().getWebView() != null) {
+          getBridge().getWebView().post(() -> getBridge().triggerWindowJSEvent("localShare"));
+        }
+      } catch (Throwable ignored) {
+        // 通知失败也没关系：下次 onResume 时渲染层还会再问一次
+      }
+    }
+  }
+
+  /** 取出并清空待处理的分享 intent（LocalMediaPlugin.sharedPending 调用） */
+  static Intent takeSharedIntent() {
+    Intent intent = pendingSharedIntent;
+    pendingSharedIntent = null;
+    return intent;
+  }
+
+  /** 判断是不是「分享/打开文件」的 intent，是就存起来 */
+  private boolean captureSharedIntent(Intent intent) {
+    if (intent == null) return false;
+    String action = intent.getAction();
+    if (!Intent.ACTION_SEND.equals(action)
+        && !Intent.ACTION_SEND_MULTIPLE.equals(action)
+        && !Intent.ACTION_VIEW.equals(action)) {
+      return false;
+    }
+    boolean hasData = intent.getData() != null
+        || intent.getClipData() != null
+        || intent.hasExtra(Intent.EXTRA_STREAM);
+    if (!hasData) return false;
+    pendingSharedIntent = intent;
+    return true;
   }
 
   @Override

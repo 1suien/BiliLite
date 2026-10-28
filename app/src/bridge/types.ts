@@ -156,8 +156,18 @@ export interface WbiBridge {
   local: {
     pickFiles(): Promise<LocalPickResult>
     pickFolder(): Promise<LocalPickResult>
+    /** 安卓原生导入（0.4.15）：复制到 App 私有目录，条目可持久播放 */
+    pickNative?(): Promise<LocalPickResult>
+    /** 取「分享 / 用其他应用打开」过来的文件（0.4.15） */
+    sharedPending?(): Promise<LocalPickResult>
+    /** 按绝对路径还原条目（0.4.15） */
+    probe?(paths: string[]): Promise<{ entries: any[]; missing: string[] }>
+    /** 删除私有目录里的导入文件（0.4.15） */
+    discard?(path: string): Promise<any>
+    /** 私有目录占用（0.4.15） */
+    storageInfo?(): Promise<{ dir: string; count: number; bytes: number }>
     register(paths: string[]): Promise<{ entries: any[]; missing: string[] }>
-    remove(id: string): Promise<any>
+    remove(id: string, path?: string): Promise<any>
     reveal(path: string): Promise<any>
   }
 }

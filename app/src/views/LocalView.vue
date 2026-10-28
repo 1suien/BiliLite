@@ -3,9 +3,11 @@
  * 本地视频列表页 /local
  *
  * 还原自 LocalView-DCmLtwpo.js：
- * 只登记路径，不复制、不转码；时长 / 封面（thumb）/ 上次看到哪儿（pos）
- * 都存在本机 Dexie 的 locals 表里。文件被移走后列表里仍保留一条记录，
- * 标记 missing 后按钮置灰。
+ * 浏览器里只登记路径，不复制、不转码；安卓 0.4.15 起走原生导入
+ * （LocalMediaPlugin 把文件复制进 App 私有目录，返回 https://localhost/_capacitor_file_…
+ * 的原生地址，刷新/重启都还在，播放器按 Range 流式读文件）。时长 / 封面（thumb）/
+ * 上次看到哪儿（pos）都存在本机 Dexie 的 locals 表里。文件被移走后列表里仍保留
+ * 一条记录，标记 missing 后按钮置灰。
  */
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -56,7 +58,7 @@ const totalSize = computed(() =>
   items.value.reduce((sum, item) => sum + (Number(item.size) || 0), 0),
 )
 
-/** 取列表 → 重新登记路径拿 blob URL → 标记丢文件的记录 → 补解析缺失的时长/封面 */
+/** 取列表 → 重新登记路径拿可播地址（伪路径是 blob URL，原生导入是 https://localhost/_capacitor_file_…）→ 标记丢文件的记录 → 补解析缺失的时长/封面 */
 async function load() {
   loading.value = true
   const rows = (await listLocals()) as unknown as LocalRecord[]
@@ -199,7 +201,12 @@ async function pickFiles() {
   if (busy.value) return
   busy.value = true
   try {
-    const res = await bili.local.pickFiles()
+    // 安卓 APK（0.4.15 起）：走原生 SAF 导入，文件复制到 App 私有目录 → 刷新/重启后还在，大文件也不吃内存。
+    // 浏览器预览 / 桌面端仍然用原来的 `<input type=file>` 选择器。
+    const res =
+      bili.platform === 'android' && bili.local.pickNative
+        ? await bili.local.pickNative()
+        : await bili.local.pickFiles()
     if (res.canceled) return
     const entries = res.entries || []
     if (!entries.length) {
@@ -253,11 +260,17 @@ async function reveal(item: LocalRecord) {
 }
 
 async function remove(item: LocalRecord) {
-  const ok = await ui.confirm('从列表里移除？', `${item.name}\n磁盘上的文件不会被删除。`, '移除')
+  // 原生导入（0.4.15）：文件就在 App 私有目录里，移除时一起删掉，别白占空间
+  const isNative = String(item.path || '').startsWith('/')
+  const ok = await ui.confirm(
+    '从列表里移除？',
+    isNative ? `${item.name}\n会同时删掉 App 里保存的这份文件（约 ${formatSize(item.size)}）。` : `${item.name}\n磁盘上的文件不会被删除。`,
+    '移除',
+  )
   if (!ok) return
   await removeLocal(item.id)
   try {
-    await bili.local.remove(item.id)
+    await bili.local.remove(item.id, item.path)
   } catch {}
   items.value = items.value.filter((x) => x.id !== item.id)
 }
@@ -288,7 +301,8 @@ onMounted(() => {
       <div class="grow">
         <h1>本地</h1>
         <p class="muted" style="margin: 4px 0 0">
-          播放本机的视频文件：只登记路径，不复制、不转码。时长、封面和上次看到哪儿都存在本机。
+          播放本机的视频文件：安卓 APK 会把导入的文件存到 App 私有目录（刷新、重启后还在，大文件边下边播），
+          浏览器预览只登记路径。时长、封面和上次看到哪儿都存在本机。
         </p>
       </div>
       <div class="row" style="flex: none">

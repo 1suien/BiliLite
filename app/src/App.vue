@@ -27,6 +27,8 @@ import { useCoursesStore } from '@/stores/courses'
 import { Capacitor } from '@capacitor/core'
 import { LocalNotifications } from '@capacitor/local-notifications'
 import { useUpsStore } from '@/stores/ups'
+import { bili } from '@/bridge'
+import { putLocal } from '@/db'
 import { toHours } from '@/utils/format'
 
 interface NavItem {
@@ -189,6 +191,45 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
+/**
+ * 别的 App「分享 / 用其他应用打开」进来的视频（本机定制 0.4.15）。
+ *
+ * 场景：WPS 网盘里长按视频 →「分享」→ BiliLite（或从系统文件管理器「用其他应用打开」）。
+ * 原生插件已经把 `content://` 复制到 App 私有目录（`files/local-media/`），这里只负责入库 + 跳转播放。
+ */
+let sharedBusy = false
+async function importSharedMedia() {
+  if (sharedBusy) return
+  if (!bili.local || !bili.local.sharedPending) return
+  if (bili.platform !== 'android') return
+  sharedBusy = true
+  try {
+    const res = await bili.local.sharedPending()
+    const entries = (res && res.entries) || []
+    if (!entries.length) return
+    for (const entry of entries) {
+      await putLocal({
+        id: entry.id,
+        path: entry.path,
+        name: entry.name,
+        size: Number(entry.size) || 0,
+        mtime: Number(entry.mtime) || 0,
+      })
+    }
+    ui.ok(entries.length > 1 ? `已收到 ${entries.length} 个视频，去「本地」里挑一个播` : `已收到「${entries[0].name}」，开始播放`)
+    if (entries.length === 1) router.push(`/local/${entries[0].id}`)
+    else router.push('/local')
+  } catch (e: any) {
+    console.warn('[share] 导入分享的视频失败：', e && e.message)
+  } finally {
+    sharedBusy = false
+  }
+}
+
+function onVisibilityForShare() {
+  if (document.visibilityState === 'visible') importSharedMedia()
+}
+
 onMounted(async () => {
   // 启动预热：设置 -> 登录态 -> 本地数据（各块失败只影响自己）
   await settings.init()
@@ -241,12 +282,19 @@ onMounted(async () => {
     } catch {}
   }
 
+  // 本机构建 0.4.15：接收「分享 / 用其他应用打开」过来的视频
+  window.addEventListener('localShare', importSharedMedia)
+  document.addEventListener('visibilitychange', onVisibilityForShare)
+  importSharedMedia()
+
   keyHandler = onKeydown
   window.addEventListener('keydown', keyHandler)
 })
 
 onUnmounted(() => {
   // 原实现没有解绑（单例外壳不会卸载），这里补上以便 HMR 不叠加监听
+  window.removeEventListener('localShare', importSharedMedia)
+  document.removeEventListener('visibilitychange', onVisibilityForShare)
   if (keyHandler) window.removeEventListener('keydown', keyHandler)
   keyHandler = null
   if (nativeSyncTimer) clearTimeout(nativeSyncTimer)

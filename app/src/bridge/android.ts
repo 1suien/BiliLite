@@ -179,15 +179,48 @@ function describeFiles(files: File[]): any[] {
   return picked.map(describeFile)
 }
 
-/** 伪路径数组 -> 条目（失效的 id 放到 missing）：还原 `Kt()` */
-function restoreEntries(paths: string[]): { entries: any[]; missing: string[] } {
+/** 是否是原生私有目录里的绝对路径（0.4.15 起的本地导入 / 分享接收） */
+function isNativeMediaPath(path: any): boolean {
+  const raw = String(path || '')
+  return raw.startsWith('/') || raw.startsWith('file://')
+}
+
+/** 取 LocalMedia 原生插件（懒加载：浏览器预览里没有这个插件） */
+let localMediaPlugin: any = null
+async function localMedia(): Promise<any> {
+  const { registerPlugin } = await import('@capacitor/core')
+  if (!localMediaPlugin) localMediaPlugin = registerPlugin('LocalMedia')
+  return localMediaPlugin
+}
+
+/**
+ * 路径数组 -> 条目（失效的放 missing）：还原 `Kt()`，本机定制 0.4.15 扩展
+ *
+ * - `android://…` 伪路径：从内存 FILE_STORE 还原（WebView `<input type=file>` 选的文件）
+ * - 绝对路径 / file://：走原生 LocalMediaPlugin.probe（文件已复制到 App 私有目录，重启后仍在）
+ */
+async function restoreEntries(paths: string[]): Promise<{ entries: any[]; missing: string[] }> {
   const entries: any[] = []
   const missing: string[] = []
+  const nativePaths: string[] = []
   for (const path of paths || []) {
+    if (isNativeMediaPath(path)) {
+      nativePaths.push(String(path))
+      continue
+    }
     const id = idFromPseudoPath(path)
     const rec = id && FILE_STORE.get(id)
     if (rec) entries.push(describeFile(rec.file))
     else if (id) missing.push(id)
+  }
+  if (nativePaths.length) {
+    try {
+      const res = await (await localMedia()).probe({ paths: nativePaths })
+      for (const entry of res.entries || []) entries.push(entry)
+      for (const path of res.missing || []) missing.push(String(path))
+    } catch {
+      for (const path of nativePaths) missing.push(path)
+    }
   }
   return { entries, missing }
 }
@@ -266,7 +299,7 @@ async function getAppVersion(): Promise<string> {
   } catch {
     cachedVersion = ''
   }
-  return cachedVersion || '0.4.14'
+  return cachedVersion || '0.4.15'
 }
 
 // ---------------------------------------------------------------------------
@@ -390,6 +423,22 @@ const handlers: Record<string, Handler> = {
     const files = await pickFilesWithInput({ accept: 'video/*,audio/*', multiple: true })
     return files.length ? { entries: describeFiles(files) } : { canceled: true }
   },
+  /**
+   * 安卓原生导入（0.4.15）：SAF 选文件 → 复制到 App 私有目录 → 返回可持久播放的条目。
+   * 好处是不吃内存（`https://localhost/_capacitor_file_…` 支持 Range 边下边播），刷新/重启也在。
+   */
+  'local:pickNative': async () => {
+    const res = await (await localMedia()).pickAndImport({ multiple: true })
+    return res || { canceled: true }
+  },
+  /** 取别的 App「分享 / 用其他应用打开」过来的文件（WPS 网盘里的视频走这条） */
+  'local:sharedPending': async () => (await localMedia()).sharedPending(),
+  /** 按绝对路径还原条目（重启后） */
+  'local:probe': async ({ paths }: any) => (await localMedia()).probe({ paths }),
+  /** 删除私有目录里的导入文件 */
+  'local:discard': async ({ path }: any) => (await localMedia()).discard({ path }),
+  /** 私有目录占用情况 */
+  'local:storageInfo': async () => (await localMedia()).storageInfo(),
   /** 选择本地「文件夹」（安卓没有目录选择器，同样用多选文件模拟） */
   'local:pickFolder': async () => {
     const files = await pickFilesWithInput({ accept: 'video/*,audio/*', multiple: true })
@@ -399,8 +448,17 @@ const handlers: Record<string, Handler> = {
   },
   /** 把持久化的伪路径还原成条目（失效的放 missing，供 UI 清理） */
   'local:register': async ({ paths }: any) => restoreEntries(paths),
-  /** 移除一个本地文件记录 */
-  'local:remove': async ({ id }: any) => removeEntry(id),
+  /** 移除一个本地文件记录（原生导入的顺手删掉私有目录里的文件） */
+  'local:remove': async ({ id, path }: any) => {
+    if (path && isNativeMediaPath(path)) {
+      try {
+        await (await localMedia()).discard({ path })
+      } catch {
+        // 删不掉就算了，至少把记录移除
+      }
+    }
+    return removeEntry(id)
+  },
   /** 安卓上无法定位文件 */
   'local:reveal': async () => {
     throw new Error('安卓上没有「在资源管理器里定位」，去系统「文件」应用里找这个文件')
@@ -562,8 +620,13 @@ const bridge: WbiBridge & { invoke: typeof invoke; call: typeof call } = {
   local: {
     pickFiles: () => call('local:pickFiles'),
     pickFolder: () => call('local:pickFolder'),
+    pickNative: () => call('local:pickNative'),
+    sharedPending: () => call('local:sharedPending'),
+    probe: (paths: string[]) => call('local:probe', { paths }),
+    discard: (path: string) => call('local:discard', { path }),
+    storageInfo: () => call('local:storageInfo'),
     register: (paths: string[]) => call('local:register', { paths }),
-    remove: (id: string) => call('local:remove', { id }),
+    remove: (id: string, path?: string) => call('local:remove', { id, path }),
     reveal: (path: string) => call('local:reveal', { path }),
   },
 }

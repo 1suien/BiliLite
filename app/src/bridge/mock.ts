@@ -587,6 +587,28 @@ export function createMockBridge(): WbiBridge {
         await delay(260)
         return { entries: makeLocalEntries(3) }
       },
+      /** 浏览器预览没有原生导入，走 mock 条目（0.4.15） */
+      async pickNative() {
+        await delay(260)
+        return { entries: makeLocalEntries(3) }
+      },
+      async sharedPending() {
+        await delay(40)
+        return { entries: [], count: 0 }
+      },
+      async probe(paths: string[]) {
+        await delay(60)
+        return { entries: makeLocalEntries(paths.length || 1), missing: [] }
+      },
+      async discard(path: string) {
+        await delay(40)
+        console.info('[mock] local.discard:', path)
+        return { ok: true }
+      },
+      async storageInfo() {
+        await delay(40)
+        return { dir: '/mock/local-media', count: 0, bytes: 0 }
+      },
       async pickFolder() {
         await delay(260)
         return { entries: makeLocalEntries(5), dir: '/mock/课程视频' }

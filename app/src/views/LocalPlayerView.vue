@@ -4,7 +4,10 @@
  *
  * 还原自 LocalPlayerView-CakE6idn.js：
  * 不是在线视频那套 DASH 播放器，这里就是一个原生 <video>，
- * 播放地址由「路径 → blob URL」登记得到（bili.local.register）。
+ * 播放地址由「路径 → 可播 URL」登记得到（bili.local.register）：
+ *  - 浏览器选的文件：blob URL（只在本次会话有效）
+ *  - 安卓原生导入 / WPS 分享进来的文件：`https://localhost/_capacitor_file_/…`（Capacitor 本地服务，
+ *    支持 Range 流式播放，文件在 App 私有目录里，重启后仍能播 —— 本机定制 0.4.15）
  * 播放进度每 5 秒（以及暂停/结束/返回时）写回 Dexie 的 locals 表。
  */
 import { onMounted, onBeforeUnmount, ref } from 'vue'
@@ -37,7 +40,7 @@ let timer: any = 0
 /** 上次落库的时间戳，避免 5 秒内反复写 */
 let lastSave = 0
 
-/** 取库里的记录 → 重新登记路径拿新的 blob URL */
+/** 取库里的记录 → 重新登记路径拿可播 URL */
 async function load() {
   const id = String(route.params.id || '')
   let item: LocalRecord | null = await getLocal(id)

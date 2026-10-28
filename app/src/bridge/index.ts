@@ -92,8 +92,19 @@ export const bili: WbiBridge = {
   local: {
     pickFiles: () => impl().local.pickFiles(),
     pickFolder: () => impl().local.pickFolder(),
+    // 本机定制 0.4.15：安卓原生导入 / 分享接收（浏览器 mock 桥也实现了同名方法）
+    pickNative: () => (impl().local.pickNative ? impl().local.pickNative!() : impl().local.pickFiles()),
+    sharedPending: () =>
+      impl().local.sharedPending ? impl().local.sharedPending!() : Promise.resolve({ entries: [], missing: [] }),
+    probe: (paths: string[]) =>
+      impl().local.probe ? impl().local.probe!(paths) : Promise.resolve({ entries: [], missing: paths }),
+    discard: (path: string) => (impl().local.discard ? impl().local.discard!(path) : Promise.resolve({ ok: true })),
+    storageInfo: () =>
+      impl().local.storageInfo
+        ? impl().local.storageInfo!()
+        : Promise.resolve({ dir: '', count: 0, bytes: 0 }),
     register: (paths: string[]) => impl().local.register(paths),
-    remove: (id: string) => impl().local.remove(id),
+    remove: (id: string, path?: string) => impl().local.remove(id, path),
     reveal: (path: string) => impl().local.reveal(path),
   },
 }
