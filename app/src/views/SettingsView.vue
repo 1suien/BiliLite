@@ -1,13 +1,17 @@
 <script setup lang="ts">
 /**
- * 设置页：外观 / 播放 / 数据 / 关于
+ * 设置页：外观 / 播放 / 数据 / 提醒 / 关于
  * 还原自 SettingsView-oeXwRCVu.js（scope data-v-77fffa58）
+ *
+ * 本机定制：安卓上「数据」区不显示备份目录（导出位置由系统「保存到」面板决定）；
+ * 0.4.14 新增「提醒」区：测试通知 / 通知设置，排查系统通知不响。
  */
 import { computed, onMounted, ref } from 'vue'
 import Icon from '@/components/Icon.vue'
 import { bili } from '@/bridge'
 import { db } from '@/db'
 import { ACCENTS, useSettingsStore } from '@/stores/settings'
+import { nativeNotifySupported, openReminderChannelSettings, testReminderNotification } from '@/bridge/notify'
 import { useAuthStore } from '@/stores/auth'
 import { useLearnStore } from '@/stores/learn'
 import { useUiStore } from '@/stores/ui'
@@ -292,6 +296,32 @@ async function onImportFile(e: Event) {
   }
 }
 
+/** 立刻发一条系统通知，验证「弹不弹 / 响不响」 */
+const notifyBusy = ref(false)
+async function testNotify() {
+  if (notifyBusy.value) return
+  notifyBusy.value = true
+  try {
+    const res = await testReminderNotification()
+    if (res.ok) ui.ok('已发一条测试通知：切到桌面/锁屏看看弹不弹、响不响')
+    else if (res.error === 'unsupported') ui.err('测试通知只在安卓 APK 里生效（浏览器预览没有系统通知）')
+    else if (res.error === 'denied') ui.err('通知权限被拒绝了：去系统设置里给 BiliLite 打开通知')
+    else ui.err('发测试通知失败：' + (res.error || '未知原因'))
+  } finally {
+    notifyBusy.value = false
+  }
+}
+
+/** 跳到系统里这条「到点提醒」通道的设置页（Android 8+） */
+async function openNotifySettings() {
+  if (!nativeNotifySupported()) {
+    ui.err('通知设置只在安卓 APK 里可用')
+    return
+  }
+  const res = await openReminderChannelSettings()
+  if (!res.ok) ui.err('打不开系统通知设置，请到「系统设置 → 应用 → BiliLite → 通知」里手动调整')
+}
+
 /** 恢复默认设置（只重置播放/外观，不动学习数据） */
 function resetSettings() {
   ui.confirm('恢复默认设置？', '播放、外观设置会回到初始值，学习数据不受影响。').then((yes) => {
@@ -501,6 +531,29 @@ onMounted(() => {
         <button class="btn ghost" @click="resetSettings">
           <Icon name="refresh" :size="14" /> 重置设置
         </button>
+      </div>
+    </section>
+
+    <section class="panel" style="margin-bottom: 16px">
+      <h2 class="sec">提醒</h2>
+      <div class="field">
+        <label>系统通知</label>
+        <div class="row" style="gap: 8px; flex-wrap: wrap">
+          <button class="btn" :disabled="notifyBusy" @click="testNotify">
+            <Icon name="bell" :size="14" /> 测试通知
+          </button>
+          <button class="btn ghost" @click="openNotifySettings">
+            <Icon name="external" :size="14" /> 通知设置
+          </button>
+        </div>
+        <p class="hint">
+          到点提醒在应用内会弹右下角卡片；装成 APK 后还会发系统通知（应用在后台 / 锁屏也能看到，带提示音）。
+          没声音时先点「测试通知」，再去「通知设置」确认这条「到点提醒」是开着声音的。
+        </p>
+      </div>
+      <div class="field">
+        <label>提醒位置</label>
+        <p class="hint">应用内卡片贴在屏幕最右下角；卡片出现时右下角的刷新浮钮会先让位。</p>
       </div>
     </section>
 

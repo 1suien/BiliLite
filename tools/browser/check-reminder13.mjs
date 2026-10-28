@@ -168,6 +168,19 @@ async function main() {
     check('安卓下点「写入 JSON 备份」能导出', okToast.length > 0 && errToast.length === 0, toasts.join(' | ') || '(无 toast)')
     await page.screenshot({ path: `${OUT}/2-settings-android-export.png` })
 
+    /* ------------------ 5) 设置页「提醒」区（测试通知 / 通知设置） ------------------ */
+    const remindPanel = page.locator('.panel', { hasText: '系统通知' }).first()
+    check('设置页有「提醒」区', (await remindPanel.count()) === 1)
+    const remindText = await remindPanel.innerText().catch(() => '')
+    check('「提醒」区有两个按钮', remindText.includes('测试通知') && remindText.includes('通知设置'), remindText.slice(0, 80))
+    // 浏览器里点「测试通知」应该提示「只在安卓 APK 里生效」
+    await wait(4200)
+    await page.locator('button', { hasText: '测试通知' }).first().click()
+    await wait(600)
+    const testToast = (await page.locator('.toast').allInnerTexts()).join(' | ')
+    check('浏览器里点测试通知给出正确提示', /只在安卓/.test(testToast), testToast || '(无 toast)')
+    await page.screenshot({ path: `${OUT}/3-settings-remind-section.png` })
+
     const realErrors = errors.filter((e) => !/mock:\/\/|Content Security Policy|Fetch API cannot load mock/.test(e))
     check('无真实 console error / pageerror', realErrors.length === 0, realErrors.slice(0, 3).join(' | '))
   } finally {

@@ -1,8 +1,10 @@
 /**
  * 课表（本机定制 0.4.12）
  *
- * 纯本地数据：一门课 = 名称 + 星期 + 起止时间 + 地点/老师 + 可选关联（专注目标 / B 站视频）+ 到点提醒。
- * 数据存在 Dexie 的 courses 表（见 db/index.ts 的 version(8)）。
+ * 纯本地数据：一门课 = 名称 + 星期 + 提醒时间 + 可选关联（专注目标 / B 站视频）+ 备注。
+ * 数据存在 Dexie 的 courses 表（见 db/index.ts 的 version(9)）。
+ *
+ * 0.4.14 起去掉了「地点 / 老师 / 开始时间 / 结束时间」：课表只关心哪天、几点提醒。
  */
 import { defineStore } from 'pinia'
 import * as db from '@/db'
@@ -19,8 +21,8 @@ export function weekdayOf(day: string): number {
   return ((w + 6) % 7) + 1
 }
 
-function startKey(c: Course) {
-  return String(c.start || '99:99')
+function remindKey(c: Course) {
+  return String(c.remindAt || '99:99')
 }
 
 export const useCoursesStore = defineStore('courses', {
@@ -29,15 +31,15 @@ export const useCoursesStore = defineStore('courses', {
     loaded: false,
   }),
   getters: {
-    /** 某天的课（按开始时间排） */
+    /** 某天的课（按提醒时间排） */
     ofWeekday: (s) => (weekday: number) =>
-      s.list.filter((c) => Number(c.weekday) === Number(weekday)).sort((a, b) => startKey(a).localeCompare(startKey(b))),
+      s.list.filter((c) => Number(c.weekday) === Number(weekday)).sort((a, b) => remindKey(a).localeCompare(remindKey(b))),
     /** 今天的课 */
     today(state): Course[] {
       const wd = weekdayOf(new Date().toISOString().slice(0, 10))
       return state.list
         .filter((c) => Number(c.weekday) === wd)
-        .sort((a, b) => startKey(a).localeCompare(startKey(b)))
+        .sort((a, b) => remindKey(a).localeCompare(remindKey(b)))
     },
     count: (s) => s.list.length,
   },

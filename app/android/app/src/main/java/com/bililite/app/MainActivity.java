@@ -11,7 +11,8 @@ import com.getcapacitor.BridgeActivity;
  * 安卓端 Activity。
  *
  * 相比 Capacitor 默认实现加了三件事：
- * 1. 注册自己写的两个插件：{@link PipPlugin}（画中画）、{@link ImmersivePlugin}（沉浸式全屏）；
+ * 1. 注册自己写的三个插件：{@link PipPlugin}（画中画）、{@link ImmersivePlugin}（沉浸式全屏）、
+ *    {@link ReminderChannelPlugin}（提醒通知通道 + 测试通知 + 通知设置，本机定制 0.4.14）；
  * 2. 覆写 onUserLeaveHint()：用户按 Home / 切走时，如果视频正在播就缩成小窗继续播。
  *    这是 Android 的惯例做法，不需要页面里再放个「小窗」按钮。
  * 3. 把 WebView 的 User-Agent 换成桌面 Chrome 的。
@@ -33,6 +34,7 @@ public class MainActivity extends BridgeActivity {
     // registerPlugin 必须在 super.onCreate() 之前调用，否则插件不会挂到 Bridge 上
     registerPlugin(PipPlugin.class);
     registerPlugin(ImmersivePlugin.class);
+    registerPlugin(ReminderChannelPlugin.class);
     super.onCreate(savedInstanceState);
     applyDesktopUserAgent();
   }

@@ -266,7 +266,7 @@ async function getAppVersion(): Promise<string> {
   } catch {
     cachedVersion = ''
   }
-  return cachedVersion || '0.4.13'
+  return cachedVersion || '0.4.14'
 }
 
 // ---------------------------------------------------------------------------

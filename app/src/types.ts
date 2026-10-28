@@ -245,11 +245,8 @@ export interface Course {
   name: string
   /** 星期：1=周一 … 7=周日 */
   weekday: number
-  /** 开始 / 结束时间，HH:MM */
-  start: string
-  end: string
-  location: string
-  teacher: string
+  /** 提醒时间，HH:MM（本机 0.4.14 起课表只记这一个时间） */
+  remindAt: string
   /** 色板 key，见 stores/settings.ts 的 FOCUS_COLOR_KEYS */
   color: string
   /** 关联的专注目标名（可空） */
@@ -259,8 +256,6 @@ export interface Course {
   videoTitle: string
   /** 到点提醒 */
   remindOn: boolean
-  /** 提前几分钟提醒：0 / 5 / 10 / 15 */
-  remindLead: number
   note: string
   createdAt: number
 }

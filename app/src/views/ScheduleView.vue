@@ -1,11 +1,12 @@
 <script setup lang="ts">
 /**
- * 周课表 /schedule（本机构建 0.4.12）
+ * 周课表 /schedule（本机构建 0.4.12，0.4.14 精简）
  *
- * 一门课 = 名称 + 星期 + 起止时间 + 地点/老师 + 可选关联（专注目标 / B 站视频）+ 到点提醒。
- * 提醒由 stores/remind.ts 扫描后弹右下角卡片；卡片可以直接跳到关联视频或学习页。
+ * 一门课 = 名称 + 星期 + 提醒时间 + 可选关联（专注目标 / B 站视频）+ 备注。
+ * 0.4.14 去掉了「地点 / 老师 / 开始 / 结束」：课表只关心哪天、几点提醒。
+ * 提醒由 stores/remind.ts 扫描后弹右下角卡片 + 发系统通知；卡片可以跳到关联视频或学习页。
  */
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import Icon from '@/components/Icon.vue'
 import { useCoursesStore, COURSE_WEEKDAYS, weekdayOf } from '@/stores/courses'
@@ -44,16 +45,12 @@ const form = ref({
   id: 0,
   name: '',
   weekday: 1,
-  start: '08:00',
-  end: '08:45',
-  location: '',
-  teacher: '',
+  remindAt: '08:00',
   color: 'blue',
   targetName: '',
   bvid: '',
   videoTitle: '',
-  remindOn: false,
-  remindLead: 5,
+  remindOn: true,
   note: '',
 })
 const formTitle = computed(() => (form.value.id ? '编辑课程' : '添加课程'))
@@ -75,16 +72,12 @@ function openCreate(weekday = todayWd.value) {
     id: 0,
     name: '',
     weekday,
-    start: '08:00',
-    end: '08:45',
-    location: '',
-    teacher: '',
+    remindAt: '08:00',
     color: FOCUS_COLOR_KEYS[weekday % FOCUS_COLOR_KEYS.length],
     targetName: '',
     bvid: '',
     videoTitle: '',
-    remindOn: false,
-    remindLead: 5,
+    remindOn: true,
     note: '',
   }
 }
@@ -95,16 +88,12 @@ function openEdit(c: Course) {
     id: Number(c.id) || 0,
     name: c.name,
     weekday: Number(c.weekday) || 1,
-    start: c.start || '08:00',
-    end: c.end || '08:45',
-    location: c.location || '',
-    teacher: c.teacher || '',
+    remindAt: String((c as any).remindAt || (c as any).start || '08:00'),
     color: c.color || 'blue',
     targetName: c.targetName || '',
     bvid: c.bvid || '',
     videoTitle: c.videoTitle || '',
     remindOn: !!c.remindOn,
-    remindLead: Number(c.remindLead) || 5,
     note: c.note || '',
   }
 }
@@ -123,16 +112,12 @@ async function save() {
     id: form.value.id || undefined,
     name: form.value.name,
     weekday: form.value.weekday,
-    start: form.value.start,
-    end: form.value.end,
-    location: form.value.location,
-    teacher: form.value.teacher,
+    remindAt: /^\d{2}:\d{2}$/.test(form.value.remindAt) ? form.value.remindAt : '08:00',
     color: form.value.color,
     targetName: form.value.targetName,
     bvid,
     videoTitle: form.value.videoTitle || (bvid ? `关联视频 ${bvid}` : ''),
     remindOn: form.value.remindOn,
-    remindLead: form.value.remindLead,
     note: form.value.note,
   })
   form.value.open = false
@@ -150,19 +135,6 @@ function goLearn(c: Course) {
   if (c.bvid) router.push({ path: `/video/${c.bvid}` })
   else router.push({ path: '/learn' })
 }
-
-// 改开始时间时，如果结束时间已经不比它晚，自动顺延 45 分钟（省得存一个 23:59 的怪时间）
-watch(
-  () => form.value.start,
-  (start) => {
-    if (!/^\d{2}:\d{2}$/.test(String(start || ''))) return
-    if (!form.value.end || form.value.end <= start) {
-      const [h, m] = String(start).split(':').map(Number)
-      const total = Math.min(23 * 60 + 59, h * 60 + m + 45)
-      form.value.end = `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
-    }
-  },
-)
 
 onMounted(async () => {
   await settings.init()
@@ -190,7 +162,7 @@ onMounted(async () => {
     </div>
 
     <div class="sc-hint muted">
-      点某节课可以改时间 / 换关联视频；课表只存在本机。到点提醒在右下角弹卡片（可提前 0–15 分钟）。
+      点某节课可以改提醒时间 / 换关联视频；课表只存在本机。到点会弹右下角卡片，安卓上还会发系统通知（可设多个提醒时间）。
     </div>
 
     <template v-if="todayList.length">
@@ -203,13 +175,11 @@ onMounted(async () => {
           :style="{ borderLeftColor: colorOf(c) }"
           @click="openEdit(c)"
         >
-          <span class="sc-time mono">{{ c.start }}–{{ c.end }}</span>
+          <span class="sc-time mono">{{ c.remindAt }}</span>
           <b class="sc-name">{{ c.name }}</b>
-          <span class="muted sc-sub">{{ [c.location, c.teacher].filter(Boolean).join(' · ') || '—' }}</span>
           <span class="grow" />
           <span v-if="c.remindOn" class="chip plain sc-chip">
-            <Icon name="clock" :size="11" />
-            {{ c.remindLead ? `提前 ${c.remindLead} 分` : '到点' }}
+            <Icon name="clock" :size="11" /> 到点提醒
           </span>
           <span v-if="c.targetName" class="chip plain sc-chip">{{ c.targetName }}</span>
           <span v-if="c.bvid" class="chip plain sc-chip">关联视频</span>
@@ -232,12 +202,11 @@ onMounted(async () => {
             :key="c.id"
             class="sc-card"
             :style="{ borderLeftColor: colorOf(c) }"
-            :title="`${c.name} ${c.start}-${c.end}`"
+            :title="`${c.name} ${c.remindAt}`"
             @click="openEdit(c)"
           >
-            <span class="sc-card-time mono">{{ c.start }}–{{ c.end }}</span>
+            <span class="sc-card-time mono">{{ c.remindAt }}</span>
             <b class="sc-card-name">{{ c.name }}</b>
-            <span v-if="c.location || c.teacher" class="muted sc-card-sub">{{ [c.location, c.teacher].filter(Boolean).join(' · ') }}</span>
             <span class="sc-card-tags">
               <span v-if="c.remindOn" class="sc-tag"><Icon name="clock" :size="10" /></span>
               <span v-if="c.targetName" class="sc-tag">{{ c.targetName }}</span>
@@ -265,22 +234,8 @@ onMounted(async () => {
               </select>
             </label>
             <label class="field">
-              <span>开始</span>
-              <input v-model="form.start" class="input" name="courseStart" type="time" />
-            </label>
-            <label class="field">
-              <span>结束</span>
-              <input v-model="form.end" class="input" name="courseEnd" type="time" />
-            </label>
-          </div>
-          <div class="sc-form-row">
-            <label class="field">
-              <span>地点</span>
-              <input v-model="form.location" class="input" name="courseLocation" type="text" maxlength="40" placeholder="教学楼 302" />
-            </label>
-            <label class="field">
-              <span>老师</span>
-              <input v-model="form.teacher" class="input" name="courseTeacher" type="text" maxlength="40" placeholder="选填" />
+              <span>提醒时间</span>
+              <input v-model="form.remindAt" class="input" name="courseRemindAt" type="time" />
             </label>
           </div>
           <label class="field">
@@ -305,14 +260,9 @@ onMounted(async () => {
             <span>到点提醒</span>
             <span class="row" style="gap: 10px; align-items: center">
               <label class="sc-switch">
-                <input v-model="form.remindOn" type="checkbox" name="courseRemind" /> 提醒我
+                <input v-model="form.remindOn" type="checkbox" name="courseRemind" /> 到点提醒
               </label>
-              <select v-model.number="form.remindLead" class="input" name="courseLead" style="max-width: 132px" :disabled="!form.remindOn">
-                <option :value="0">到点提醒</option>
-                <option :value="5">提前 5 分钟</option>
-                <option :value="10">提前 10 分钟</option>
-                <option :value="15">提前 15 分钟</option>
-              </select>
+              <span class="muted" style="font-size: 12px">会在提醒时间弹卡片；安卓上还会发系统通知（带提示音）</span>
             </span>
           </label>
           <label class="field">

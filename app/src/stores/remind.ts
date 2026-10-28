@@ -134,7 +134,7 @@ export const useRemindStore = defineStore('remind', {
       return out
     },
 
-    /** 课表：今天这门课到点（含提前 N 分钟） */
+    /** 课表：今天这门课到点（0.4.14 起课表只记一个提醒时间，没有提前量） */
     dueCourses(now = hhmm(), day = todayStr()): ReminderCard[] {
       const courses = useCoursesStore()
       const wd = weekdayOf(day)
@@ -143,21 +143,18 @@ export const useRemindStore = defineStore('remind', {
       const out: ReminderCard[] = []
       for (const c of courses.list) {
         if (Number(c.weekday) !== wd || !c.remindOn) continue
-        const start = /^\d{2}:\d{2}$/.test(String(c.start || '')) ? String(c.start) : ''
-        if (!start) continue
-        const lead = [0, 5, 10, 15].includes(Number(c.remindLead)) ? Number(c.remindLead) : 0
-        const notifyAt = lead > 0 ? shift(start, -lead) : start
-        if (at < notifyAt) continue
-        // 开始后 10 分钟就不提醒了，免得下午才弹
-        if (at > shift(start, 10)) continue
+        const remindAt = /^\d{2}:\d{2}$/.test(String(c.remindAt || '')) ? String(c.remindAt) : ''
+        if (!remindAt) continue
+        if (at < remindAt) continue
+        // 到点后 10 分钟就不提醒了，免得下午才弹
+        if (at > shift(remindAt, 10)) continue
         const key = `course:${c.id}:${day}`
         if (fired.includes(key)) continue
-        const tail = [c.location, c.teacher].filter(Boolean).join(' · ')
         out.push({
           key,
           kind: 'course',
           title: `该上课了 · ${c.name}`,
-          body: `${start}-${c.end || ''}${tail ? ' · ' + tail : ''}${lead > 0 ? `（提前 ${lead} 分钟提醒）` : ''}`,
+          body: `提醒时间 ${remindAt}`,
           at: Date.now(),
           actions: [
             c.bvid
@@ -245,22 +242,20 @@ export const useRemindStore = defineStore('remind', {
       const base = new Date()
       for (const c of courses.list as any[]) {
         if (!c || !c.remindOn) continue
-        const start = String(c.start || '')
-        if (!/^\d{2}:\d{2}$/.test(start)) continue
-        const lead = [0, 5, 10, 15].includes(Number(c.remindLead)) ? Number(c.remindLead) : 0
-        const notifyAt = lead > 0 ? shift(start, -lead) : start
-        const [hour, minute] = notifyAt.split(':').map(Number)
+        const remindAt = String(c.remindAt || '')
+        if (!/^\d{2}:\d{2}$/.test(remindAt)) continue
+        const [hour, minute] = remindAt.split(':').map(Number)
         for (let i = 0; i < 8; i++) {
           const d = addDays(todayStr(base), i)
           if (weekdayOf(d) !== Number(c.weekday)) continue
-          if (i === 0 && notifyAt <= hhmm(base)) continue
+          if (i === 0 && remindAt <= hhmm(base)) continue
           const parts = d.split('-').map(Number)
           out.push({
             key: `course:${c.id}:${d}`,
             hour,
             minute,
             title: `该上课了 · ${c.name}`,
-            body: `${start}-${c.end || ''}${c.location ? ' · ' + c.location : ''}`,
+            body: `提醒时间 ${remindAt}`,
             path: c.bvid ? `/video/${c.bvid}` : '/learn',
             date: { year: parts[0], month: parts[1], day: parts[2] },
           })

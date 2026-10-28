@@ -105,23 +105,26 @@ async function main() {
     await page.locator('button', { hasText: '添加课程' }).first().click()
     await page.locator('.sc-modal input[name="courseName"]').fill('高等数学')
     await page.locator('.sc-modal select[name="courseWeekday"]').selectOption(String(wd))
-    await page.locator('.sc-modal input[name="courseStart"]').fill('09:00')
-    await page.locator('.sc-modal input[name="courseEnd"]').fill('09:45')
-    await page.locator('.sc-modal input[name="courseLocation"]').fill('教学楼 302')
-    await page.locator('.sc-modal input[name="courseTeacher"]').fill('张老师')
+    await page.locator('.sc-modal input[name="courseRemindAt"]').fill('09:00')
+    // 0.4.14 起课表只填「提醒时间」：地点 / 老师 / 开始 / 结束都不存在了
+    const modalFields = await page.locator('.sc-modal input, .sc-modal select').evaluateAll((els) =>
+      els.map((el) => el.getAttribute('name')),
+    )
+    check('弹窗里没有地点/老师/起止时间', !['courseStart', 'courseEnd', 'courseLocation', 'courseTeacher'].some((n) => modalFields.includes(n)), modalFields.join(','))
+    check('弹窗里有提醒时间', modalFields.includes('courseRemindAt'), modalFields.join(','))
     await page.locator('.sc-modal button[name="courseSave"]').click()
     await wait(900)
     check('新建后弹窗关闭', (await page.locator('.sc-modal').count()) === 0)
     check('今天列表出现新课程', (await page.locator('.sc-today-card', { hasText: '高等数学' }).count()) === 1)
     const colCards = page.locator('.sc-col').nth(wd - 1).locator('.sc-card')
     check('对应星期的列里也有这门课', (await colCards.filter({ hasText: '高等数学' }).count()) === 1)
-    check('卡片显示时间 09:00–09:45', (await colCards.first().innerText()).includes('09:00'))
+    check('卡片显示提醒时间 09:00', (await colCards.first().innerText()).includes('09:00'))
     await page.screenshot({ path: `${OUT}/2-schedule-created.png` })
 
     // ---------- 3. 编辑课程 ----------
     await colCards.first().click()
     await page.locator('.sc-modal input[name="courseName"]').fill('高数（改）')
-    await page.locator('.sc-modal input[name="courseStart"]').fill('10:00')
+    await page.locator('.sc-modal input[name="courseRemindAt"]').fill('10:00')
     await page.locator('.sc-modal button[name="courseSave"]').click()
     await wait(900)
     const colText = await page.locator('.sc-col').nth(wd - 1).innerText()
@@ -144,7 +147,6 @@ async function main() {
     // ---------- 5. 到点提醒：课表 ----------
     await page.locator('.sc-col').nth(wd - 1).locator('.sc-card').first().click()
     await page.locator('.sc-modal input[name="courseRemind"]').check()
-    await page.locator('.sc-modal select[name="courseLead"]').selectOption('0')
     await page.locator('.sc-modal button[name="courseSave"]').click()
     await wait(900)
     // 把「现在」推到 10:05（课程 10:00 开始，到点提醒）
