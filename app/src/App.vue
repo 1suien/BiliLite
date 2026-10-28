@@ -23,6 +23,9 @@ import { useSettingsStore } from '@/stores/settings'
 import { useLearnStore } from '@/stores/learn'
 import { useHabitsStore } from '@/stores/habits'
 import { useRemindStore } from '@/stores/remind'
+import { useCoursesStore } from '@/stores/courses'
+import { Capacitor } from '@capacitor/core'
+import { LocalNotifications } from '@capacitor/local-notifications'
 import { useUpsStore } from '@/stores/ups'
 import { toHours } from '@/utils/format'
 
@@ -39,6 +42,7 @@ const settings = useSettingsStore()
 const learn = useLearnStore()
 const habits = useHabitsStore()
 const remind = useRemindStore()
+const courses = useCoursesStore()
 const ups = useUpsStore()
 const ui = useUiStore()
 
@@ -164,6 +168,8 @@ function logout() {
 
 // 键盘快捷键
 let keyHandler: ((e: KeyboardEvent) => void) | null = null
+/** 0.4.13：数据变化后延迟重排系统通知 */
+let nativeSyncTimer: any = null
 
 function onKeydown(e: KeyboardEvent) {
   const el = document.activeElement as HTMLElement | null
@@ -209,6 +215,31 @@ onMounted(async () => {
   } catch (e: any) {
     console.warn('[remind] 提醒中心启动失败：', e && e.message)
   }
+  // 本机构建 0.4.13：提醒同时交给系统通知（应用在后台/切走也能看到，带提示音）
+  try {
+    await courses.init()
+  } catch (e: any) {
+    console.warn('[courses] 课表初始化失败：', e && e.message)
+  }
+  watch(
+    () => [settings.settings.focusTargets, habits.habits, courses.list],
+    () => {
+      if (nativeSyncTimer) clearTimeout(nativeSyncTimer)
+      nativeSyncTimer = setTimeout(() => {
+        remind.syncNative().catch(() => {})
+      }, 1200)
+    },
+    { deep: true },
+  )
+  // 点系统通知 → 跳到对应页面（extra.path 由 bridge/notify.ts 写入）
+  if (Capacitor.isNativePlatform()) {
+    try {
+      LocalNotifications.addListener('localNotificationActionPerformed', (action: any) => {
+        const path = action && action.notification && action.notification.extra && action.notification.extra.path
+        if (typeof path === 'string' && path) router.push(path)
+      })
+    } catch {}
+  }
 
   keyHandler = onKeydown
   window.addEventListener('keydown', keyHandler)
@@ -218,6 +249,8 @@ onUnmounted(() => {
   // 原实现没有解绑（单例外壳不会卸载），这里补上以便 HMR 不叠加监听
   if (keyHandler) window.removeEventListener('keydown', keyHandler)
   keyHandler = null
+  if (nativeSyncTimer) clearTimeout(nativeSyncTimer)
+  nativeSyncTimer = null
   remind.stop()
 })
 </script>

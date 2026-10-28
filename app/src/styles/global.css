@@ -1415,3 +1415,11 @@ html[data-platform="android"] .theater-exit {
 html[data-platform="android"] .app.theater .scroll {
   padding-top: 60px;
 }
+
+/* ---------------------------------------------------------------------------
+ * 本机构建 0.4.13：到点提醒卡片贴到屏幕最右下角后，右下角的刷新/回顶部浮钮
+ * 暂时隐藏，免得两张东西叠在一起（卡片关掉后自动恢复）。
+ * --------------------------------------------------------------------------- */
+body.has-reminder .page-float {
+  display: none !important;
+}

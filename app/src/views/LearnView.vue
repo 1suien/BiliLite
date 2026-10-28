@@ -17,7 +17,7 @@ import { usePomodoroStore } from '@/stores/pomodoro'
 import { useLearnStore } from '@/stores/learn'
 import { useUiStore } from '@/stores/ui'
 import { db } from '@/db'
-import { formatClock, toHours, relativeTime } from '@/utils/format'
+import { formatClock, relativeTime } from '@/utils/format'
 import type { ProgressRecord } from '@/types'
 
 const router = useRouter()
@@ -31,12 +31,6 @@ const ready = ref(false)
 
 const recent = computed(() => learn.listByVideo.slice(0, 40))
 const shelf = computed(() => learn.shelf)
-const stats = computed(() => [
-  { label: '总学习时长', value: toHours(learn.totalSeconds) + ' h', icon: 'clock' },
-  { label: '连续签到（天）', value: String(learn.checkinStreak), icon: 'fire' },
-  { label: '本周专注', value: formatClock(pomo.weekSeconds), icon: 'zap' },
-])
-
 /** 观看进度 0~1 */
 function progressOf(p: ProgressRecord) {
   return p.duration ? Math.min(1, p.seconds / p.duration) : 0
@@ -57,54 +51,6 @@ async function removeRecord(p: ProgressRecord) {
   }
 }
 
-async function clearAllData() {
-  if (
-    !(await ui.confirm(
-      '清空全部学习数据？',
-      '进度、每日时长、签到、笔记、学习清单、专注记录都会被删除，且无法恢复。',
-    ))
-  )
-    return
-  await learn.clearAll()
-  await pomo.clearSessions()
-  ui.ok('学习数据已清空')
-}
-
-/** 把本地库整份导出成 JSON 文本塞进剪贴板 */
-async function exportJson() {
-  try {
-    const [progress, daily, notes, shelfRows, checkins, upTime, focus, habits, habitLogs] =
-      await Promise.all([
-        db.progress.toArray(),
-        db.daily.toArray(),
-        db.notes.toArray(),
-        db.shelf.toArray(),
-        db.checkins.toArray(),
-        db.upTime.toArray(),
-        db.focus.toArray(),
-        db.habits.toArray(),
-        db.habitLogs.toArray(),
-      ])
-    const payload = {
-      app: 'study-bili',
-      exportedAt: new Date().toISOString(),
-      progress,
-      daily,
-      notes,
-      shelf: shelfRows,
-      checkins,
-      upTime,
-      focus,
-      habits,
-      habitLogs,
-    }
-    await navigator.clipboard.writeText(JSON.stringify(payload, null, 2))
-    ui.ok('学习数据已复制到剪贴板')
-  } catch (e: any) {
-    ui.err(e.message || '导出失败')
-  }
-}
-
 onMounted(async () => {
   try {
     await learn.init(true)
@@ -119,27 +65,6 @@ onMounted(async () => {
 
 <template>
   <div>
-    <div class="page-head">
-      <h1>学习</h1>
-      <p>所有数据只保存在本机（IndexedDB），不会上传。</p>
-      <span class="grow" />
-      <button class="btn sm ghost" @click="exportJson">
-        <Icon name="list" :size="14" /> 导出 JSON
-      </button>
-      <button class="btn sm" style="color: var(--danger)" @click="clearAllData">
-        <Icon name="trash" :size="14" /> 清空
-      </button>
-    </div>
-
-    <div class="stat-grid">
-      <div v-for="s in stats" :key="s.label" class="stat">
-        <div class="k row" style="gap: 6px; align-items: center">
-          <Icon :name="s.icon" :size="13" /> {{ s.label }}
-        </div>
-        <div class="v">{{ s.value }}</div>
-      </div>
-    </div>
-
     <HabitHome />
     <FocusPanel />
 

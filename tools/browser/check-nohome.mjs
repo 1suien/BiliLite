@@ -117,7 +117,12 @@ try {
 
   // 5) 学习页渲染正常
   const learnText = await page.evaluate(() => document.body.innerText)
-  check('学习页正常渲染（含「学习」与统计）', learnText.includes('学习') && learnText.includes('本周专注'))
+  // 0.4.13 起学习页顶部标题行与三张统计卡已删除，改为检查页面主体块
+  check(
+    '学习页正常渲染（含今日习惯 / 专注目标）',
+    learnText.includes('今日习惯') && learnText.includes('专注目标'),
+    learnText.replace(/\s+/g, ' ').slice(0, 60),
+  )
 
   // 6) 播放页仍能直接打开
   await page.goto(`${BASE}?mock=1#/video/BV1mock0001`, { waitUntil: 'domcontentloaded' })

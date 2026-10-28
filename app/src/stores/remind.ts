@@ -13,7 +13,13 @@ import { defineStore } from 'pinia'
 import { useSettingsStore } from '@/stores/settings'
 import { useHabitsStore } from '@/stores/habits'
 import { useCoursesStore, weekdayOf } from '@/stores/courses'
-import { todayStr, hhmm } from '@/utils/format'
+import { todayStr, hhmm, addDays } from '@/utils/format'
+import {
+  nativeNotifySupported,
+  syncNativeReminders,
+  nativePendingCount,
+  type NativeReminderItem,
+} from '@/bridge/notify'
 
 const FIRED_KEY = 'study-bili-remind-fired'
 const TICK = 30 * 1000
@@ -49,6 +55,13 @@ export const useRemindStore = defineStore('remind', {
     cards: [] as ReminderCard[],
     timer: null as any,
     lastCheck: { at: '', day: '', cards: 0 },
+    /** 系统通知同步状态（本机构建 0.4.13） */
+    native: { supported: false, scheduled: 0, error: '', at: '' } as {
+      supported: boolean
+      scheduled: number
+      error: string
+      at: string
+    },
   }),
   getters: {
     count: (s) => s.cards.length,
@@ -183,6 +196,97 @@ export const useRemindStore = defineStore('remind', {
       return { focus: focus.map((c) => c.key), course: course.map((c) => c.key) }
     },
 
+    /* ---------------------- 系统通知（软件外也能看到 + 提示音） ---------------------- */
+    /** 把专注目标 / 习惯（每天重复）和课表（最近 7 天的一次性）整理成通知清单 */
+    nativeItems(): NativeReminderItem[] {
+      const settings = useSettingsStore()
+      const habits = useHabitsStore()
+      const courses = useCoursesStore()
+      const out: NativeReminderItem[] = []
+
+      // 专注目标：每个目标的多个提醒时间，每天重复
+      const targets = (Array.isArray(settings.settings.focusTargets) ? settings.settings.focusTargets : []).filter(
+        (t: any) => t && !t.archived,
+      )
+      for (const t of targets as any[]) {
+        const times = (Array.isArray(t.reminders) ? t.reminders : [])
+          .map(String)
+          .filter((x: string) => /^\d{2}:\d{2}$/.test(x))
+        for (const time of times) {
+          const [hour, minute] = time.split(':').map(Number)
+          out.push({
+            key: `focus:${t.name}:${time}`,
+            hour,
+            minute,
+            title: `该专注「${t.name}」了`,
+            body: `设的提醒时间 ${time}，去开一轮专注？`,
+            path: '/learn',
+          })
+        }
+      }
+
+      // 习惯：每天到点提醒（已打卡就不再提示，由应用内逻辑负责；系统通知只负责到点响）
+      for (const h of habits.habits as any[]) {
+        if (!h || Number(h.archived) || !h.remindOn) continue
+        const at = String(h.remindAt || '')
+        if (!/^\d{2}:\d{2}$/.test(at)) continue
+        const [hour, minute] = at.split(':').map(Number)
+        out.push({
+          key: `habit:${h.id}:${at}`,
+          hour,
+          minute,
+          title: `该打卡了 · ${h.name}`,
+          body: `每天 ${at} 提醒，去打个卡？`,
+          path: `/habit?h=${h.id}`,
+        })
+      }
+
+      // 课表：每周只有固定星期几，所以按「未来 7 天里对得上的日子」排一次性提醒
+      const base = new Date()
+      for (const c of courses.list as any[]) {
+        if (!c || !c.remindOn) continue
+        const start = String(c.start || '')
+        if (!/^\d{2}:\d{2}$/.test(start)) continue
+        const lead = [0, 5, 10, 15].includes(Number(c.remindLead)) ? Number(c.remindLead) : 0
+        const notifyAt = lead > 0 ? shift(start, -lead) : start
+        const [hour, minute] = notifyAt.split(':').map(Number)
+        for (let i = 0; i < 8; i++) {
+          const d = addDays(todayStr(base), i)
+          if (weekdayOf(d) !== Number(c.weekday)) continue
+          if (i === 0 && notifyAt <= hhmm(base)) continue
+          const parts = d.split('-').map(Number)
+          out.push({
+            key: `course:${c.id}:${d}`,
+            hour,
+            minute,
+            title: `该上课了 · ${c.name}`,
+            body: `${start}-${c.end || ''}${c.location ? ' · ' + c.location : ''}`,
+            path: c.bvid ? `/video/${c.bvid}` : '/learn',
+            date: { year: parts[0], month: parts[1], day: parts[2] },
+          })
+        }
+      }
+      return out.slice(0, 40)
+    },
+
+    /** 同步到系统通知（安卓原生；浏览器里是 no-op） */
+    async syncNative() {
+      const supported = nativeNotifySupported()
+      if (!supported) {
+        this.native = { supported: false, scheduled: 0, error: 'unsupported', at: hhmm() }
+        return this.native
+      }
+      const res = await syncNativeReminders(this.nativeItems())
+      const pending = await nativePendingCount()
+      this.native = {
+        supported: true,
+        scheduled: res.ok ? pending : 0,
+        error: res.error || '',
+        at: hhmm(),
+      }
+      return this.native
+    },
+
     start() {
       if (this.timer) return
       // 等各 store 初始化完再扫第一轮
@@ -191,7 +295,11 @@ export const useRemindStore = defineStore('remind', {
         useHabitsStore().init?.(),
         useCoursesStore().init?.(),
       ])
-        .then(() => this.check())
+        .then(() => {
+          this.check()
+          // 本机构建 0.4.13：把同一批提醒交给系统通知（软件在后台也能看到 + 提示音）
+          this.syncNative().catch(() => {})
+        })
         .catch(() => {})
       this.timer = setInterval(() => {
         this.check()

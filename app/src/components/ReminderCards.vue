@@ -5,7 +5,7 @@
  * 习惯 / 专注目标 / 课表的到点提醒都显示在这里：常驻、不自动消失，
  * 点「去打卡 / 去专注 / 去学习」跳到对应页面，点右上角 × 关掉这一张。
  */
-import { computed, onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import Icon from '@/components/Icon.vue'
 import { useRemindStore } from '@/stores/remind'
@@ -13,6 +13,17 @@ import { useRemindStore } from '@/stores/remind'
 const router = useRouter()
 const remind = useRemindStore()
 const cards = computed(() => remind.cards)
+
+// 0.4.13：卡片贴屏幕最右下角；有卡片时给 body 加标记，让右下角的刷新/回顶部浮钮暂时让位
+watch(
+  () => cards.value.length,
+  (n) => {
+    try {
+      document.body.classList.toggle('has-reminder', n > 0)
+    } catch {}
+  },
+  { immediate: true },
+)
 
 const KIND_LABEL: Record<string, string> = {
   habit: '习惯打卡',
@@ -36,11 +47,17 @@ onMounted(() => {
     lastCheck: remind.lastCheck,
   })
   ;(window as any).__remindCheck = (now?: string, day?: string) => remind.check(now, day)
+  // 0.4.13：系统通知同步状态（浏览器里 supported=false）
+  ;(window as any).__remindNative = () => ({ ...remind.native })
+  ;(window as any).__remindSyncNative = () => remind.syncNative()
 })
 onUnmounted(() => {
   try {
     ;(window as any).__remindProbe = null
     ;(window as any).__remindCheck = null
+    ;(window as any).__remindNative = null
+    ;(window as any).__remindSyncNative = null
+    document.body.classList.remove('has-reminder')
   } catch {}
 })
 </script>
@@ -75,9 +92,9 @@ onUnmounted(() => {
 <style scoped>
 .reminder-dock {
   position: fixed;
-  right: 16px;
-  /* 让开右下角的刷新/回顶部浮动按钮 */
-  bottom: calc(96px + env(safe-area-inset-bottom));
+  right: calc(12px + env(safe-area-inset-right));
+  /* 本机构建 0.4.13：贴屏幕最右下角（有卡片时右下角的刷新浮钮会让位，见 global.css） */
+  bottom: calc(10px + env(safe-area-inset-bottom));
   z-index: 75;
   display: flex;
   flex-direction: column;

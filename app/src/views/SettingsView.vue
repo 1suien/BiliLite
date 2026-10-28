@@ -116,7 +116,10 @@ async function pickBackupDir() {
 
 /** 导出 JSON 备份：进度 / 每日时长 / 笔记 / 清单 */
 async function exportBackup() {
-  if (!conf.value.backupPath) {
+  // 本机构建 0.4.13：安卓上没有「备份目录」这个概念（0.4.6 起那整行已隐藏），
+  // 导出位置由 bridge/android.ts 的 backup:write 决定（Documents，失败退 Cache），
+  // 再弹系统「保存到」面板让用户自己选，所以这里不能拿 backupPath 做前置检查。
+  if (!isAndroid.value && !conf.value.backupPath) {
     ui.err('请先选择备份目录')
     return
   }
@@ -141,7 +144,7 @@ async function exportBackup() {
     // 文件名里的时间：2026-10-25T12-00-00
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
     const path = await bili.backup.write(
-      conf.value.backupPath,
+      conf.value.backupPath || 'documents',
       `bililite-learn-${stamp}.json`,
       JSON.stringify(payload, null, 2),
     )
