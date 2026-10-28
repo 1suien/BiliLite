@@ -9,13 +9,12 @@
  * 上次看到哪儿（pos）都存在本机 Dexie 的 locals 表里。文件被移走后列表里仍保留
  * 一条记录，标记 missing 后按钮置灰。
  */
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import Icon from '@/components/Icon.vue'
 import EmptyBlock from '@/components/EmptyBlock.vue'
 import { useUiStore } from '@/stores/ui'
 import { bili } from '@/bridge'
-import { downloadPart, qualitiesOf } from '@/download/bvDownload'
 import { listLocals, putLocal, removeLocal } from '@/db'
 import { formatClock, relativeTime } from '@/utils/format'
 import type { LocalVideo } from '@/types'
@@ -235,130 +234,6 @@ async function importLocal() {
   }
 }
 
-/* ---------------------------- BV 下载（本机构建 0.4.20） ---------------------------- */
-
-interface BvPage {
-  cid: any
-  page: number
-  part: string
-}
-
-const bvOpen = ref(false)
-const bvInput = ref('')
-const bvParsing = ref(false)
-const bvDownloading = ref(false)
-const bvError = ref('')
-const bvProgress = ref('')
-const bvBvid = ref('')
-const bvTitle = ref('')
-const bvPages = ref<BvPage[]>([])
-const bvPageIdx = ref(0)
-const bvQualities = ref<{ qn: number; label: string }[]>([])
-const bvQn = ref(80)
-
-/** 拉当前分 P 的可选清晰度（拿不到就按默认 qn，不影响下载） */
-async function loadQualities() {
-  const bvid = bvBvid.value
-  const page = bvPages.value[bvPageIdx.value]
-  bvQualities.value = []
-  bvQn.value = 80
-  if (!bvid || !page) return
-  try {
-    const play: any = await bili.video.playurl(bvid, page.cid, 80)
-    const list = qualitiesOf(play)
-    bvQualities.value = list
-    if (list.length) bvQn.value = list[0].qn
-  } catch {
-    // 列表拿不到就按默认清晰度下载（下载时还会再请求一次 playurl）
-  }
-}
-
-watch(
-  () => bvPageIdx.value,
-  () => {
-    void loadQualities()
-  },
-)
-
-function openBv() {
-  bvOpen.value = true
-  bvError.value = ''
-  bvProgress.value = ''
-}
-
-function closeBv() {
-  if (bvDownloading.value) return
-  bvOpen.value = false
-}
-
-/** 从粘贴内容里挑出 BV 号（链接/分享文案都行） */
-function bvidOf(text: string) {
-  const m = String(text || '').match(/BV[0-9A-Za-z]{8,12}/)
-  return m ? m[0] : ''
-}
-
-async function parseBv() {
-  const bvid = bvidOf(bvInput.value)
-  if (!bvid) {
-    bvError.value = '没找到 BV 号：把视频链接或 BV 号（形如 BV1xx411c7mD）贴进来'
-    return
-  }
-  bvParsing.value = true
-  bvError.value = ''
-  bvProgress.value = ''
-  try {
-    const detail: any = await bili.video.view(bvid)
-    const pages: any[] = (await bili.video.pages(bvid)) || []
-    bvBvid.value = bvid
-    bvTitle.value = (detail && detail.title) || bvid
-    bvPages.value = pages.map((p: any) => ({ cid: p.cid, page: Number(p.page) || 1, part: String(p.part || '') }))
-    bvPageIdx.value = 0
-    void loadQualities()
-  } catch (e: any) {
-    bvError.value = e.message || '解析失败：BV 号可能不对，或需要登录'
-  } finally {
-    bvParsing.value = false
-  }
-}
-
-async function downloadBv() {
-  const bvid = bvBvid.value
-  const page = bvPages.value[bvPageIdx.value]
-  if (!bvid || !page || bvDownloading.value) return
-  bvDownloading.value = true
-  bvError.value = ''
-  bvProgress.value = '正在获取播放地址…'
-  try {
-    const res = await downloadPart({
-      bvid,
-      page,
-      title: bvTitle.value,
-      qn: bvQn.value || 80,
-      onProgress: (prog) => {
-        const pct = prog.total ? Math.min(100, Math.round((prog.received / prog.total) * 100)) : 0
-        const tag = prog.stage === 'video' ? '视频流' : prog.stage === 'audio' ? '音频流' : prog.stage === 'mux' ? '合成中' : '下载'
-        bvProgress.value = prog.total
-          ? `${tag} ${pct}%（${formatSize(prog.received)} / ${formatSize(prog.total)}）`
-          : `${tag} ${formatSize(prog.received)}`
-      },
-    })
-    await upsert([res.entry])
-    if (res.note) ui.toast(res.note, 'info', 4200)
-    ui.ok(res.mode === 'dash' ? `已下载并合成「${page.part || bvTitle.value}」` : `已下载「${page.part || bvTitle.value}」`)
-    bvOpen.value = false
-    bvInput.value = ''
-    bvBvid.value = ''
-    bvTitle.value = ''
-    bvPages.value = []
-    bvQualities.value = []
-  } catch (e: any) {
-    bvError.value = e.message || '下载失败'
-    bvProgress.value = ''
-  } finally {
-    bvDownloading.value = false
-  }
-}
-
 function open(item: LocalRecord) {
   if (item.missing) {
     ui.err('文件不在了：可能被移动、改名或删除')
@@ -425,9 +300,6 @@ onMounted(() => {
         <button class="btn sm" :disabled="busy" @click="importLocal" data-local-import>
           <Icon name="folder" :size="14" /> 本地导入
         </button>
-        <button class="btn sm ghost" @click="openBv" data-bv-download>
-          <Icon name="download" :size="14" /> BV 下载
-        </button>
       </div>
     </div>
 
@@ -441,74 +313,6 @@ onMounted(() => {
         正在解析「{{ parsing }}」的时长与封面…
       </span>
     </div>
-
-    <div v-if="bvOpen" class="bv-mask" @click.self="closeBv">
-      <div class="bv-box">
-        <div class="row" style="margin-bottom: 10px">
-          <b>下载 B 站视频到本地</b>
-          <button class="btn sm ghost" style="margin-left: auto" :disabled="bvDownloading" @click="closeBv">
-            <Icon name="x" :size="13" />
-          </button>
-        </div>
-        <p class="muted" style="margin: 0 0 10px; font-size: 12.5px">
-          粘贴视频链接或 BV 号，选清晰度后下载（DASH 双流由原生合成 MP4，失败自动回退单文件），
-          存到 App 私有目录，之后在本地列表里就能直接播。
-        </p>
-        <div class="row" style="gap: 8px">
-          <input
-            v-model="bvInput"
-            class="input grow"
-            placeholder="BV1xx411c7mD 或视频链接"
-            :disabled="bvParsing || bvDownloading"
-            @keyup.enter="parseBv"
-            data-bv-input
-          />
-          <button class="btn sm" :disabled="bvParsing || bvDownloading" @click="parseBv" data-bv-parse>
-            {{ bvParsing ? '解析中…' : '解析' }}
-          </button>
-        </div>
-
-        <div v-if="bvBvid" style="margin-top: 12px">
-          <div class="bv-title clamp-2" :title="bvTitle">{{ bvTitle }}</div>
-          <div v-if="bvPages.length > 1" class="row" style="flex-wrap: wrap; gap: 6px; margin-top: 8px">
-            <button
-              v-for="(p, i) in bvPages"
-              :key="p.cid"
-              :class="['btn', 'sm', i === bvPageIdx ? 'primary' : 'ghost']"
-              :disabled="bvDownloading"
-              @click="bvPageIdx = i"
-            >
-              P{{ p.page }} {{ p.part || '' }}
-            </button>
-          </div>
-          <div v-else-if="bvPages.length" class="muted" style="margin-top: 6px; font-size: 12.5px">
-            单 P：{{ bvPages[0].part || bvTitle }}
-          </div>
-          <div v-if="bvQualities.length" class="row" style="flex-wrap: wrap; gap: 6px; margin-top: 10px">
-            <span class="muted" style="font-size: 12.5px">清晰度</span>
-            <button
-              v-for="q in bvQualities"
-              :key="q.qn"
-              :class="['btn', 'sm', q.qn === bvQn ? 'primary' : 'ghost']"
-              :disabled="bvDownloading"
-              :data-bv-quality="q.qn"
-              @click="bvQn = q.qn"
-            >
-              {{ q.label }}
-            </button>
-          </div>
-          <div class="row" style="margin-top: 12px; gap: 8px">
-            <button class="btn sm primary" :disabled="bvDownloading || !bvPages.length" @click="downloadBv" data-bv-start>
-              <Icon name="download" :size="13" /> {{ bvDownloading ? '下载中…' : '下载这个分P' }}
-            </button>
-            <span v-if="bvProgress" class="muted" style="font-size: 12.5px" data-bv-progress>{{ bvProgress }}</span>
-          </div>
-        </div>
-
-        <p v-if="bvError" style="color: var(--danger); margin: 10px 0 0; font-size: 12.5px" data-bv-error>{{ bvError }}</p>
-      </div>
-    </div>
-
     <div v-if="loading" class="panel" style="padding: 18px">
       <div class="sk" style="height: 76px; margin-bottom: 10px"></div>
       <div class="sk" style="height: 76px"></div>
@@ -646,32 +450,5 @@ onMounted(() => {
   display: block;
   height: 100%;
   background: var(--brand);
-}
-
-
-/* BV 下载弹层（本机构建 0.4.20） */
-.bv-mask {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.55);
-  padding: 16px;
-}
-.bv-box {
-  width: min(560px, 100%);
-  max-height: 86vh;
-  overflow: auto;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 14px 16px;
-}
-.bv-title {
-  font-size: 13.5px;
-  font-weight: 600;
-  line-height: 1.5;
 }
 </style>

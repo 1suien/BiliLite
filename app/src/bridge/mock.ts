@@ -607,12 +607,6 @@ export function createMockBridge(): WbiBridge {
         const entry = makeLocalEntries(1)[0]
         return { ...entry, name: options.name || '下载的视频.mp4' }
       },
-      /** DASH 合成下载的浏览器预览版（0.4.21）：只造条目，不真下 */
-      async downloadDash(options: { videoUrl: string; audioUrl: string; name?: string }) {
-        await delay(900)
-        const entry = makeLocalEntries(1)[0]
-        return { ...entry, name: options.name || '合成的视频.mp4' }
-      },
       async sharedPending() {
         await delay(40)
         return { entries: [], count: 0 }

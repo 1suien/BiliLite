@@ -102,17 +102,6 @@ export const bili: WbiBridge = {
       impl().local.onDownloadProgress ? impl().local.onDownloadProgress!(cb) : Promise.resolve(() => {}),
     download: (options: { url: string; name?: string; referer?: string }) =>
       impl().local.download ? impl().local.download!(options) : Promise.reject(new Error('当前环境不支持下载')),
-    downloadDash: (options: {
-      videoUrl: string
-      audioUrl: string
-      videoBackups?: string[]
-      audioBackups?: string[]
-      name?: string
-      referer?: string
-    }) =>
-      impl().local.downloadDash
-        ? impl().local.downloadDash!(options)
-        : Promise.reject(new Error('当前环境不支持 DASH 合成下载')),
     sharedPending: () =>
       impl().local.sharedPending ? impl().local.sharedPending!() : Promise.resolve({ entries: [], missing: [] }),
     probe: (paths: string[]) =>

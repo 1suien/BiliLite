@@ -5,10 +5,6 @@ import android.content.ClipData;
 import android.content.ContentResolver;
 import android.content.Intent;
 import android.database.Cursor;
-import android.media.MediaCodec;
-import android.media.MediaExtractor;
-import android.media.MediaFormat;
-import android.media.MediaMuxer;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.OpenableColumns;
@@ -30,7 +26,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
@@ -60,10 +55,6 @@ public class LocalMediaPlugin extends Plugin {
 
   /** 私有目录下的子目录名 */
   private static final String MEDIA_DIR = "local-media";
-
-  /** 和 MainActivity 里 WebView 的 UA 一致：B 站分片 CDN 会 403 移动端 UA */
-  private static final String DESKTOP_UA =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
   /** SAF 选择器里允许的类型 */
   private static final String[] MIME_TYPES = new String[] { "video/*", "audio/*" };
@@ -172,7 +163,7 @@ public class LocalMediaPlugin extends Plugin {
   }
 
   /**
-   * 把外部 URL 下载进 App 私有目录（本机构建 0.4.20：本地页「BV 下载」）。
+   * 把外部 URL 下载进 App 私有目录（本机构建 0.4.20 起的通用能力）。
    *
    * B 站的视频 CDN 校验 Referer/UA，WebView 里 fetch 会被 CORS 与防盗链挡住，
    * 所以在原生成层用 HttpURLConnection 拉流写盘；下载进度通过 `downloadProgress`
@@ -253,280 +244,6 @@ public class LocalMediaPlugin extends Plugin {
       "local-media-download"
     ).start();
   }
-
-  /**
-   * DASH 双流下载 + 合成单文件 MP4（本机构建 0.4.21）。
-   *
-   * B 站 fnval=4048 只给 DASH：视频轨 m4s + 音频轨 m4s 是两条独立流，WebView 里
-   * 既合不了轨也存不出「能直接播的单文件」。这里用 HttpURLConnection 把两路流下到
-   * 私有目录，再用 MediaExtractor/MediaMuxer 只 remux（转封装，不重新编码）写成 MP4。
-   * 进度事件 `downloadProgress` 额外带 stage（video/audio/mux），数值为两路累计。
-   */
-  @PluginMethod
-  public void downloadDash(PluginCall call) {
-    final String videoUrl = call.getString("videoUrl");
-    final String audioUrl = call.getString("audioUrl");
-    if (videoUrl == null || videoUrl.isEmpty()) {
-      call.reject("缺少视频流地址");
-      return;
-    }
-    if (audioUrl == null || audioUrl.isEmpty()) {
-      call.reject("缺少音频流地址");
-      return;
-    }
-    final String referer = call.getString("referer", "https://www.bilibili.com/");
-    String rawName = call.getString("name", "");
-    if (rawName.isEmpty()) rawName = "video-" + System.currentTimeMillis() + ".mp4";
-    if (!rawName.toLowerCase(Locale.ROOT).endsWith(".mp4")) rawName = rawName + ".mp4";
-    final String name = sanitizeName(rawName);
-    final List<String> vUrls = withBackups(videoUrl, call.getArray("videoBackups"));
-    final List<String> aUrls = withBackups(audioUrl, call.getArray("audioBackups"));
-
-    new Thread(
-      () -> {
-        File dir = mediaDir();
-        File vPart = new File(dir, name + ".v.part");
-        File aPart = new File(dir, name + ".a.part");
-        File target = new File(dir, name);
-        long[] v = new long[] { 0, 0 };
-        long[] a = new long[] { 0, 0 };
-        try {
-          if (!dir.exists() && !dir.mkdirs()) throw new IOException("无法创建媒体目录");
-          fetchStream(vUrls, vPart, referer, name, "video", v, a);
-          fetchStream(aUrls, aPart, referer, name, "audio", a, v);
-          emitProgress(name, "mux", v[0] + a[0], v[1] + a[1]);
-          muxToMp4(vPart, aPart, target);
-          call.resolve(describe(target, "video/mp4"));
-        } catch (Throwable e) {
-          try {
-            if (target.exists()) target.delete();
-          } catch (Throwable ignored) {
-            // ignore
-          }
-          call.reject("DASH 下载合成失败：" + e.getMessage());
-        } finally {
-          try {
-            if (vPart.exists()) vPart.delete();
-          } catch (Throwable ignored) {
-            // ignore
-          }
-          try {
-            if (aPart.exists()) aPart.delete();
-          } catch (Throwable ignored) {
-            // ignore
-          }
-        }
-      },
-      "local-media-dash"
-    ).start();
-  }
-
-  /** 主地址 + 备用 CDN 地址（去重、忽略空串） */
-  private List<String> withBackups(String primary, JSArray backups) {
-    List<String> urls = new ArrayList<>();
-    if (primary != null && !primary.isEmpty()) urls.add(primary);
-    if (backups != null) {
-      for (int i = 0; i < backups.length(); i++) {
-        String u = backups.optString(i);
-        if (u != null && !u.isEmpty() && !urls.contains(u)) urls.add(u);
-      }
-    }
-    return urls;
-  }
-
-  /** 依次尝试一组地址把流下到 dest；progress[0]=已收字节、progress[1]=总字节，other 是另一条流 */
-  private void fetchStream(List<String> urls, File dest, String referer, String name, String stage, long[] progress, long[] other)
-    throws IOException {
-    IOException last = null;
-    for (String url : urls) {
-      HttpURLConnection conn = null;
-      InputStream in = null;
-      FileOutputStream out = null;
-      try {
-        progress[0] = 0;
-        progress[1] = 0;
-        conn = (HttpURLConnection) new URL(url).openConnection();
-        conn.setConnectTimeout(15000);
-        conn.setReadTimeout(30000);
-        conn.setInstanceFollowRedirects(true);
-        conn.setRequestProperty("User-Agent", DESKTOP_UA);
-        conn.setRequestProperty("Referer", referer);
-        conn.setRequestProperty("Accept", "*/*");
-        int code = conn.getResponseCode();
-        if (code < 200 || code >= 300) throw new IOException("HTTP " + code);
-        progress[1] = Math.max(0, conn.getContentLengthLong());
-        in = conn.getInputStream();
-        out = new FileOutputStream(dest);
-        byte[] buf = new byte[64 * 1024];
-        long lastReport = 0;
-        int n;
-        while ((n = in.read(buf)) > 0) {
-          out.write(buf, 0, n);
-          progress[0] += n;
-          long now = System.currentTimeMillis();
-          if (now - lastReport > 300) {
-            lastReport = now;
-            emitProgress(name, stage, progress[0] + other[0], progress[1] + other[1]);
-          }
-        }
-        out.flush();
-        if (progress[0] <= 0) throw new IOException("下载到的文件是空的");
-        emitProgress(name, stage, progress[0] + other[0], progress[1] + other[1]);
-        return;
-      } catch (IOException e) {
-        last = e;
-      } finally {
-        try {
-          if (out != null) out.close();
-        } catch (Throwable ignored) {
-          // ignore
-        }
-        try {
-          if (in != null) in.close();
-        } catch (Throwable ignored) {
-          // ignore
-        }
-        if (conn != null) {
-          try {
-            conn.disconnect();
-          } catch (Throwable ignored) {
-            // ignore
-          }
-        }
-      }
-    }
-    throw last != null ? last : new IOException("没有可用的下载地址");
-  }
-
-  private void emitProgress(String name, String stage, long received, long total) {
-    JSObject p = new JSObject();
-    p.put("stage", stage);
-    p.put("received", received);
-    p.put("total", total);
-    p.put("name", name);
-    notifyListeners("downloadProgress", p);
-  }
-
-  /** fMP4 视频轨 + 音频轨 → 单文件 MP4（只搬运不转码；失败时 JS 回退单文件下载） */
-  private void muxToMp4(File video, File audio, File out) throws IOException {
-    MediaExtractor ve = new MediaExtractor();
-    MediaExtractor ae = new MediaExtractor();
-    MediaMuxer mux = null;
-    try {
-      ve.setDataSource(video.getAbsolutePath());
-      ae.setDataSource(audio.getAbsolutePath());
-      int vIdx = findTrack(ve, "video/");
-      int aIdx = findTrack(ae, "audio/");
-      if (vIdx < 0) throw new IOException("视频流里找不到视频轨");
-      if (aIdx < 0) throw new IOException("音频流里找不到音频轨");
-      MediaFormat vf = ve.getTrackFormat(vIdx);
-      MediaFormat af = ae.getTrackFormat(aIdx);
-      ve.selectTrack(vIdx);
-      ae.selectTrack(aIdx);
-      mux = new MediaMuxer(out.getAbsolutePath(), MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
-      int vTrack = mux.addTrack(vf);
-      int aTrack = mux.addTrack(af);
-      mux.start();
-
-      ByteBuffer vBuf = ByteBuffer.allocateDirect(inputSize(vf, 2 * 1024 * 1024));
-      ByteBuffer aBuf = ByteBuffer.allocateDirect(inputSize(af, 256 * 1024));
-      MediaCodec.BufferInfo vi = new MediaCodec.BufferInfo();
-      MediaCodec.BufferInfo ai = new MediaCodec.BufferInfo();
-      boolean vHave = false;
-      boolean aHave = false;
-      boolean vDone = false;
-      boolean aDone = false;
-      long vPts = 0;
-      long aPts = 0;
-      while (true) {
-        if (!vHave && !vDone) {
-          int size = ve.readSampleData(vBuf, 0);
-          if (size < 0) {
-            vDone = true;
-          } else {
-            vi.set(0, size, ve.getSampleTime(), 0);
-            vPts = vi.presentationTimeUs;
-            vHave = true;
-          }
-        }
-        if (!aHave && !aDone) {
-          int size = ae.readSampleData(aBuf, 0);
-          if (size < 0) {
-            aDone = true;
-          } else {
-            ai.set(0, size, ae.getSampleTime(), 0);
-            aPts = ai.presentationTimeUs;
-            aHave = true;
-          }
-        }
-        if (!vHave && !aHave) break;
-        if (vHave && (!aHave || vPts <= aPts)) {
-          vBuf.position(vi.offset);
-          vBuf.limit(vi.offset + vi.size);
-          mux.writeSampleData(vTrack, vBuf, vi);
-          vHave = false;
-          ve.advance();
-        } else {
-          aBuf.position(ai.offset);
-          aBuf.limit(ai.offset + ai.size);
-          mux.writeSampleData(aTrack, aBuf, ai);
-          aHave = false;
-          ae.advance();
-        }
-      }
-    } catch (IOException e) {
-      throw e;
-    } catch (Throwable e) {
-      throw new IOException("合轨失败（" + e.getMessage() + "）");
-    } finally {
-      try {
-        if (mux != null) mux.stop();
-      } catch (Throwable ignored) {
-        // ignore
-      }
-      try {
-        if (mux != null) mux.release();
-      } catch (Throwable ignored) {
-        // ignore
-      }
-      try {
-        ve.release();
-      } catch (Throwable ignored) {
-        // ignore
-      }
-      try {
-        ae.release();
-      } catch (Throwable ignored) {
-        // ignore
-      }
-    }
-  }
-
-  /** 按 mime 前缀找第一条轨道（视频轨/音频轨） */
-  private int findTrack(MediaExtractor extractor, String prefix) {
-    for (int i = 0; i < extractor.getTrackCount(); i++) {
-      try {
-        String mime = extractor.getTrackFormat(i).getString(MediaFormat.KEY_MIME);
-        if (mime != null && mime.startsWith(prefix)) return i;
-      } catch (Throwable ignored) {
-        // ignore
-      }
-    }
-    return -1;
-  }
-
-  private int inputSize(MediaFormat format, int fallback) {
-    try {
-      if (format.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE)) {
-        int n = format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE);
-        if (n > 0) return Math.max(n, 64 * 1024);
-      }
-    } catch (Throwable ignored) {
-      // ignore
-    }
-    return fallback;
-  }
-
   /** 按绝对路径还原条目（重启后 local:register 用；文件不在了就进 missing） */
   @PluginMethod
   public void probe(PluginCall call) {

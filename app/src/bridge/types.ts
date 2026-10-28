@@ -162,17 +162,8 @@ export interface WbiBridge {
     pickNative?(): Promise<LocalPickResult>
     /** 把 URL 下载到 App 私有目录（0.4.20） */
     download?(options: { url: string; name?: string; referer?: string }): Promise<{ id: string; path: string; name: string; size: number; mtime: number; [key: string]: any }>
-    /** DASH 双流下载 + 原生 remux 成单文件 MP4（0.4.21） */
-    downloadDash?(options: {
-      videoUrl: string
-      audioUrl: string
-      videoBackups?: string[]
-      audioBackups?: string[]
-      name?: string
-      referer?: string
-    }): Promise<{ id: string; path: string; name: string; size: number; mtime: number; [key: string]: any }>
-    /** 原生下载进度（0.4.20；0.4.21 起带 stage：video / audio / mux），返回取消订阅函数 */
-    onDownloadProgress?(cb: (p: { received: number; total: number; name?: string; stage?: string }) => void): Promise<() => void>
+    /** 原生下载进度（0.4.20），返回取消订阅函数 */
+    onDownloadProgress?(cb: (p: { received: number; total: number; name?: string }) => void): Promise<() => void>
     /** 取「分享 / 用其他应用打开」过来的文件（0.4.15） */
     sharedPending?(): Promise<LocalPickResult>
     diagnose?(): Promise<any>

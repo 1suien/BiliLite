@@ -1,5 +1,7 @@
 # 29 本机 0.4.21：BV 下载升级——DASH 双流 + 原生合成 MP4
 
+> ⚠️ **已移除**：这套「BV 下载 / DASH 合成」方案在本机构建 **0.4.22** 中按用户要求整体删除（本地页入口、桥接层 `local.downloadDash`、原生 `LocalMediaPlugin.downloadDash` 与 `app/src/download/bvDownload.ts` 均已不存在）。本文保留作历史记录与后续参考。
+
 > 上一版（0.4.20）的「BV 下载」只能用 `video.downloadUrl`（`fnval=1&platform=html5`）拿**单文件 durl**：
 > 只对老视频有效，清晰度低（多数 360P/480P），1080P 及以上根本拿不到；FLV 还进不了 MP4 播放链路。
 >
