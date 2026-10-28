@@ -33,6 +33,8 @@ const items = ref<LocalRecord[]>([])
 const loading = ref(true)
 /** 导入进行中：两个入口按钮都禁用 */
 const busy = ref(false)
+/** 0.4.25：导入文件夹的现场状态（选择器打不开时这行会留下错误原文，方便截图定位） */
+const folderStatus = ref('')
 /** 正在解析时长与封面的文件名 */
 const parsing = ref('')
 function formatSize(size?: number) {
@@ -224,28 +226,49 @@ async function importEntries(entries: any[]) {
 async function importFolder() {
   if (busy.value) return
   busy.value = true
+  folderStatus.value = '正在打开系统「选择文件夹」界面…'
+  const startedAt = Date.now()
   try {
     let res: any = null
     if (bili.local.pickFolderImport) {
       try {
         res = await bili.local.pickFolderImport()
+        if (res && res.canceled) {
+          folderStatus.value = '已取消选择文件夹'
+          return
+        }
+        folderStatus.value = '已选到文件夹，正在读取文件列表…'
       } catch (e: any) {
-        // 0.4.24：文件夹选择器打不开（ROM 裁了 DocumentsUI / 包可见性误判）时自动退化成「选文件」，
-        // 至少能让用户把视频导进来，别卡在按不动的按钮上。
-        ui.toast(`${(e && e.message) || '文件夹选择器不可用'}，已改为选文件（可多选）`, 'info', 4200)
-        res = await bili.local.pickFolder()
+        // 0.4.25：文件夹选择器打不开时先退到「原生多选文件」（不依赖 WebView 手势），再退到浏览器选文件
+        const msg = (e && (e.message || e)) || '未知错误'
+        folderStatus.value = `文件夹选择器打不开：${msg}；已改为「多选文件」…`
+        try {
+          res = await (bili.local.pickMediaMultiple ? bili.local.pickMediaMultiple() : bili.local.pickFolder())
+        } catch (e2: any) {
+          const msg2 = (e2 && (e2.message || e2)) || '未知错误'
+          folderStatus.value = `原生选文件也打不开：${msg2}；已改为浏览器选文件…`
+          res = await bili.local.pickFolder()
+        }
       }
     } else {
       res = await bili.local.pickFolder()
     }
-    if (res && res.canceled) return
-    const entries = (res && res.entries) || []
-    if (!entries.length) {
-      ui.toast('这个文件夹里没找到视频/音频文件')
+    if (res && res.canceled) {
+      folderStatus.value = '已取消选择'
       return
     }
+    const entries = (res && res.entries) || []
+    if (!entries.length) {
+      folderStatus.value = '没选到音视频文件（选的文件里没有支持的格式）'
+      ui.toast('没选到音视频文件')
+      return
+    }
+    folderStatus.value = `正在复制 ${entries.length} 个文件到 App 私有目录…`
     await importEntries(entries)
+    const secs = ((Date.now() - startedAt) / 1000).toFixed(1)
+    folderStatus.value = `已导入 ${entries.length} 个文件（${secs}s）`
   } catch (e: any) {
+    folderStatus.value = `导入失败：${(e && (e.message || e)) || e}`
     ui.err(e.message || '导入文件夹失败')
   } finally {
     busy.value = false
@@ -332,6 +355,9 @@ onMounted(() => {
           播放本机的视频文件：点「本地导入」选视频，或点「导入文件夹」把整个文件夹里的音视频一起导进来；
           安卓 APK 会把文件复制进 App 私有目录（刷新、重启后还在，大文件边下边播），浏览器预览只登记路径。
           时长、封面和上次看到哪儿都存在本机。
+        </p>
+        <p v-if="folderStatus" class="muted" style="margin: 6px 0 0; font-size: 12px; word-break: break-all" data-folder-status>
+          {{ folderStatus }}
         </p>
       </div>
       <div class="row" style="flex: none">

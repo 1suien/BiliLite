@@ -99,6 +99,9 @@ export const bili: WbiBridge = {
     // 本机定制 0.4.23：选文件夹导入（原生 SAF 目录树；浏览器回退成普通选文件）
     pickFolderImport: () =>
       impl().local.pickFolderImport ? impl().local.pickFolderImport!() : impl().local.pickFolder(),
+    // 本机定制 0.4.25：原生多选文件（文件夹选择器打不开时的退路）
+    pickMediaMultiple: () =>
+      impl().local.pickMediaMultiple ? impl().local.pickMediaMultiple!() : impl().local.pickFolder(),
     diagnose: () =>
       impl().local.diagnose ? impl().local.diagnose!() : Promise.resolve({ openDocument: false, getContent: false, sdk: 0 }),
     onDownloadProgress: (cb: (p: { received: number; total: number; name?: string }) => void) =>

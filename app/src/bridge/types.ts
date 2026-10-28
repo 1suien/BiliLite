@@ -162,6 +162,8 @@ export interface WbiBridge {
     pickNative?(): Promise<LocalPickResult>
     /** 选择「文件夹」导入（0.4.23）：原生递归遍历目录树，把音视频复制进私有目录 */
     pickFolderImport?(): Promise<LocalPickResult>
+    /** 原生多选文件（0.4.25）：文件夹选择器打不开时的退路，不依赖 WebView 手势 */
+    pickMediaMultiple?(): Promise<LocalPickResult>
     /** 把 URL 下载到 App 私有目录（0.4.20） */
     download?(options: { url: string; name?: string; referer?: string }): Promise<{ id: string; path: string; name: string; size: number; mtime: number; [key: string]: any }>
     /** 原生下载进度（0.4.20），返回取消订阅函数 */

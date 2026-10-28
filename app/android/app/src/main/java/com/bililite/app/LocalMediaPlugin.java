@@ -258,6 +258,47 @@ public class LocalMediaPlugin extends Plugin {
     }
   }
 
+  /** 原生多选文件（0.4.25）：文件夹选择器打不开时的退路，不依赖 WebView 手势 */
+  @PluginMethod
+  public void pickMediaMultiple(PluginCall call) {
+    Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+    intent.addCategory(Intent.CATEGORY_OPENABLE);
+    intent.setType("*/*");
+    intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+    try {
+      startActivityForResult(call, intent, "multiPickResult");
+    } catch (Throwable e) {
+      call.reject("系统「选文件」界面也打不开：" + e.getMessage());
+    }
+  }
+
+  @ActivityCallback
+  private void multiPickResult(PluginCall call, ActivityResult result) {
+    if (call == null) return;
+    if (result == null || result.getResultCode() != Activity.RESULT_OK || result.getData() == null) {
+      call.resolve(new JSObject().put("canceled", true));
+      return;
+    }
+    Intent data = result.getData();
+    List<Uri> uris = new ArrayList<>();
+    ClipData clip = data.getClipData();
+    if (clip != null) {
+      for (int i = 0; i < clip.getItemCount(); i++) {
+        Uri uri = clip.getItemAt(i).getUri();
+        if (uri != null) uris.add(uri);
+      }
+    } else if (data.getData() != null) {
+      uris.add(data.getData());
+    }
+    if (uris.isEmpty()) {
+      call.resolve(new JSObject().put("canceled", true));
+      return;
+    }
+    if (uris.size() > 300) uris = uris.subList(0, 300);
+    importUris(call, uris);
+  }
+
   /** 取「分享 / 用其他应用打开」传进来的文件（取一次就清空） */
   @PluginMethod
   public void sharedPending(PluginCall call) {

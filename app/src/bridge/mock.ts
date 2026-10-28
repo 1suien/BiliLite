@@ -633,6 +633,11 @@ export function createMockBridge(): WbiBridge {
         await delay(300)
         return { entries: makeLocalEntries(6), dir: '/mock/课程视频/选修' }
       },
+      /** 原生多选文件的浏览器预览版（0.4.25） */
+      async pickMediaMultiple() {
+        await delay(280)
+        return { entries: makeLocalEntries(4), dir: '/mock/多选' }
+      },
       async register(paths: string[]) {
         await delay(120)
         return { entries: makeLocalEntries(paths.length || 1), missing: [] }

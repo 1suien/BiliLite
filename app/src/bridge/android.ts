@@ -446,6 +446,11 @@ const handlers: Record<string, Handler> = {
     const res = await (await localMedia()).pickFolderAndImport()
     return res || { canceled: true }
   },
+  /** 原生多选文件（0.4.25）：文件夹选择器打不开时的退路，不依赖 WebView 手势 */
+  'local:pickMediaMultiple': async () => {
+    const res = await (await localMedia()).pickMediaMultiple()
+    return res || { canceled: true }
+  },
   /** 取别的 App「分享 / 用其他应用打开」过来的文件（WPS 网盘里的视频走这条） */
   'local:sharedPending': async () => (await localMedia()).sharedPending(),
   /** 下载 URL 到 App 私有目录（0.4.20 起的通用能力） */
@@ -642,6 +647,7 @@ const bridge: WbiBridge & { invoke: typeof invoke; call: typeof call } = {
     pickFolder: () => call('local:pickFolder'),
     pickNative: () => call('local:pickNative'),
     pickFolderImport: () => call('local:pickFolderImport'),
+    pickMediaMultiple: () => call('local:pickMediaMultiple'),
     diagnose: () => call('local:diagnose'),
     sharedPending: () => call('local:sharedPending'),
     download: (options: { url: string; name?: string; referer?: string }) => call('local:download', options),
