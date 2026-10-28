@@ -346,6 +346,84 @@ async function pickFolder() {
   }
 }
 
+/* ------------------------- 扫描本机视频（0.4.18） ------------------------- */
+/**
+ * WPS 网盘里的云文件没法「分享到其他应用」时：先在 WPS 里把视频下载到平板，
+ * 再用这里扫描 MediaStore 列出本机视频，勾选后复制进 App 私有目录。
+ */
+const scanOpen = ref(false)
+const scanBusy = ref(false)
+const scanItems = ref<any[]>([])
+const scanPicked = ref<string[]>([])
+
+const scanAllPicked = computed(
+  () => scanItems.value.length > 0 && scanPicked.value.length === scanItems.value.length,
+)
+
+function scanChecked(uri: string) {
+  return scanPicked.value.includes(uri)
+}
+
+function toggleScan(uri: string) {
+  const i = scanPicked.value.indexOf(uri)
+  if (i >= 0) scanPicked.value.splice(i, 1)
+  else scanPicked.value.push(uri)
+}
+
+function toggleScanAll() {
+  scanPicked.value = scanAllPicked.value ? [] : scanItems.value.map((x) => x.uri)
+}
+
+function closeScan() {
+  if (scanBusy.value) return
+  scanOpen.value = false
+}
+
+function scanMeta(it: any) {
+  const size = formatSize(it.size)
+  const dur = it.duration ? ` · ${formatClock(Math.round(it.duration / 1000))}` : ''
+  const dir = it.dir ? ` · ${it.dir}` : ''
+  return `${size}${dur}${dir}`
+}
+
+async function openScan() {
+  if (scanBusy.value || busy.value) return
+  scanBusy.value = true
+  try {
+    const res: any = await bili.local.scanVideos?.(300)
+    const list = (res && res.items) || []
+    scanItems.value = list
+    scanPicked.value = []
+    scanOpen.value = true
+    if (!list.length) {
+      ui.toast('没找到本机视频：WPS 网盘里的文件要先「下载」到平板，再来这里扫描', 'info', 5000)
+    }
+  } catch (e: any) {
+    ui.err(e.message || '扫描本机视频失败（可能没有给读媒体的权限）')
+  } finally {
+    scanBusy.value = false
+  }
+}
+
+async function importScan() {
+  if (!scanPicked.value.length || scanBusy.value) return
+  scanBusy.value = true
+  try {
+    const res: any = await bili.local.importSelected?.(scanPicked.value.slice())
+    const entries = (res && res.entries) || []
+    const skipped = (res && res.skipped) || []
+    if (entries.length) await importEntries(entries)
+    else ui.err('选中的文件都没导入成功（可能被移动或没有权限）')
+    if (skipped.length) ui.toast(`有 ${skipped.length} 个文件不是视频/音频，已跳过`, 'info', 4000)
+    scanOpen.value = false
+    await load()
+  } catch (e: any) {
+    ui.err(e.message || '导入选中的视频失败')
+  } finally {
+    scanBusy.value = false
+  }
+}
+
 function open(item: LocalRecord) {
   if (item.missing) {
     ui.err('文件不在了：可能被移动、改名或删除')
@@ -414,6 +492,9 @@ onMounted(() => {
         </button>
         <button class="btn sm" :disabled="busy" @click="pickFolder">
           <Icon name="list" :size="14" /> 打开文件夹
+        </button>
+        <button class="btn sm ghost" :disabled="scanBusy || busy" @click="openScan" data-scan-open>
+          <Icon name="search" :size="14" /> 扫描本机视频
         </button>
       </div>
     </div>
@@ -505,6 +586,45 @@ onMounted(() => {
       </div>
     </div>
 
+    <div v-if="scanOpen" class="scan-mask" @click.self="closeScan">
+      <div class="scan-box">
+        <div class="scan-head">
+          <b>扫描到 {{ scanItems.length }} 个本机视频</b>
+          <span class="muted" style="font-size: 12px">
+            WPS 网盘里的文件要先在 WPS 里「下载」到平板，再从这里勾选导入
+          </span>
+        </div>
+        <div class="scan-tools">
+          <label class="row" style="gap: 6px; cursor: pointer">
+            <input type="checkbox" :checked="scanAllPicked" @change="toggleScanAll" />
+            全选
+          </label>
+          <span class="muted" style="font-size: 12px">已选 {{ scanPicked.length }} 个</span>
+        </div>
+        <div class="scan-list">
+          <label v-for="it in scanItems" :key="it.uri" class="scan-item">
+            <input type="checkbox" :checked="scanChecked(it.uri)" @change="toggleScan(it.uri)" />
+            <span class="scan-name" :title="it.name">{{ it.name }}</span>
+            <span class="muted mono scan-meta">{{ scanMeta(it) }}</span>
+          </label>
+          <div v-if="!scanItems.length" class="muted" style="padding: 18px 4px; text-align: center">
+            没扫到视频。先在 WPS 里把视频「下载」到平板，或者用「打开文件」手动选。
+          </div>
+        </div>
+        <div class="scan-foot">
+          <button class="btn sm ghost" :disabled="scanBusy" @click="closeScan">取消</button>
+          <button
+            class="btn sm"
+            :disabled="scanBusy || !scanPicked.length"
+            @click="importScan"
+            data-scan-import
+          >
+            导入选中 {{ scanPicked.length }} 个
+          </button>
+        </div>
+      </div>
+    </div>
+
     <EmptyBlock
       v-else
       icon="film"
@@ -516,6 +636,9 @@ onMounted(() => {
       </button>
       <button class="btn sm ghost" :disabled="busy" @click="pickFolder">
         <Icon name="list" :size="14" /> 打开文件夹
+      </button>
+      <button class="btn sm ghost" :disabled="scanBusy || busy" @click="openScan">
+        <Icon name="search" :size="14" /> 扫描本机视频
       </button>
     </EmptyBlock>
   </div>
@@ -594,5 +717,73 @@ onMounted(() => {
   display: block;
   height: 100%;
   background: var(--brand);
+}
+
+/* 扫描本机视频弹层（0.4.18） */
+.scan-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.55);
+}
+.scan-box {
+  width: min(560px, 100%);
+  max-height: min(78vh, 640px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+}
+.scan-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.scan-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.scan-list {
+  flex: 1;
+  min-height: 120px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.scan-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+.scan-item:last-child {
+  border-bottom: 0;
+}
+.scan-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scan-meta {
+  flex: none;
+  font-size: 11.5px;
+}
+.scan-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 </style>

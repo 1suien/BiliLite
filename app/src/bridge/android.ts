@@ -306,7 +306,7 @@ async function getAppVersion(): Promise<string> {
   } catch {
     cachedVersion = ''
   }
-  return cachedVersion || '0.4.17'
+  return cachedVersion || '0.4.18'
 }
 
 // ---------------------------------------------------------------------------
@@ -448,6 +448,13 @@ const handlers: Record<string, Handler> = {
   'local:storageInfo': async () => (await localMedia()).storageInfo(),
   /** 诊断系统文件选择器可用性（0.4.16） */
   'local:diagnose': async () => (await localMedia()).diagnose(),
+  /**
+   * 扫描本机视频（0.4.18）：WPS 网盘里的文件没法直接分享过来时，
+   * 先在 WPS 里「下载」到平板，再从这里勾选导入。
+   */
+  'local:scanVideos': async ({ limit }: any = {}) => (await localMedia()).scanVideos({ limit: limit || 200 }),
+  /** 导入扫描列表里勾选的视频（content:// URI） */
+  'local:importSelected': async ({ uris }: any) => (await localMedia()).importSelected({ uris: uris || [] }),
   /** 选择本地「文件夹」（安卓没有目录选择器，同样用多选文件模拟） */
   'local:pickFolder': async () => {
     const files = await pickFilesWithInput({ accept: 'video/*,audio/*', multiple: true })
@@ -631,6 +638,8 @@ const bridge: WbiBridge & { invoke: typeof invoke; call: typeof call } = {
     pickFolder: () => call('local:pickFolder'),
     pickNative: () => call('local:pickNative'),
     diagnose: () => call('local:diagnose'),
+    scanVideos: (limit?: number) => call('local:scanVideos', { limit }),
+    importSelected: (uris: string[]) => call('local:importSelected', { uris }),
     sharedPending: () => call('local:sharedPending'),
     probe: (paths: string[]) => call('local:probe', { paths }),
     discard: (path: string) => call('local:discard', { path }),

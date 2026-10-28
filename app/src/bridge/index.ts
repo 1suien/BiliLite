@@ -98,6 +98,10 @@ export const bili: WbiBridge = {
       impl().local.diagnose ? impl().local.diagnose!() : Promise.resolve({ openDocument: false, getContent: false, sdk: 0 }),
     sharedPending: () =>
       impl().local.sharedPending ? impl().local.sharedPending!() : Promise.resolve({ entries: [], missing: [] }),
+    scanVideos: (limit?: number) =>
+      impl().local.scanVideos ? impl().local.scanVideos!(limit) : Promise.resolve({ items: [], count: 0 }),
+    importSelected: (uris: string[]) =>
+      impl().local.importSelected ? impl().local.importSelected!(uris) : impl().local.pickFiles(),
     probe: (paths: string[]) =>
       impl().local.probe ? impl().local.probe!(paths) : Promise.resolve({ entries: [], missing: paths }),
     discard: (path: string) => (impl().local.discard ? impl().local.discard!(path) : Promise.resolve({ ok: true })),

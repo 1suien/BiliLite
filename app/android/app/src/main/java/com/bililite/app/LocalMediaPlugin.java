@@ -3,10 +3,12 @@ package com.bililite.app;
 import android.app.Activity;
 import android.content.ClipData;
 import android.content.ContentResolver;
+import android.content.ContentUris;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
+import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 import android.webkit.MimeTypeMap;
 
@@ -17,8 +19,11 @@ import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -26,8 +31,11 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * 本地媒体导入插件（本机定制 0.4.15）。
@@ -44,7 +52,13 @@ import java.util.Locale;
  *
  * 文件全部放在应用私有目录，卸载 App 时随之删除。
  */
-@CapacitorPlugin(name = "LocalMedia")
+@CapacitorPlugin(
+  name = "LocalMedia",
+  permissions = {
+    @Permission(alias = "videos", strings = { android.Manifest.permission.READ_MEDIA_VIDEO }),
+    @Permission(alias = "storage", strings = { android.Manifest.permission.READ_EXTERNAL_STORAGE })
+  }
+)
 public class LocalMediaPlugin extends Plugin {
 
   /** 私有目录下的子目录名 */
@@ -52,6 +66,11 @@ public class LocalMediaPlugin extends Plugin {
 
   /** SAF 选择器里允许的类型 */
   private static final String[] MIME_TYPES = new String[] { "video/*", "audio/*" };
+
+  /** 扫描本机视频时认的扩展名（0.4.18：WPS 网盘等分享过来的文件常是 application/octet-stream，只能看扩展名） */
+  private static final Set<String> MEDIA_EXTS = new HashSet<>(
+    Arrays.asList("mp4", "mkv", "webm", "mov", "m4v", "avi", "flv", "ts", "m3u8", "mp3", "m4a", "aac", "flac", "wav", "ogg", "opus")
+  );
 
   /** 系统文件选择器（多选）→ 复制到私有目录 → 返回条目 */
   @PluginMethod
@@ -127,9 +146,73 @@ public class LocalMediaPlugin extends Plugin {
       return;
     }
     try {
-      importUris(call, collectUris(intent));
+      // 0.4.18：分享入口放宽到任意 mime（WPS 网盘常以 octet-stream 分享），这里按扩展名挑出音视频
+      List<Uri> all = collectUris(intent);
+      List<Uri> media = new ArrayList<>();
+      JSArray skipped = new JSArray();
+      for (Uri uri : all) {
+        if (isMediaUri(uri)) media.add(uri);
+        else skipped.put(String.valueOf(queryName(getContext().getContentResolver(), uri)));
+      }
+      JSObject out;
+      if (media.isEmpty()) {
+        out = new JSObject();
+        out.put("entries", new JSArray());
+        out.put("failed", new JSArray());
+        out.put("skipped", skipped);
+        out.put("count", 0);
+        call.resolve(out);
+        return;
+      }
+      importUris(call, media, skipped);
     } catch (Throwable e) {
       call.reject("接收分享失败：" + e.getMessage());
+    }
+  }
+
+  /** 扫描本机视频（MediaStore）：WPS 网盘等没法分享时，先下载到平板，再从这里一键导入 */
+  @PluginMethod
+  public void scanVideos(PluginCall call) {
+    String alias = mediaPermissionAlias();
+    if (getPermissionState(alias) != PermissionState.GRANTED) {
+      requestPermissionForAlias(alias, call, "scanPermissionResult");
+      return;
+    }
+    doScanVideos(call);
+  }
+
+  @PermissionCallback
+  private void scanPermissionResult(PluginCall call) {
+    if (getPermissionState(mediaPermissionAlias()) == PermissionState.GRANTED) {
+      doScanVideos(call);
+    } else {
+      call.reject("没有读取本机视频的权限（可以在系统设置里给 BiliLite 打开「照片和视频」权限后再试）");
+    }
+  }
+
+  /** 把扫描结果里选中的 uri 复制进私有目录（和分享/选择器同一条落盘逻辑） */
+  @PluginMethod
+  public void importSelected(PluginCall call) {
+    JSArray arr = call.getArray("uris");
+    List<Uri> uris = new ArrayList<>();
+    if (arr != null) {
+      for (int i = 0; i < arr.length(); i++) {
+        String raw = arr.optString(i);
+        if (raw != null && !raw.isEmpty()) uris.add(Uri.parse(raw));
+      }
+    }
+    if (uris.isEmpty()) {
+      JSObject out = new JSObject();
+      out.put("entries", new JSArray());
+      out.put("failed", new JSArray());
+      out.put("count", 0);
+      call.resolve(out);
+      return;
+    }
+    try {
+      importUris(call, uris);
+    } catch (Throwable e) {
+      call.reject("导入失败：" + e.getMessage());
     }
   }
 
@@ -200,6 +283,10 @@ public class LocalMediaPlugin extends Plugin {
   /* ------------------------------------------------------------------ 内部实现 */
 
   private void importUris(PluginCall call, List<Uri> uris) {
+    importUris(call, uris, new JSArray());
+  }
+
+  private void importUris(PluginCall call, List<Uri> uris, JSArray skipped) {
     JSArray entries = new JSArray();
     JSArray failed = new JSArray();
     for (Uri uri : uris) {
@@ -215,7 +302,109 @@ public class LocalMediaPlugin extends Plugin {
     JSObject out = new JSObject();
     out.put("entries", entries);
     out.put("failed", failed);
+    out.put("skipped", skipped);
     out.put("count", entries.length());
+    call.resolve(out);
+  }
+
+  private String mediaPermissionAlias() {
+    return Build.VERSION.SDK_INT >= 33 ? "videos" : "storage";
+  }
+
+  /** 按扩展名 / mime 判断是不是音视频 */
+  private boolean isMediaUri(Uri uri) {
+    ContentResolver cr = getContext().getContentResolver();
+    String mime = null;
+    try {
+      mime = cr.getType(uri);
+    } catch (Throwable ignored) {
+      // ignore
+    }
+    if (mime != null && (mime.startsWith("video/") || mime.startsWith("audio/"))) return true;
+    String name = queryName(cr, uri);
+    return isMediaName(name);
+  }
+
+  private boolean isMediaName(String name) {
+    if (name == null) return false;
+    int dot = name.lastIndexOf('.');
+    if (dot < 0 || dot >= name.length() - 1) return false;
+    return MEDIA_EXTS.contains(name.substring(dot + 1).toLowerCase(Locale.ROOT));
+  }
+
+  private void doScanVideos(PluginCall call) {
+    int limit = 200;
+    Integer asked = call.getInt("limit");
+    if (asked != null && asked > 0 && asked <= 2000) limit = asked;
+    JSArray items = new JSArray();
+    ContentResolver cr = getContext().getContentResolver();
+    String[] projection = new String[] {
+      MediaStore.Video.Media._ID,
+      MediaStore.Video.Media.DISPLAY_NAME,
+      MediaStore.Video.Media.SIZE,
+      MediaStore.Video.Media.DATE_MODIFIED,
+      MediaStore.Video.Media.DURATION,
+      MediaStore.Video.Media.MIME_TYPE,
+      Build.VERSION.SDK_INT >= 29 ? MediaStore.Video.Media.RELATIVE_PATH : MediaStore.Video.Media.DATA
+    };
+    Cursor cursor = null;
+    try {
+      cursor = cr.query(
+        MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+        projection,
+        null,
+        null,
+        MediaStore.Video.Media.DATE_MODIFIED + " DESC"
+      );
+      if (cursor != null) {
+        int idIdx = cursor.getColumnIndex(MediaStore.Video.Media._ID);
+        int nameIdx = cursor.getColumnIndex(MediaStore.Video.Media.DISPLAY_NAME);
+        int sizeIdx = cursor.getColumnIndex(MediaStore.Video.Media.SIZE);
+        int dateIdx = cursor.getColumnIndex(MediaStore.Video.Media.DATE_MODIFIED);
+        int durIdx = cursor.getColumnIndex(MediaStore.Video.Media.DURATION);
+        int mimeIdx = cursor.getColumnIndex(MediaStore.Video.Media.MIME_TYPE);
+        int dirIdx = cursor.getColumnIndex(Build.VERSION.SDK_INT >= 29 ? MediaStore.Video.Media.RELATIVE_PATH : MediaStore.Video.Media.DATA);
+        while (cursor.moveToNext() && items.length() < limit) {
+          long id = idIdx >= 0 ? cursor.getLong(idIdx) : 0;
+          if (id <= 0) continue;
+          Uri uri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id);
+          String name = nameIdx >= 0 && !cursor.isNull(nameIdx) ? cursor.getString(nameIdx) : ("video-" + id + ".mp4");
+          long size = sizeIdx >= 0 && !cursor.isNull(sizeIdx) ? cursor.getLong(sizeIdx) : 0;
+          long modified = dateIdx >= 0 && !cursor.isNull(dateIdx) ? cursor.getLong(dateIdx) : 0;
+          long duration = durIdx >= 0 && !cursor.isNull(durIdx) ? cursor.getLong(durIdx) : 0;
+          String mime = mimeIdx >= 0 && !cursor.isNull(mimeIdx) ? cursor.getString(mimeIdx) : mimeOf(null, name);
+          String dir = "本机视频";
+          if (dirIdx >= 0 && !cursor.isNull(dirIdx)) {
+            String raw = cursor.getString(dirIdx);
+            if (raw != null && !raw.isEmpty()) {
+              if (Build.VERSION.SDK_INT >= 29) {
+                dir = raw.replaceAll("/+$", "");
+              } else {
+                File f = new File(raw);
+                dir = f.getParent() != null ? f.getParent() : dir;
+              }
+            }
+          }
+          JSObject item = new JSObject();
+          item.put("uri", uri.toString());
+          item.put("name", name);
+          item.put("size", size);
+          item.put("mtime", modified * 1000L);
+          item.put("duration", duration);
+          item.put("mime", mime);
+          item.put("dir", dir);
+          items.put(item);
+        }
+      }
+    } catch (Throwable e) {
+      call.reject("扫描本机视频失败：" + e.getMessage());
+      return;
+    } finally {
+      if (cursor != null) cursor.close();
+    }
+    JSObject out = new JSObject();
+    out.put("items", items);
+    out.put("count", items.length());
     call.resolve(out);
   }
 

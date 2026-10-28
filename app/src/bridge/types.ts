@@ -161,6 +161,10 @@ export interface WbiBridge {
     /** 取「分享 / 用其他应用打开」过来的文件（0.4.15） */
     sharedPending?(): Promise<LocalPickResult>
     diagnose?(): Promise<any>
+    /** 扫描本机视频（0.4.18，MediaStore） */
+    scanVideos?(limit?: number): Promise<{ items: any[]; count: number }>
+    /** 导入扫描列表里勾选的视频（0.4.18） */
+    importSelected?(uris: string[]): Promise<LocalPickResult & { skipped?: any[] }>
     /** 按绝对路径还原条目（0.4.15） */
     probe?(paths: string[]): Promise<{ entries: any[]; missing: string[] }>
     /** 删除私有目录里的导入文件（0.4.15） */
