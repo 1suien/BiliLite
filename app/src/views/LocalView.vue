@@ -3,7 +3,7 @@
  * 本地视频列表页 /local
  *
  * 还原自 LocalView-DCmLtwpo.js：
- * 浏览器里只登记路径，不复制、不转码；安卓 0.4.15 起走原生导入
+ * 浏览器里只登记路径，不复制、不转码；安卓 0.4.15 起走原生导入（0.4.16 起原生失败会自动回退）
  * （LocalMediaPlugin 把文件复制进 App 私有目录，返回 https://localhost/_capacitor_file_…
  * 的原生地址，刷新/重启都还在，播放器按 Range 流式读文件）。时长 / 封面（thumb）/
  * 上次看到哪儿（pos）都存在本机 Dexie 的 locals 表里。文件被移走后列表里仍保留
@@ -35,6 +35,20 @@ const loading = ref(true)
 const busy = ref(false)
 /** 正在解析时长与封面的文件名 */
 const parsing = ref('')
+/** 原生导入失败时的原因（0.4.16：失败会自动回退到 WebView 文件选择器，并把原因显示出来） */
+const nativeError = ref('')
+/** 原生选择器迟迟没有响应（超时）——给用户一个「改用系统文件选择器」的按钮 */
+const nativeStuck = ref(false)
+/** 「检测」按钮的文案 */
+const nativeDiag = ref('')
+const diagBusy = ref(false)
+
+const nativeDiagText = computed(() => {
+  if (nativeError.value) return `原生导入失败：${nativeError.value}（已回退系统文件选择器）`
+  if (nativeStuck.value) return '原生选择器 9 秒没反应，点右边改用系统文件选择器'
+  if (nativeDiag.value) return nativeDiag.value
+  return '原生导入：选中的文件会复制到 App 私有目录，刷新/重启后还在'
+})
 
 function formatSize(size?: number) {
   const n = Number(size) || 0
@@ -197,28 +211,96 @@ async function upsert(entries: any[]) {
   await load()
 }
 
+const STUCK = { stuck: true } as const
+
+/** 把一批条目入库（原生 / WebView 两条路共用） */
+async function importEntries(entries: any[]) {
+  if (!entries.length) {
+    ui.toast('选中的文件读不出来（可能已被删除）')
+    return
+  }
+  await upsert(entries)
+  ui.ok(`已加入 ${entries.length} 个本地视频`)
+}
+
 async function pickFiles() {
   if (busy.value) return
   busy.value = true
+  nativeError.value = ''
+  nativeStuck.value = false
   try {
-    // 安卓 APK（0.4.15 起）：走原生 SAF 导入，文件复制到 App 私有目录 → 刷新/重启后还在，大文件也不吃内存。
-    // 浏览器预览 / 桌面端仍然用原来的 `<input type=file>` 选择器。
-    const res =
-      bili.platform === 'android' && bili.local.pickNative
-        ? await bili.local.pickNative()
-        : await bili.local.pickFiles()
-    if (res.canceled) return
-    const entries = res.entries || []
-    if (!entries.length) {
-      ui.toast('选中的文件读不出来（可能已被删除）')
-      return
+    if (bili.platform === 'android' && bili.local.pickNative) {
+      // 安卓 APK：优先原生 SAF 导入（复制到 App 私有目录 → 刷新/重启后还在，大文件也不吃内存）。
+      let timer: any = null
+      try {
+        const res: any = await Promise.race([
+          bili.local.pickNative(),
+          new Promise((resolve) => {
+            timer = setTimeout(() => resolve(STUCK), 9000)
+          }),
+        ])
+        if (res === STUCK) {
+          // 9 秒没反应：可能 ROM 里没有文档选择器。不自动开第二个面板（怕两个选择器打架），
+          // 给用户一个「改用系统文件选择器」的按钮。
+          nativeStuck.value = true
+          return
+        }
+        if (res && res.canceled) return
+        const entries = (res && res.entries) || []
+        if (entries.length) {
+          await importEntries(entries)
+          return
+        }
+        nativeError.value = '原生导入没有返回文件'
+      } catch (e: any) {
+        // 原生插件不可用（插件没注册 / 系统选择器被裁掉 / 复制失败）→ 自动回退到 WebView 选择器
+        nativeError.value = String((e && e.message) || e || '未知错误')
+        console.warn('[local] 原生导入失败，回退系统文件选择器：', e)
+      } finally {
+        if (timer) clearTimeout(timer)
+      }
     }
-    await upsert(entries)
-    ui.ok(`已加入 ${entries.length} 个本地视频`)
+    // 回退：WebView `<input type=file>`（和「打开文件夹」同一条路）
+    const fallback = await bili.local.pickFiles()
+    if (fallback.canceled) return
+    await importEntries(fallback.entries || [])
   } catch (e: any) {
     ui.err(e.message || '打开文件失败')
   } finally {
     busy.value = false
+  }
+}
+
+/** 原生选择器卡住时手动切换 */
+async function pickViaInput() {
+  if (busy.value) return
+  busy.value = true
+  try {
+    const res = await bili.local.pickFiles()
+    if (res.canceled) return
+    await importEntries(res.entries || [])
+  } catch (e: any) {
+    ui.err(e.message || '打开文件失败')
+  } finally {
+    busy.value = false
+  }
+}
+
+/** 检测系统文件选择器：给用户一个能截图反馈的结果 */
+async function runDiag() {
+  if (diagBusy.value) return
+  diagBusy.value = true
+  try {
+    const d: any = await (bili.local as any).diagnose?.()
+    if (!d) {
+      nativeDiag.value = '当前平台没有原生诊断（浏览器预览）'
+      return
+    }
+    nativeDiag.value = `系统文档选择器：${d.openDocument ? '可用' : '不可用'} · 备用选择器：${d.getContent ? '可用' : '不可用'} · Android ${d.sdk}`
+  } catch (e: any) {
+    nativeDiag.value = `诊断失败：${(e && e.message) || e}`
+  } finally {
+    diagBusy.value = false
   }
 }
 
@@ -313,6 +395,20 @@ onMounted(() => {
           <Icon name="list" :size="14" /> 打开文件夹
         </button>
       </div>
+    </div>
+
+    <div
+      v-if="bili.platform === 'android'"
+      class="row muted"
+      style="font-size: 12.5px; margin: 4px 2px 10px; gap: 8px; flex-wrap: wrap"
+    >
+      <span :style="nativeError ? 'color: var(--danger)' : ''">{{ nativeDiagText }}</span>
+      <button class="btn sm ghost" :disabled="diagBusy" @click="runDiag">
+        <Icon name="search" :size="13" /> 检测
+      </button>
+      <button v-if="nativeStuck || nativeError" class="btn sm" @click="pickViaInput">
+        <Icon name="folder" :size="13" /> 改用系统文件选择器
+      </button>
     </div>
 
     <div

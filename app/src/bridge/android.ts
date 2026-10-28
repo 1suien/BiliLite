@@ -299,7 +299,7 @@ async function getAppVersion(): Promise<string> {
   } catch {
     cachedVersion = ''
   }
-  return cachedVersion || '0.4.15'
+  return cachedVersion || '0.4.16'
 }
 
 // ---------------------------------------------------------------------------
@@ -439,6 +439,8 @@ const handlers: Record<string, Handler> = {
   'local:discard': async ({ path }: any) => (await localMedia()).discard({ path }),
   /** 私有目录占用情况 */
   'local:storageInfo': async () => (await localMedia()).storageInfo(),
+  /** 诊断系统文件选择器可用性（0.4.16） */
+  'local:diagnose': async () => (await localMedia()).diagnose(),
   /** 选择本地「文件夹」（安卓没有目录选择器，同样用多选文件模拟） */
   'local:pickFolder': async () => {
     const files = await pickFilesWithInput({ accept: 'video/*,audio/*', multiple: true })
@@ -621,6 +623,7 @@ const bridge: WbiBridge & { invoke: typeof invoke; call: typeof call } = {
     pickFiles: () => call('local:pickFiles'),
     pickFolder: () => call('local:pickFolder'),
     pickNative: () => call('local:pickNative'),
+    diagnose: () => call('local:diagnose'),
     sharedPending: () => call('local:sharedPending'),
     probe: (paths: string[]) => call('local:probe', { paths }),
     discard: (path: string) => call('local:discard', { path }),

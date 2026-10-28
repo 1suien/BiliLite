@@ -592,6 +592,9 @@ export function createMockBridge(): WbiBridge {
         await delay(260)
         return { entries: makeLocalEntries(3) }
       },
+      async diagnose() {
+        return { openDocument: false, getContent: false, sdk: 0, mediaDir: '' }
+      },
       async sharedPending() {
         await delay(40)
         return { entries: [], count: 0 }

@@ -56,12 +56,49 @@ public class LocalMediaPlugin extends Plugin {
   /** 系统文件选择器（多选）→ 复制到私有目录 → 返回条目 */
   @PluginMethod
   public void pickAndImport(PluginCall call) {
-    Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+    boolean multiple = !Boolean.FALSE.equals(call.getBoolean("multiple", Boolean.TRUE));
+    // 0.4.16：先用 ACTION_OPEN_DOCUMENT；有的平板 ROM 把文档选择器裁掉了，就退到 ACTION_GET_CONTENT；
+    // 两个都没有才报错（让 JS 回退到 WebView 的 <input type=file>）。
+    Intent intent = buildPickIntent(Intent.ACTION_OPEN_DOCUMENT, multiple);
+    if (!canHandle(intent)) intent = buildPickIntent(Intent.ACTION_GET_CONTENT, multiple);
+    if (!canHandle(intent)) {
+      call.reject("这台设备上没有可用的系统文件选择器（DocumentsUI / 文件管理被裁掉了），已改用应用内选择器");
+      return;
+    }
+    try {
+      startActivityForResult(call, intent, "pickResult");
+    } catch (Throwable e) {
+      // 少数 ROM 会在这里抛 ActivityNotFoundException / SecurityException，交给 JS 回退
+      call.reject("打开系统文件选择器失败：" + e.getMessage());
+    }
+  }
+
+  private Intent buildPickIntent(String action, boolean multiple) {
+    Intent intent = new Intent(action);
     intent.addCategory(Intent.CATEGORY_OPENABLE);
     intent.setType("*/*");
     intent.putExtra(Intent.EXTRA_MIME_TYPES, MIME_TYPES);
-    intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, !Boolean.FALSE.equals(call.getBoolean("multiple", Boolean.TRUE)));
-    startActivityForResult(call, intent, "pickResult");
+    intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, multiple);
+    return intent;
+  }
+
+  private boolean canHandle(Intent intent) {
+    try {
+      return intent.resolveActivity(getContext().getPackageManager()) != null;
+    } catch (Throwable e) {
+      return false;
+    }
+  }
+
+  /** 诊断：系统选择器到底能不能用（设置页 / 本地页的「检测」按钮用） */
+  @PluginMethod
+  public void diagnose(PluginCall call) {
+    JSObject res = new JSObject();
+    res.put("openDocument", canHandle(buildPickIntent(Intent.ACTION_OPEN_DOCUMENT, true)));
+    res.put("getContent", canHandle(buildPickIntent(Intent.ACTION_GET_CONTENT, true)));
+    res.put("sdk", Build.VERSION.SDK_INT);
+    res.put("mediaDir", new File(getContext().getFilesDir(), MEDIA_DIR).getAbsolutePath());
+    call.resolve(res);
   }
 
   @ActivityCallback

@@ -94,6 +94,8 @@ export const bili: WbiBridge = {
     pickFolder: () => impl().local.pickFolder(),
     // 本机定制 0.4.15：安卓原生导入 / 分享接收（浏览器 mock 桥也实现了同名方法）
     pickNative: () => (impl().local.pickNative ? impl().local.pickNative!() : impl().local.pickFiles()),
+    diagnose: () =>
+      impl().local.diagnose ? impl().local.diagnose!() : Promise.resolve({ openDocument: false, getContent: false, sdk: 0 }),
     sharedPending: () =>
       impl().local.sharedPending ? impl().local.sharedPending!() : Promise.resolve({ entries: [], missing: [] }),
     probe: (paths: string[]) =>
