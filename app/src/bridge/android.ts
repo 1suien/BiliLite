@@ -441,6 +441,11 @@ const handlers: Record<string, Handler> = {
     const res = await (await localMedia()).pickAndImport({ multiple: true })
     return res || { canceled: true }
   },
+  /** 选择「文件夹」导入（0.4.23）：原生 SAF 目录树 → 递归收集音视频 → 复制进私有目录 */
+  'local:pickFolderImport': async () => {
+    const res = await (await localMedia()).pickFolderAndImport()
+    return res || { canceled: true }
+  },
   /** 取别的 App「分享 / 用其他应用打开」过来的文件（WPS 网盘里的视频走这条） */
   'local:sharedPending': async () => (await localMedia()).sharedPending(),
   /** 下载 URL 到 App 私有目录（0.4.20 起的通用能力） */
@@ -636,6 +641,7 @@ const bridge: WbiBridge & { invoke: typeof invoke; call: typeof call } = {
     pickFiles: () => call('local:pickFiles'),
     pickFolder: () => call('local:pickFolder'),
     pickNative: () => call('local:pickNative'),
+    pickFolderImport: () => call('local:pickFolderImport'),
     diagnose: () => call('local:diagnose'),
     sharedPending: () => call('local:sharedPending'),
     download: (options: { url: string; name?: string; referer?: string }) => call('local:download', options),

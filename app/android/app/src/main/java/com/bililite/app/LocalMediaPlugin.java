@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
+import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 import android.webkit.MimeTypeMap;
 
@@ -123,6 +124,109 @@ public class LocalMediaPlugin extends Plugin {
       importUris(call, collectUris(result.getData()));
     } catch (Throwable e) {
       call.reject("导入失败：" + e.getMessage());
+    }
+  }
+
+  /** 选择「文件夹」导入（本机构建 0.4.23）：SAF 目录选择 → 递归收集音视频 → 复制进私有目录 */
+  @PluginMethod
+  public void pickFolderAndImport(PluginCall call) {
+    Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+    if (!canHandle(intent)) {
+      // 个别 ROM 把 DocumentsUI 裁了：让 JS 回退到「本地导入」选文件
+      call.reject("这台设备没有可用的系统文件夹选择器，可以改用「本地导入」选文件");
+      return;
+    }
+    try {
+      startActivityForResult(call, intent, "folderPickResult");
+    } catch (Throwable e) {
+      call.reject("打开文件夹选择器失败：" + e.getMessage());
+    }
+  }
+
+  @ActivityCallback
+  private void folderPickResult(PluginCall call, ActivityResult result) {
+    if (call == null) return;
+    if (result == null || result.getResultCode() != Activity.RESULT_OK || result.getData() == null) {
+      call.resolve(new JSObject().put("canceled", true));
+      return;
+    }
+    final Uri treeUri = result.getData().getData();
+    if (treeUri == null) {
+      call.resolve(new JSObject().put("canceled", true));
+      return;
+    }
+    // 递归遍历 + 复制可能很慢（几十上百个视频），放后台线程，别卡 WebView
+    new Thread(
+      () -> {
+        try {
+          try {
+            getContext()
+              .getContentResolver()
+              .takePersistableUriPermission(treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+          } catch (Throwable ignored) {
+            // 有的 ROM 不给持久化权限，够本次读取就行
+          }
+          List<Uri> uris = new ArrayList<>();
+          walkTree(treeUri, DocumentsContract.getTreeDocumentId(treeUri), uris, 0);
+          if (uris.isEmpty()) {
+            JSObject empty = new JSObject();
+            empty.put("entries", new JSArray());
+            empty.put("failed", new JSArray());
+            empty.put("skipped", new JSArray());
+            empty.put("count", 0);
+            call.resolve(empty);
+            return;
+          }
+          importUris(call, uris);
+        } catch (Throwable e) {
+          call.reject("导入文件夹失败：" + e.getMessage());
+        }
+      },
+      "local-media-folder"
+    ).start();
+  }
+
+  /** 递归收集目录树里的音视频（最多 8 层 / 300 个，防止误选一整个盘） */
+  private void walkTree(Uri treeUri, String parentDocId, List<Uri> out, int depth) {
+    if (depth > 8 || out.size() >= 300) return;
+    Uri childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocId);
+    Cursor cursor = null;
+    try {
+      cursor = getContext()
+        .getContentResolver()
+        .query(
+          childrenUri,
+          new String[] {
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+          },
+          null,
+          null,
+          null
+        );
+      if (cursor == null) return;
+      while (cursor.moveToNext() && out.size() < 300) {
+        String docId = cursor.getString(0);
+        String name = cursor.getString(1);
+        String mime = cursor.getString(2);
+        if (DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)) {
+          walkTree(treeUri, docId, out, depth + 1);
+        } else if (isMediaName(name) || (mime != null && (mime.startsWith("video/") || mime.startsWith("audio/")))) {
+          out.add(DocumentsContract.buildDocumentUriUsingTree(treeUri, docId));
+        }
+      }
+    } catch (Throwable ignored) {
+      // 单个目录读失败不影响其它分支
+    } finally {
+      if (cursor != null) {
+        try {
+          cursor.close();
+        } catch (Throwable ignored) {
+          // ignore
+        }
+      }
     }
   }
 

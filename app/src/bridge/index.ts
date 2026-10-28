@@ -96,6 +96,9 @@ export const bili: WbiBridge = {
     pickFolder: () => impl().local.pickFolder(),
     // 本机定制 0.4.15：安卓原生导入 / 分享接收（浏览器 mock 桥也实现了同名方法）
     pickNative: () => (impl().local.pickNative ? impl().local.pickNative!() : impl().local.pickFiles()),
+    // 本机定制 0.4.23：选文件夹导入（原生 SAF 目录树；浏览器回退成普通选文件）
+    pickFolderImport: () =>
+      impl().local.pickFolderImport ? impl().local.pickFolderImport!() : impl().local.pickFolder(),
     diagnose: () =>
       impl().local.diagnose ? impl().local.diagnose!() : Promise.resolve({ openDocument: false, getContent: false, sdk: 0 }),
     onDownloadProgress: (cb: (p: { received: number; total: number; name?: string }) => void) =>

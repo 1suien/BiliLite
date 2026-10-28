@@ -628,6 +628,11 @@ export function createMockBridge(): WbiBridge {
         await delay(260)
         return { entries: makeLocalEntries(5), dir: '/mock/课程视频' }
       },
+      /** 选文件夹导入的浏览器预览版（0.4.23）：只造条目 */
+      async pickFolderImport() {
+        await delay(300)
+        return { entries: makeLocalEntries(6), dir: '/mock/课程视频/选修' }
+      },
       async register(paths: string[]) {
         await delay(120)
         return { entries: makeLocalEntries(paths.length || 1), missing: [] }

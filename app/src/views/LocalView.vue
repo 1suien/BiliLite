@@ -215,6 +215,33 @@ async function importEntries(entries: any[]) {
  * 安卓上实测可用），选中的视频复制一份进 App 私有目录（原生导入）或登记路径（浏览器预览），
  * 之后刷新/重启都还能播。
  */
+/**
+ * 选「文件夹」导入（本机构建 0.4.23）
+ *
+ * 安卓走原生 SAF 目录选择（ACTION_OPEN_DOCUMENT_TREE），把目录树里的音视频递归复制进
+ * App 私有目录；没有目录选择器的 ROM / 浏览器里回退成普通选文件。
+ */
+async function importFolder() {
+  if (busy.value) return
+  busy.value = true
+  try {
+    const res: any = bili.local.pickFolderImport
+      ? await bili.local.pickFolderImport()
+      : await bili.local.pickFolder()
+    if (res && res.canceled) return
+    const entries = (res && res.entries) || []
+    if (!entries.length) {
+      ui.toast('这个文件夹里没找到视频/音频文件')
+      return
+    }
+    await importEntries(entries)
+  } catch (e: any) {
+    ui.err(e.message || '导入文件夹失败')
+  } finally {
+    busy.value = false
+  }
+}
+
 async function importLocal() {
   if (busy.value) return
   busy.value = true
@@ -292,13 +319,17 @@ onMounted(() => {
       <div class="grow">
         <h1>本地</h1>
         <p class="muted" style="margin: 4px 0 0">
-          播放本机的视频文件：点「本地导入」从系统选择器里选视频，安卓 APK 会把文件复制进 App 私有目录
-          （刷新、重启后还在，大文件边下边播），浏览器预览只登记路径。时长、封面和上次看到哪儿都存在本机。
+          播放本机的视频文件：点「本地导入」选视频，或点「导入文件夹」把整个文件夹里的音视频一起导进来；
+          安卓 APK 会把文件复制进 App 私有目录（刷新、重启后还在，大文件边下边播），浏览器预览只登记路径。
+          时长、封面和上次看到哪儿都存在本机。
         </p>
       </div>
       <div class="row" style="flex: none">
         <button class="btn sm" :disabled="busy" @click="importLocal" data-local-import>
           <Icon name="folder" :size="14" /> 本地导入
+        </button>
+        <button class="btn sm ghost" :disabled="busy" @click="importFolder" data-local-folder>
+          <Icon name="folder" :size="14" /> 导入文件夹
         </button>
       </div>
     </div>
@@ -368,10 +399,13 @@ onMounted(() => {
       v-else
       icon="film"
       title="还没有本地视频"
-      desc="点「本地导入」从系统选择器里选几个视频。安卓 APK 会复制一份到 App 私有目录（刷新、重启后还在），浏览器预览只登记路径。"
+      desc="点「本地导入」选几个视频，或点「导入文件夹」把整个文件夹里的音视频一起导进来。安卓 APK 会复制一份到 App 私有目录（刷新、重启后还在），浏览器预览只登记路径。"
     >
       <button class="btn sm" :disabled="busy" @click="importLocal">
         <Icon name="folder" :size="14" /> 本地导入
+      </button>
+      <button class="btn sm ghost" :disabled="busy" @click="importFolder">
+        <Icon name="folder" :size="14" /> 导入文件夹
       </button>
     </EmptyBlock>
   </div>
