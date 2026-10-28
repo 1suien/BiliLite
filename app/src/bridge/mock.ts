@@ -599,25 +599,6 @@ export function createMockBridge(): WbiBridge {
         await delay(40)
         return { entries: [], count: 0 }
       },
-      /** 浏览器预览用假数据模拟「扫描本机视频」（0.4.18） */
-      async scanVideos(limit = 200) {
-        await delay(280)
-        const names = ['线性代数 第 3 讲.mkv', '英语听力 Unit 5.mp4', '计算机网络 实验课.mov', '操作系统导论 第 1 讲.mp4']
-        const items = names.map((name, i) => ({
-          uri: `content://mock/media/${i + 1}`,
-          name,
-          size: (30 + i * 2) * 1024 * 1024,
-          mtime: Date.now() - i * 3600 * 1000,
-          duration: 45 * 60 * 1000,
-          dir: i % 2 ? 'Download/WPS' : 'Movies',
-          mime: i === 1 ? 'audio/mp4' : 'video/mp4',
-        }))
-        return { items: items.slice(0, limit), count: items.length }
-      },
-      async importSelected(uris: string[]) {
-        await delay(240)
-        return { entries: makeLocalEntries(Math.max(1, (uris || []).length)) }
-      },
       async probe(paths: string[]) {
         await delay(60)
         return { entries: makeLocalEntries(paths.length || 1), missing: [] }

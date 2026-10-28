@@ -1,10 +1,25 @@
 # 09 生成可安装 APK（2026-10-25 实测通过）
 
-本工程的源码**已经真正构建出可安装的 debug APK**。当前产物是 0.4.18（2026-10-28 为「WPS 网盘分享兜底 + 扫描本机视频导入」第十六次出包），0.4.17 / 0.4.16 / 0.4.15 / 0.4.14 / 0.4.13 / 0.4.12 / 0.4.11 / 0.4.10 / 0.4.9 / 0.4.8 / 0.4.7 / 0.4.6 / 0.4.5 / 0.4.4 / 0.4.3 的历史出包记录保留在下面。
+本工程的源码**已经真正构建出可安装的 debug APK**。当前产物是 0.4.19（2026-10-28 为「本地页只保留本地导入」第十七次出包），0.4.18 / 0.4.17 / 0.4.16 / 0.4.15 / 0.4.14 / 0.4.13 / 0.4.12 / 0.4.11 / 0.4.10 / 0.4.9 / 0.4.8 / 0.4.7 / 0.4.6 / 0.4.5 / 0.4.4 / 0.4.3 的历史出包记录保留在下面。
 
-> 0.4.18 / 0.4.17 / 0.4.16 / 0.4.15 / 0.4.14 / 0.4.13 / 0.4.12 目前只在本地出包，**还没发 GitHub Release**（要发就按同样流程：workflow 的 tag 分支加 `v0.4.18-restore*`、写 `docs/RELEASE-v0.4.18-restore.md`、打 tag 并 push）。上一个已发布版本：[v0.4.11-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.11-restore)（资产 `BiliLite-0.4.11-debug.apk`，4,105,236 B，sha256 `36210b14…`）。上一版 [v0.4.10-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.10-restore)（4,105,161 B，sha256 `ff69103d…`）、[v0.4.9-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.9-restore)（4,105,445 B，sha256 `37e15de5…`）、[v0.4.8-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.8-restore)（4,108,755 B，sha256 `bb61006c…`）保留。
+> 0.4.19 / 0.4.18 / 0.4.17 / 0.4.16 / 0.4.15 / 0.4.14 / 0.4.13 / 0.4.12 目前只在本地出包，**还没发 GitHub Release**（要发就按同样流程：workflow 的 tag 分支加 `v0.4.19-restore*`、写 `docs/RELEASE-v0.4.19-restore.md`、打 tag 并 push）。上一个已发布版本：[v0.4.11-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.11-restore)（资产 `BiliLite-0.4.11-debug.apk`，4,105,236 B，sha256 `36210b14…`）。上一版 [v0.4.10-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.10-restore)（4,105,161 B，sha256 `ff69103d…`）、[v0.4.9-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.9-restore)（4,105,445 B，sha256 `37e15de5…`）、[v0.4.8-restore](https://github.com/1suien/BiliLite/releases/tag/v0.4.8-restore)（4,108,755 B，sha256 `bb61006c…`）保留。
 
-## 当前产物：`BiliLite-0.4.18-debug.apk`（本机构建）
+## 当前产物：`BiliLite-0.4.19-debug.apk`（本机构建）
+
+| 项目 | 值 |
+|---|---|
+| 文件 | `BiliLite-0.4.19-debug.apk` |
+| 大小 | 4,152,689 B |
+| SHA-256 | `3d41cd47c56471e39b91565f8612f09fe8b44f27fbb73c7b488fec08da1f7e38` |
+| versionCode / versionName | `23` / `0.4.19` |
+| minSdk / targetSdk / compileSdk | 22 / 34 / 34 |
+| 签名 | debug，v1 + v2 通过（v3 false） |
+| 构建 | `clean assembleDebug` 38s；又一次 clean 同 sha256（可复现） |
+| 下载 | `http://127.0.0.1:3080/dl/BiliLite-0.4.19-debug.apk`（固定名 `.../dl/BiliLite-latest.apk`，指向本版） |
+| 校验 | `aapt2 dump badging` = package com.bililite.app / versionCode 23 / versionName 0.4.19 / minSdk 22 / target 34；`apksigner verify` v1+v2 通过；`zipalign -c -p 4` 通过；APK 内 `assets/public` 与 `app/dist` 逐字节一致 |
+| 包内抽查 | 版本串只有 0.4.19；`LocalView-*.js` 只有「本地导入」（无「打开文件 / 打开文件夹 / 扫描本机视频 / 检测 / 原生导入（实验）」）；dex 里已无 `scanVideos` / `importSelected`；权限**不再包含** `READ_MEDIA_VIDEO` / `READ_EXTERNAL_STORAGE` |
+
+## 上一版产物：`BiliLite-0.4.18-debug.apk`（本机构建）
 
 | 项目 | 值 |
 |---|---|
@@ -19,7 +34,7 @@
 | 校验 | `aapt2 dump badging` = package com.bililite.app / versionCode 22 / versionName 0.4.18 / minSdk 22 / target 34；`apksigner verify` v1+v2 通过；`zipalign -c -p 4` 通过；APK 内 `assets/public` 与 `app/dist` 逐字节一致（`diff -r` 只多 `cordova.js` / `cordova_plugins.js`） |
 | 包内抽查 | 版本串只有 0.4.18；`LocalView-*.js` 含「扫描本机视频」；权限含 `READ_MEDIA_VIDEO`、`READ_EXTERNAL_STORAGE`（maxSdk 32）；dex 里有 `scanVideos` / `importSelected`；**原生侧第五次改动**（新增读媒体权限与 MediaStore 扫描、分享入口加 octet-stream） |
 
-## 上一版产物：`BiliLite-0.4.17-debug.apk`（本机构建）
+## 更早的产物：`BiliLite-0.4.17-debug.apk`（本机构建）
 
 | 项目 | 值 |
 |---|---|
@@ -345,7 +360,8 @@ apksigner sign --ks debug.keystore --ks-pass pass:android --key-pass pass:androi
 
 ```
 http://127.0.0.1:3080/dl/BiliLite-latest.apk        # ★ 固定名，指向最新版本（软链）
-http://127.0.0.1:3080/dl/BiliLite-0.4.18-debug.apk  # 最新（带版本号）
+http://127.0.0.1:3080/dl/BiliLite-0.4.19-debug.apk  # 最新（带版本号）
+http://127.0.0.1:3080/dl/BiliLite-0.4.18-debug.apk  # 上一版
 http://127.0.0.1:3080/dl/BiliLite-0.4.17-debug.apk  # 上一版
 http://127.0.0.1:3080/dl/BiliLite-0.4.16-debug.apk  # 旧版本也留着
 http://127.0.0.1:3080/dl/BiliLite-0.4.15-debug.apk  # 上一版
@@ -366,11 +382,11 @@ http://127.0.0.1:3080/dl/BiliLite-0.4.5-debug.apk
 **adb / 拷贝**：
 
 ```bash
-adb install -r BiliLite-0.4.18-debug.apk
+adb install -r BiliLite-0.4.19-debug.apk
 # 或拷到手机点安装（需允许「安装未知来源应用」）
 ```
 
-注意：与官方 APK **包名相同、签名不同**，手机上已装官方 0.4.3/0.4.4 的话会报 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`，需要先卸载官方版（卸载会清掉该应用本地数据）；装的是本仓库 0.4.3–0.4.17 产物的可以直接覆盖升级（同 debug 签名，versionCode 22 > 21 > 20 > 19 > 18 > 17 > 16 > 15 > 14 > 13 > 12 > 11 > 10 > 9 > 8 > 7）。
+注意：与官方 APK **包名相同、签名不同**，手机上已装官方 0.4.3/0.4.4 的话会报 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`，需要先卸载官方版（卸载会清掉该应用本地数据）；装的是本仓库 0.4.3–0.4.18 产物的可以直接覆盖升级（同 debug 签名，versionCode 23 > 22 > 21 > 20 > 19 > 18 > 17 > 16 > 15 > 14 > 13 > 12 > 11 > 10 > 9 > 8 > 7）。
 
 ## 未验证
 

@@ -35,23 +35,6 @@ const loading = ref(true)
 const busy = ref(false)
 /** 正在解析时长与封面的文件名 */
 const parsing = ref('')
-/** 原生导入失败时的原因（0.4.16：失败会自动回退到 WebView 文件选择器，并把原因显示出来） */
-const nativeError = ref('')
-/** 原生选择器迟迟没有响应（超时）——给用户一个「改用系统文件选择器」的按钮 */
-const nativeStuck = ref(false)
-/** 「打开文件」的步骤日志（0.4.17：真机上看不到选择器时，这行文字能说清卡在哪一步） */
-const pickTrace = ref('')
-/** 「检测」按钮的文案 */
-const nativeDiag = ref('')
-const diagBusy = ref(false)
-
-const nativeDiagText = computed(() => {
-  if (nativeError.value) return `原生导入失败：${nativeError.value}（用「系统选择器」按钮打开文件）`
-  if (nativeStuck.value) return '原生选择器 9 秒没反应，点右边改用系统文件选择器'
-  if (nativeDiag.value) return nativeDiag.value
-  return '「打开文件」用的是系统文件选择器（和「打开文件夹」同一条路）；原生导入（实验）可以复制到 App 私有目录'
-})
-
 function formatSize(size?: number) {
   const n = Number(size) || 0
   return n >= 1024 * 1024 * 1024
@@ -226,201 +209,28 @@ async function importEntries(entries: any[]) {
 }
 
 /**
- * 打开文件（0.4.17）
+ * 本地导入（0.4.19）
  *
- * 0.4.15/0.4.16 试过「先走原生 SAF」，但部分平板 ROM 上原生选择器打不开（按钮点了没反应）。
- * 「打开文件夹」一直能用，走的是 WebView `<input type=file>`，所以这里直接用同一条路（pickFolder），
- * 保证「打开文件」一定能弹出系统选择器；原生导入挪到诊断行里做实验入口。
+ * 按用户要求，本地页只保留这一个入口：点它弹系统文件选择器（走 WebView `<input type=file>`，
+ * 安卓上实测可用），选中的视频复制一份进 App 私有目录（原生导入）或登记路径（浏览器预览），
+ * 之后刷新/重启都还能播。
  */
-async function pickFiles() {
+async function importLocal() {
   if (busy.value) return
   busy.value = true
-  pickTrace.value = '① 正在打开系统文件选择器…（没看到弹窗就把这行截图发我）'
-  nativeError.value = ''
   try {
     const res: any = await bili.local.pickFolder()
-    if (res && res.canceled) {
-      pickTrace.value = '① 选择器已取消'
-      return
-    }
+    if (res && res.canceled) return
     const entries = (res && res.entries) || []
-    pickTrace.value = `② 选择器返回 ${entries.length} 个视频`
     if (!entries.length) {
-      ui.toast('没选到视频文件')
-      pickTrace.value = '② 选择器没有返回视频文件（可能选的是不支持的类型）'
+      ui.toast('没选到视频文件（可能选的是不支持的类型）')
       return
     }
     await importEntries(entries)
-    pickTrace.value = `③ 已加入 ${entries.length} 个本地视频`
   } catch (e: any) {
-    pickTrace.value = `✗ 打开文件失败：${(e && e.message) || e}`
-    ui.err(e.message || '打开文件失败')
+    ui.err(e.message || '本地导入失败')
   } finally {
     busy.value = false
-  }
-}
-
-/** 原生导入（实验）：复制到 App 私有目录，刷新/重启后还在。部分 ROM 上不可用。 */
-async function pickNativeExperimental() {
-  if (busy.value) return
-  if (!bili.local.pickNative) {
-    ui.toast('当前平台没有原生导入（浏览器预览）')
-    return
-  }
-  busy.value = true
-  nativeError.value = ''
-  nativeStuck.value = false
-  pickTrace.value = '① 原生导入：正在打开系统文档选择器…'
-  let timer: any = null
-  try {
-    const res: any = await Promise.race([
-      bili.local.pickNative(),
-      new Promise((resolve) => {
-        timer = setTimeout(() => resolve(STUCK), 9000)
-      }),
-    ])
-    if (res === STUCK) {
-      nativeStuck.value = true
-      pickTrace.value = '✗ 原生选择器 9 秒没有反应（这台 ROM 可能没有文档选择器）'
-      return
-    }
-    if (res && res.canceled) {
-      pickTrace.value = '① 原生选择器已取消'
-      return
-    }
-    const entries = (res && res.entries) || []
-    if (!entries.length) {
-      nativeError.value = '原生导入没有返回文件'
-      pickTrace.value = '✗ 原生导入没有返回文件'
-      return
-    }
-    await importEntries(entries)
-    pickTrace.value = `② 已用原生导入加入 ${entries.length} 个（复制到 App 私有目录，刷新后还在）`
-  } catch (e: any) {
-    // 原生插件不可用：给出原因，但仍提供输入框兜底
-    nativeError.value = String((e && e.message) || e || '未知错误')
-    pickTrace.value = `✗ 原生导入失败：${nativeError.value}（用「系统选择器」按钮打开文件）`
-    console.warn('[local] 原生导入失败：', e)
-  } finally {
-    if (timer) clearTimeout(timer)
-    busy.value = false
-  }
-}
-
-/** 检测系统文件选择器：给用户一个能截图反馈的结果 */
-async function runDiag() {
-  if (diagBusy.value) return
-  diagBusy.value = true
-  try {
-    const d: any = await (bili.local as any).diagnose?.()
-    if (!d) {
-      nativeDiag.value = '当前平台没有原生诊断（浏览器预览）'
-      return
-    }
-    nativeDiag.value = `系统文档选择器：${d.openDocument ? '可用' : '不可用'} · 备用选择器：${d.getContent ? '可用' : '不可用'} · Android ${d.sdk}`
-  } catch (e: any) {
-    nativeDiag.value = `诊断失败：${(e && e.message) || e}`
-  } finally {
-    diagBusy.value = false
-  }
-}
-
-async function pickFolder() {
-  if (busy.value) return
-  busy.value = true
-  try {
-    const res = await bili.local.pickFolder()
-    if (res.canceled) return
-    const entries = res.entries || []
-    if (!entries.length) {
-      ui.toast('这个文件夹里没有找到视频文件')
-      return
-    }
-    if (res.truncated) ui.toast('文件太多，只取了前 500 个')
-    await upsert(entries)
-    ui.ok(`已加入 ${entries.length} 个本地视频`)
-  } catch (e: any) {
-    ui.err(e.message || '扫描文件夹失败')
-  } finally {
-    busy.value = false
-  }
-}
-
-/* ------------------------- 扫描本机视频（0.4.18） ------------------------- */
-/**
- * WPS 网盘里的云文件没法「分享到其他应用」时：先在 WPS 里把视频下载到平板，
- * 再用这里扫描 MediaStore 列出本机视频，勾选后复制进 App 私有目录。
- */
-const scanOpen = ref(false)
-const scanBusy = ref(false)
-const scanItems = ref<any[]>([])
-const scanPicked = ref<string[]>([])
-
-const scanAllPicked = computed(
-  () => scanItems.value.length > 0 && scanPicked.value.length === scanItems.value.length,
-)
-
-function scanChecked(uri: string) {
-  return scanPicked.value.includes(uri)
-}
-
-function toggleScan(uri: string) {
-  const i = scanPicked.value.indexOf(uri)
-  if (i >= 0) scanPicked.value.splice(i, 1)
-  else scanPicked.value.push(uri)
-}
-
-function toggleScanAll() {
-  scanPicked.value = scanAllPicked.value ? [] : scanItems.value.map((x) => x.uri)
-}
-
-function closeScan() {
-  if (scanBusy.value) return
-  scanOpen.value = false
-}
-
-function scanMeta(it: any) {
-  const size = formatSize(it.size)
-  const dur = it.duration ? ` · ${formatClock(Math.round(it.duration / 1000))}` : ''
-  const dir = it.dir ? ` · ${it.dir}` : ''
-  return `${size}${dur}${dir}`
-}
-
-async function openScan() {
-  if (scanBusy.value || busy.value) return
-  scanBusy.value = true
-  try {
-    const res: any = await bili.local.scanVideos?.(300)
-    const list = (res && res.items) || []
-    scanItems.value = list
-    scanPicked.value = []
-    scanOpen.value = true
-    if (!list.length) {
-      ui.toast('没找到本机视频：WPS 网盘里的文件要先「下载」到平板，再来这里扫描', 'info', 5000)
-    }
-  } catch (e: any) {
-    ui.err(e.message || '扫描本机视频失败（可能没有给读媒体的权限）')
-  } finally {
-    scanBusy.value = false
-  }
-}
-
-async function importScan() {
-  if (!scanPicked.value.length || scanBusy.value) return
-  scanBusy.value = true
-  try {
-    const res: any = await bili.local.importSelected?.(scanPicked.value.slice())
-    const entries = (res && res.entries) || []
-    const skipped = (res && res.skipped) || []
-    if (entries.length) await importEntries(entries)
-    else ui.err('选中的文件都没导入成功（可能被移动或没有权限）')
-    if (skipped.length) ui.toast(`有 ${skipped.length} 个文件不是视频/音频，已跳过`, 'info', 4000)
-    scanOpen.value = false
-    await load()
-  } catch (e: any) {
-    ui.err(e.message || '导入选中的视频失败')
-  } finally {
-    scanBusy.value = false
   }
 }
 
@@ -482,46 +292,15 @@ onMounted(() => {
       <div class="grow">
         <h1>本地</h1>
         <p class="muted" style="margin: 4px 0 0">
-          播放本机的视频文件：安卓 APK 会把导入的文件存到 App 私有目录（刷新、重启后还在，大文件边下边播），
-          浏览器预览只登记路径。时长、封面和上次看到哪儿都存在本机。
+          播放本机的视频文件：点「本地导入」从系统选择器里选视频，安卓 APK 会把文件复制进 App 私有目录
+          （刷新、重启后还在，大文件边下边播），浏览器预览只登记路径。时长、封面和上次看到哪儿都存在本机。
         </p>
       </div>
       <div class="row" style="flex: none">
-        <button class="btn sm" :disabled="busy" @click="pickFiles">
-          <Icon name="folder" :size="14" /> 打开文件
-        </button>
-        <button class="btn sm" :disabled="busy" @click="pickFolder">
-          <Icon name="list" :size="14" /> 打开文件夹
-        </button>
-        <button class="btn sm ghost" :disabled="scanBusy || busy" @click="openScan" data-scan-open>
-          <Icon name="search" :size="14" /> 扫描本机视频
+        <button class="btn sm" :disabled="busy" @click="importLocal" data-local-import>
+          <Icon name="folder" :size="14" /> 本地导入
         </button>
       </div>
-    </div>
-
-    <div
-      v-if="bili.platform === 'android'"
-      class="row muted"
-      style="font-size: 12.5px; margin: 4px 2px 10px; gap: 8px; flex-wrap: wrap"
-    >
-      <span :style="nativeError ? 'color: var(--danger)' : ''">{{ nativeDiagText }}</span>
-      <button class="btn sm ghost" :disabled="diagBusy" @click="runDiag">
-        <Icon name="search" :size="13" /> 检测
-      </button>
-      <button class="btn sm" @click="pickFiles">
-        <Icon name="folder" :size="13" /> 系统选择器
-      </button>
-      <button class="btn sm ghost" @click="pickNativeExperimental">
-        <Icon name="copy" :size="13" /> 原生导入（实验）
-      </button>
-    </div>
-    <div
-      v-if="pickTrace"
-      class="mono muted"
-      style="font-size: 12px; margin: -4px 2px 10px; word-break: break-all"
-      data-pick-trace
-    >
-      {{ pickTrace }}
     </div>
 
     <div
@@ -586,59 +365,14 @@ onMounted(() => {
       </div>
     </div>
 
-    <div v-if="scanOpen" class="scan-mask" @click.self="closeScan">
-      <div class="scan-box">
-        <div class="scan-head">
-          <b>扫描到 {{ scanItems.length }} 个本机视频</b>
-          <span class="muted" style="font-size: 12px">
-            WPS 网盘里的文件要先在 WPS 里「下载」到平板，再从这里勾选导入
-          </span>
-        </div>
-        <div class="scan-tools">
-          <label class="row" style="gap: 6px; cursor: pointer">
-            <input type="checkbox" :checked="scanAllPicked" @change="toggleScanAll" />
-            全选
-          </label>
-          <span class="muted" style="font-size: 12px">已选 {{ scanPicked.length }} 个</span>
-        </div>
-        <div class="scan-list">
-          <label v-for="it in scanItems" :key="it.uri" class="scan-item">
-            <input type="checkbox" :checked="scanChecked(it.uri)" @change="toggleScan(it.uri)" />
-            <span class="scan-name" :title="it.name">{{ it.name }}</span>
-            <span class="muted mono scan-meta">{{ scanMeta(it) }}</span>
-          </label>
-          <div v-if="!scanItems.length" class="muted" style="padding: 18px 4px; text-align: center">
-            没扫到视频。先在 WPS 里把视频「下载」到平板，或者用「打开文件」手动选。
-          </div>
-        </div>
-        <div class="scan-foot">
-          <button class="btn sm ghost" :disabled="scanBusy" @click="closeScan">取消</button>
-          <button
-            class="btn sm"
-            :disabled="scanBusy || !scanPicked.length"
-            @click="importScan"
-            data-scan-import
-          >
-            导入选中 {{ scanPicked.length }} 个
-          </button>
-        </div>
-      </div>
-    </div>
-
     <EmptyBlock
       v-else
       icon="film"
       title="还没有本地视频"
-      desc="点右上角「打开文件」选几个视频，或者「打开文件夹」把一个目录里的视频全扫进来。文件留在原地，不会被复制或转码。"
+      desc="点「本地导入」从系统选择器里选几个视频。安卓 APK 会复制一份到 App 私有目录（刷新、重启后还在），浏览器预览只登记路径。"
     >
-      <button class="btn sm" :disabled="busy" @click="pickFiles">
-        <Icon name="folder" :size="14" /> 打开文件
-      </button>
-      <button class="btn sm ghost" :disabled="busy" @click="pickFolder">
-        <Icon name="list" :size="14" /> 打开文件夹
-      </button>
-      <button class="btn sm ghost" :disabled="scanBusy || busy" @click="openScan">
-        <Icon name="search" :size="14" /> 扫描本机视频
+      <button class="btn sm" :disabled="busy" @click="importLocal">
+        <Icon name="folder" :size="14" /> 本地导入
       </button>
     </EmptyBlock>
   </div>
@@ -719,71 +453,4 @@ onMounted(() => {
   background: var(--brand);
 }
 
-/* 扫描本机视频弹层（0.4.18） */
-.scan-mask {
-  position: fixed;
-  inset: 0;
-  z-index: 80;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  background: rgba(0, 0, 0, 0.55);
-}
-.scan-box {
-  width: min(560px, 100%);
-  max-height: min(78vh, 640px);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 16px;
-  border-radius: 14px;
-  background: var(--card);
-  border: 1px solid var(--line);
-}
-.scan-head {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.scan-tools {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-.scan-list {
-  flex: 1;
-  min-height: 120px;
-  overflow: auto;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-}
-.scan-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 12px;
-  border-bottom: 1px solid var(--line);
-  cursor: pointer;
-}
-.scan-item:last-child {
-  border-bottom: 0;
-}
-.scan-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.scan-meta {
-  flex: none;
-  font-size: 11.5px;
-}
-.scan-foot {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
 </style>

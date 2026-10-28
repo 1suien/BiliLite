@@ -2,6 +2,8 @@
 
 > 这是**本仓库自己的定制改动**，上游（官方 BiliLite）没有。改动后重新出了 APK：`BiliLite-0.4.18-debug.apk`（versionCode 22 / versionName 0.4.18）。
 
+> **后续（0.4.19）**：按用户要求「本地只保留本地导入」，本文里的「扫描本机视频」入口与背后的 MediaStore 扫描、读媒体权限已整体删除（`LocalMediaPlugin.scanVideos` / `importSelected` 与 Manifest 里的 `READ_MEDIA_VIDEO` / `READ_EXTERNAL_STORAGE` 都已回退）；分享入口放宽（`application/octet-stream`）保留。见 [26-本地页只保留本地导入.md](26-本地页只保留本地导入.md)。
+
 ## 1. 用户报告
 
 - 「你能读取云盘内容吗」→ 我不能：没有你平板/云盘账号的登录态，WPS 开放平台又需要开发者账号 + 服务商资质 + 服务端保存 APPKEY，个人做不了。
