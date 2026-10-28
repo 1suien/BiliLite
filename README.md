@@ -260,6 +260,18 @@ cd android && ./gradlew assembleDebug
 
 仓库里保留的是：还原后的 `app/` 源码与安卓工程、`reference/upstream-v0.4.3/` 与 `reference/upstream-v0.4.4/`（MIT 上游源码快照，各带 `PROVENANCE.md`）、文档、审计脚本、构建脚本，以及构建好的 `BiliLite-0.4.20-debug.apk`、`BiliLite-0.4.19-debug.apk`、`BiliLite-0.4.18-debug.apk`、`BiliLite-0.4.17-debug.apk`、`BiliLite-0.4.15-debug.apk`、`BiliLite-0.4.14-debug.apk`、`BiliLite-0.4.13-debug.apk`、`BiliLite-0.4.12-debug.apk`、`BiliLite-0.4.11-debug.apk`、`BiliLite-0.4.10-debug.apk`、`BiliLite-0.4.9-debug.apk`、`BiliLite-0.4.8-debug.apk`、`BiliLite-0.4.7-debug.apk`、`BiliLite-0.4.6-debug.apk`、`BiliLite-0.4.5-debug.apk`、`BiliLite-0.4.4-debug.apk`、`BiliLite-0.4.3-debug.apk`。若你要复跑审计脚本对比反编译产物，请把原始 APK 放回 `.work/` 并按 [docs/03](docs/03-还原方法与还原度.md) 重新解包。
 
+## 本机工具：WPS 云盘视频下载（`tools/wps/`）
+
+不随 APK 分发，只在电脑上跑：扫码登录 WPS → 列出云盘里的视频 → 下载到本机 → 平板用 `/dl/…` 取件，再进 App「本地 → 本地导入」播放。
+
+```bash
+node tools/wps/login.mjs            # 手机微信扫码登录（登录态存 tools/wps/state.json，不入库）
+node tools/wps/list.mjs             # 列出云盘视频 → .work/wps-videos.json + wps-videos.html
+node tools/wps/download.mjs --match 关键字   # 下载到 .work/wps-dl/ 并打印平板取件链接
+```
+
+清单页：`http://127.0.0.1:3080/dl/wps-videos.html`。详见 [docs/28-WPS云盘视频工具.md](docs/28-WPS云盘视频工具.md)。
+
 ## 发布（GitHub Release）
 
 0.4.20 / 0.4.19 / 0.4.18 / 0.4.17 / 0.4.16 / 0.4.15 / 0.4.14 / 0.4.13 / 0.4.12 **还没发**（只在本地出包，本机下载入口见上面的「浏览器直接下载」）。已发布：

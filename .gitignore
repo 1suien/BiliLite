@@ -30,3 +30,10 @@ __pycache__/
 *.keystore
 *.jks
 debug.keystore
+
+# WPS 云盘小工具：登录态 / 浏览器 profile / 生成物（含个人文件名，不入库）
+tools/wps/state.json
+tools/wps/profile/
+wps-login-qr.jpg
+wps-login-qr.png
+wps-videos.html
