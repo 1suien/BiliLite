@@ -253,18 +253,25 @@ function pickFilesWithInput(opts: { accept?: string; multiple?: boolean } = {}):
     input.style.left = '-10000px'
     document.body.appendChild(input)
 
+    let settled = false
     const finish = (files: File[]) => {
+      if (settled) return
+      settled = true
       input.remove()
       resolve(files || [])
     }
 
     input.addEventListener('change', () => finish(Array.from(input.files || [])))
+    // 从系统选择器返回时 WebView 会重新拿到焦点；给它一点时间让 change 先到，
+    // 真的没选文件（input 还在 DOM 且 files 为空）才当取消（0.4.17：原来固定 800ms 直接当取消，真机慢一点就误判）
     window.addEventListener(
       'focus',
       () => {
         setTimeout(() => {
-          if (document.body.contains(input)) finish([])
-        }, 800)
+          if (!document.body.contains(input)) return
+          const files = Array.from(input.files || [])
+          finish(files)
+        }, 1500)
       },
       { once: true },
     )
@@ -299,7 +306,7 @@ async function getAppVersion(): Promise<string> {
   } catch {
     cachedVersion = ''
   }
-  return cachedVersion || '0.4.16'
+  return cachedVersion || '0.4.17'
 }
 
 // ---------------------------------------------------------------------------

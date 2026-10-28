@@ -39,15 +39,17 @@ const parsing = ref('')
 const nativeError = ref('')
 /** 原生选择器迟迟没有响应（超时）——给用户一个「改用系统文件选择器」的按钮 */
 const nativeStuck = ref(false)
+/** 「打开文件」的步骤日志（0.4.17：真机上看不到选择器时，这行文字能说清卡在哪一步） */
+const pickTrace = ref('')
 /** 「检测」按钮的文案 */
 const nativeDiag = ref('')
 const diagBusy = ref(false)
 
 const nativeDiagText = computed(() => {
-  if (nativeError.value) return `原生导入失败：${nativeError.value}（已回退系统文件选择器）`
+  if (nativeError.value) return `原生导入失败：${nativeError.value}（用「系统选择器」按钮打开文件）`
   if (nativeStuck.value) return '原生选择器 9 秒没反应，点右边改用系统文件选择器'
   if (nativeDiag.value) return nativeDiag.value
-  return '原生导入：选中的文件会复制到 App 私有目录，刷新/重启后还在'
+  return '「打开文件」用的是系统文件选择器（和「打开文件夹」同一条路）；原生导入（实验）可以复制到 App 私有目录'
 })
 
 function formatSize(size?: number) {
@@ -223,65 +225,84 @@ async function importEntries(entries: any[]) {
   ui.ok(`已加入 ${entries.length} 个本地视频`)
 }
 
+/**
+ * 打开文件（0.4.17）
+ *
+ * 0.4.15/0.4.16 试过「先走原生 SAF」，但部分平板 ROM 上原生选择器打不开（按钮点了没反应）。
+ * 「打开文件夹」一直能用，走的是 WebView `<input type=file>`，所以这里直接用同一条路（pickFolder），
+ * 保证「打开文件」一定能弹出系统选择器；原生导入挪到诊断行里做实验入口。
+ */
 async function pickFiles() {
   if (busy.value) return
   busy.value = true
+  pickTrace.value = '① 正在打开系统文件选择器…（没看到弹窗就把这行截图发我）'
   nativeError.value = ''
-  nativeStuck.value = false
   try {
-    if (bili.platform === 'android' && bili.local.pickNative) {
-      // 安卓 APK：优先原生 SAF 导入（复制到 App 私有目录 → 刷新/重启后还在，大文件也不吃内存）。
-      let timer: any = null
-      try {
-        const res: any = await Promise.race([
-          bili.local.pickNative(),
-          new Promise((resolve) => {
-            timer = setTimeout(() => resolve(STUCK), 9000)
-          }),
-        ])
-        if (res === STUCK) {
-          // 9 秒没反应：可能 ROM 里没有文档选择器。不自动开第二个面板（怕两个选择器打架），
-          // 给用户一个「改用系统文件选择器」的按钮。
-          nativeStuck.value = true
-          return
-        }
-        if (res && res.canceled) return
-        const entries = (res && res.entries) || []
-        if (entries.length) {
-          await importEntries(entries)
-          return
-        }
-        nativeError.value = '原生导入没有返回文件'
-      } catch (e: any) {
-        // 原生插件不可用（插件没注册 / 系统选择器被裁掉 / 复制失败）→ 自动回退到 WebView 选择器
-        nativeError.value = String((e && e.message) || e || '未知错误')
-        console.warn('[local] 原生导入失败，回退系统文件选择器：', e)
-      } finally {
-        if (timer) clearTimeout(timer)
-      }
+    const res: any = await bili.local.pickFolder()
+    if (res && res.canceled) {
+      pickTrace.value = '① 选择器已取消'
+      return
     }
-    // 回退：WebView `<input type=file>`（和「打开文件夹」同一条路）
-    const fallback = await bili.local.pickFiles()
-    if (fallback.canceled) return
-    await importEntries(fallback.entries || [])
+    const entries = (res && res.entries) || []
+    pickTrace.value = `② 选择器返回 ${entries.length} 个视频`
+    if (!entries.length) {
+      ui.toast('没选到视频文件')
+      pickTrace.value = '② 选择器没有返回视频文件（可能选的是不支持的类型）'
+      return
+    }
+    await importEntries(entries)
+    pickTrace.value = `③ 已加入 ${entries.length} 个本地视频`
   } catch (e: any) {
+    pickTrace.value = `✗ 打开文件失败：${(e && e.message) || e}`
     ui.err(e.message || '打开文件失败')
   } finally {
     busy.value = false
   }
 }
 
-/** 原生选择器卡住时手动切换 */
-async function pickViaInput() {
+/** 原生导入（实验）：复制到 App 私有目录，刷新/重启后还在。部分 ROM 上不可用。 */
+async function pickNativeExperimental() {
   if (busy.value) return
+  if (!bili.local.pickNative) {
+    ui.toast('当前平台没有原生导入（浏览器预览）')
+    return
+  }
   busy.value = true
+  nativeError.value = ''
+  nativeStuck.value = false
+  pickTrace.value = '① 原生导入：正在打开系统文档选择器…'
+  let timer: any = null
   try {
-    const res = await bili.local.pickFiles()
-    if (res.canceled) return
-    await importEntries(res.entries || [])
+    const res: any = await Promise.race([
+      bili.local.pickNative(),
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(STUCK), 9000)
+      }),
+    ])
+    if (res === STUCK) {
+      nativeStuck.value = true
+      pickTrace.value = '✗ 原生选择器 9 秒没有反应（这台 ROM 可能没有文档选择器）'
+      return
+    }
+    if (res && res.canceled) {
+      pickTrace.value = '① 原生选择器已取消'
+      return
+    }
+    const entries = (res && res.entries) || []
+    if (!entries.length) {
+      nativeError.value = '原生导入没有返回文件'
+      pickTrace.value = '✗ 原生导入没有返回文件'
+      return
+    }
+    await importEntries(entries)
+    pickTrace.value = `② 已用原生导入加入 ${entries.length} 个（复制到 App 私有目录，刷新后还在）`
   } catch (e: any) {
-    ui.err(e.message || '打开文件失败')
+    // 原生插件不可用：给出原因，但仍提供输入框兜底
+    nativeError.value = String((e && e.message) || e || '未知错误')
+    pickTrace.value = `✗ 原生导入失败：${nativeError.value}（用「系统选择器」按钮打开文件）`
+    console.warn('[local] 原生导入失败：', e)
   } finally {
+    if (timer) clearTimeout(timer)
     busy.value = false
   }
 }
@@ -406,9 +427,20 @@ onMounted(() => {
       <button class="btn sm ghost" :disabled="diagBusy" @click="runDiag">
         <Icon name="search" :size="13" /> 检测
       </button>
-      <button v-if="nativeStuck || nativeError" class="btn sm" @click="pickViaInput">
-        <Icon name="folder" :size="13" /> 改用系统文件选择器
+      <button class="btn sm" @click="pickFiles">
+        <Icon name="folder" :size="13" /> 系统选择器
       </button>
+      <button class="btn sm ghost" @click="pickNativeExperimental">
+        <Icon name="copy" :size="13" /> 原生导入（实验）
+      </button>
+    </div>
+    <div
+      v-if="pickTrace"
+      class="mono muted"
+      style="font-size: 12px; margin: -4px 2px 10px; word-break: break-all"
+      data-pick-trace
+    >
+      {{ pickTrace }}
     </div>
 
     <div

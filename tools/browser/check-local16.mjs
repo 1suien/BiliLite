@@ -143,31 +143,40 @@ try {
   check('「检测」显示系统选择器可用性', /系统文档选择器：可用|系统文档选择器：不可用/.test(afterDiag), afterDiag.replace(/\s+/g, ' ').slice(0, 80))
   await page.screenshot({ path: `${OUT}/1-native-diag.png` })
 
-  // 让原生导入抛错：应当自动回退到 WebView 选择器，并在页面上写出失败原因
+  // 0.4.17 起主入口不再自动试原生：「打开文件」直接走系统选择器；
+  // 原生导入挪到「原生导入（实验）」按钮，失败时把原因写在页面上。
   await page.evaluate(() => {
-    const local = window.bili.local
-    Object.defineProperty(local, 'pickNative', {
-      configurable: true,
-      value: async () => {
-        throw new Error('测试：插件不可用')
-      },
+    window.bili.local.pickFolder = async () => ({
+      dir: '本机文件',
+      entries: Array.from({ length: 3 }, (_, i) => ({
+        id: `t${i + 1}`,
+        path: `/mock/课程视频/回退测试 ${i + 1}.mp4`,
+        name: `回退测试 ${i + 1}.mp4`,
+        size: 30 * 1024 * 1024,
+        mtime: Date.now(),
+        dir: '本机文件',
+        url: `mock://local/t${i + 1}`,
+      })),
     })
   })
   await page.getByRole('button', { name: '打开文件', exact: true }).first().click()
   await page.waitForSelector('.lrow', { timeout: 15000 })
   const rows = await page.locator('.lrow').count()
-  check('原生失败后自动回退系统文件选择器', rows >= 3, `${rows} 条`)
+  check('「打开文件」走系统选择器并入库', rows >= 3, `${rows} 条`)
 
-  const errLine = await page
-    .locator('div.row.muted')
-    .filter({ hasText: '原生导入失败' })
-    .first()
-    .innerText()
-    .catch(() => '')
+  await wait(600)
+  await page.evaluate(() => {
+    window.bili.local.pickNative = async () => {
+      throw new Error('测试：插件不可用')
+    }
+  })
+  await page.getByRole('button', { name: '原生导入（实验）', exact: true }).first().click()
+  await wait(1200)
+  const traceLine = await page.locator('[data-pick-trace]').innerText().catch(() => '')
   check(
-    '页面上写出了原生失败原因',
-    /原生导入失败：测试：插件不可用（已回退系统文件选择器）/.test(errLine.replace(/\s+/g, ' ')),
-    errLine.replace(/\s+/g, ' ').slice(0, 90),
+    '原生导入（实验）失败时页面写出原因',
+    /原生导入失败：测试：插件不可用/.test(traceLine.replace(/\s+/g, ' ')),
+    traceLine.replace(/\s+/g, ' ').slice(0, 90),
   )
   await page.screenshot({ path: `${OUT}/2-native-fallback.png` })
 
