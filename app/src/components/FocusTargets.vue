@@ -206,6 +206,10 @@ async function addRemind() {
     ui.toast('这个时间已经加过了')
     return
   }
+  if (remindTimes.value.length >= 10) {
+    ui.err('最多 10 个提醒时间，先删掉一个吧')
+    return
+  }
   await settings.setTargetReminders(remindFor.value, [...remindTimes.value, v])
   ui.ok(`已加提醒 ${v}`)
 }
@@ -346,7 +350,7 @@ function closeRemind() {
             <Icon name="x" :size="14" />
           </button>
         </div>
-        <p class="muted ft-dialog-tip">每天到点弹一张右下角提醒卡片，可以设多个时间（最多 8 个）。</p>
+        <p class="muted ft-dialog-tip">每天到点弹一张右下角提醒卡片，可以设多个时间（最多 10 个）。</p>
         <div class="ft-remind-list">
           <span v-for="time in remindTimes" :key="time" class="chip plain ft-chip">
             {{ time }}

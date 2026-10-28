@@ -121,6 +121,8 @@ export interface WbiBridge {
     view(bvid: string): Promise<VideoDetail>
     pages(bvid: string): Promise<VideoPage[]>
     playurl(bvid: string, cid: any, qn: number): Promise<PlayUrl>
+    /** 单文件下载地址（0.4.20） */
+    downloadUrl?(bvid: string, cid: any, qn?: number): Promise<{ url: string; size: number; quality: number; format: string; acceptQuality: number[] }>
     related(bvid: string): Promise<VideoCard[]>
     danmaku(cid: any, segment?: number): Promise<{ items: DanmakuItem[]; count: number; segment?: number }>
     online(bvid: string, cid: any): Promise<{ total: number; count: number }>
@@ -158,6 +160,10 @@ export interface WbiBridge {
     pickFolder(): Promise<LocalPickResult>
     /** 安卓原生导入（0.4.15）：复制到 App 私有目录，条目可持久播放 */
     pickNative?(): Promise<LocalPickResult>
+    /** 把 URL 下载到 App 私有目录（0.4.20） */
+    download?(options: { url: string; name?: string; referer?: string }): Promise<{ id: string; path: string; name: string; size: number; mtime: number; [key: string]: any }>
+    /** 原生下载进度（0.4.20），返回取消订阅函数 */
+    onDownloadProgress?(cb: (p: { received: number; total: number; name?: string }) => void): Promise<() => void>
     /** 取「分享 / 用其他应用打开」过来的文件（0.4.15） */
     sharedPending?(): Promise<LocalPickResult>
     diagnose?(): Promise<any>

@@ -22,7 +22,10 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
@@ -157,6 +160,89 @@ public class LocalMediaPlugin extends Plugin {
     } catch (Throwable e) {
       call.reject("接收分享失败：" + e.getMessage());
     }
+  }
+
+  /**
+   * 把外部 URL 下载进 App 私有目录（本机构建 0.4.20：本地页「BV 下载」）。
+   *
+   * B 站的视频 CDN 校验 Referer/UA，WebView 里 fetch 会被 CORS 与防盗链挡住，
+   * 所以在原生成层用 HttpURLConnection 拉流写盘；下载进度通过 `downloadProgress`
+   * 事件推给 JS（received/total/name），完成后返回和「分享接收」一样的条目结构。
+   */
+  @PluginMethod
+  public void downloadFromUrl(PluginCall call) {
+    final String url = call.getString("url");
+    if (url == null || url.isEmpty()) {
+      call.reject("缺少下载地址");
+      return;
+    }
+    final String referer = call.getString("referer", "https://www.bilibili.com/");
+    String rawName = call.getString("name", "");
+    final String name = sanitizeName(rawName.isEmpty() ? ("video-" + System.currentTimeMillis() + ".mp4") : rawName);
+
+    new Thread(
+      () -> {
+        HttpURLConnection conn = null;
+        File part = new File(mediaDir(), name + ".part");
+        File target = new File(mediaDir(), name);
+        try {
+          URL u = new URL(url);
+          conn = (HttpURLConnection) u.openConnection();
+          conn.setConnectTimeout(15000);
+          conn.setReadTimeout(30000);
+          conn.setInstanceFollowRedirects(true);
+          conn.setRequestProperty(
+            "User-Agent",
+            "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
+          );
+          conn.setRequestProperty("Referer", referer);
+          conn.setRequestProperty("Accept", "*/*");
+          int code = conn.getResponseCode();
+          if (code < 200 || code >= 300) throw new IOException("HTTP " + code);
+          long total = conn.getContentLengthLong();
+          InputStream in = conn.getInputStream();
+          FileOutputStream out = new FileOutputStream(part);
+          byte[] buf = new byte[64 * 1024];
+          long got = 0;
+          long lastReport = 0;
+          int n;
+          while ((n = in.read(buf)) > 0) {
+            out.write(buf, 0, n);
+            got += n;
+            long now = System.currentTimeMillis();
+            if (now - lastReport > 300) {
+              lastReport = now;
+              JSObject p = new JSObject();
+              p.put("received", got);
+              p.put("total", total);
+              p.put("name", name);
+              notifyListeners("downloadProgress", p);
+            }
+          }
+          out.flush();
+          out.close();
+          in.close();
+          if (!part.renameTo(target)) throw new IOException("保存文件失败");
+          call.resolve(describe(target, mimeOf(null, name)));
+        } catch (Throwable e) {
+          try {
+            if (part.exists()) part.delete();
+          } catch (Throwable ignored) {
+            // ignore
+          }
+          call.reject("下载失败：" + e.getMessage());
+        } finally {
+          if (conn != null) {
+            try {
+              conn.disconnect();
+            } catch (Throwable ignored) {
+              // ignore
+            }
+          }
+        }
+      },
+      "local-media-download"
+    ).start();
   }
 
   /** 按绝对路径还原条目（重启后 local:register 用；文件不在了就进 missing） */

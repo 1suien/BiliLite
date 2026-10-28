@@ -40,6 +40,7 @@ import {
   videoOnline,
   videoPages,
   videoPlayurl,
+  videoDownloadUrl,
   videoRelated,
   videoSubtitle,
   viewVideo,
@@ -306,7 +307,7 @@ async function getAppVersion(): Promise<string> {
   } catch {
     cachedVersion = ''
   }
-  return cachedVersion || '0.4.19'
+  return cachedVersion || '0.4.20'
 }
 
 // ---------------------------------------------------------------------------
@@ -353,6 +354,8 @@ const handlers: Record<string, Handler> = {
   'video:pages': async ({ bvid }: any) => videoPages(bvid),
   /** 播放地址（DASH） */
   'video:playurl': async ({ bvid, cid, qn }: any) => videoPlayurl(bvid, cid, qn || 80),
+  /** 单文件下载地址（本机构建 0.4.20：本地页「BV 下载」用） */
+  'video:downloadUrl': async ({ bvid, cid, qn }: any) => videoDownloadUrl(bvid, cid, qn || 0),
   /** 相关推荐 */
   'video:related': async ({ bvid }: any) => videoRelated(bvid),
   /** 弹幕（按分段） */
@@ -440,6 +443,8 @@ const handlers: Record<string, Handler> = {
   },
   /** 取别的 App「分享 / 用其他应用打开」过来的文件（WPS 网盘里的视频走这条） */
   'local:sharedPending': async () => (await localMedia()).sharedPending(),
+  /** 下载 URL 到 App 私有目录（0.4.20：BV 下载） */
+  'local:download': async ({ url, name, referer }: any) => (await localMedia()).downloadFromUrl({ url, name, referer }),
   /** 按绝对路径还原条目（重启后） */
   'local:probe': async ({ paths }: any) => (await localMedia()).probe({ paths }),
   /** 删除私有目录里的导入文件 */
@@ -587,6 +592,7 @@ const bridge: WbiBridge & { invoke: typeof invoke; call: typeof call } = {
     view: (bvid: string) => call('video:view', { bvid }),
     pages: (bvid: string) => call('video:pages', { bvid }),
     playurl: (bvid: string, cid: any, qn: number) => call('video:playurl', { bvid, cid, qn }),
+    downloadUrl: (bvid: string, cid: any, qn = 0) => call('video:downloadUrl', { bvid, cid, qn }),
     related: (bvid: string) => call('video:related', { bvid }),
     danmaku: (cid: any, segment = 1) => call('video:danmaku', { cid, segment }),
     online: (bvid: string, cid: any) => call('video:online', { bvid, cid }),
@@ -632,6 +638,23 @@ const bridge: WbiBridge & { invoke: typeof invoke; call: typeof call } = {
     pickNative: () => call('local:pickNative'),
     diagnose: () => call('local:diagnose'),
     sharedPending: () => call('local:sharedPending'),
+    download: (options: { url: string; name?: string; referer?: string }) => call('local:download', options),
+    /** 订阅原生下载进度（0.4.20）；返回取消订阅函数 */
+    onDownloadProgress: async (cb: (p: { received: number; total: number; name?: string }) => void) => {
+      const plugin: any = await localMedia()
+      const handle = await plugin.addListener('downloadProgress', (data: any) => {
+        cb({
+          received: Number(data && data.received) || 0,
+          total: Number(data && data.total) || 0,
+          name: data && data.name,
+        })
+      })
+      return () => {
+        try {
+          handle.remove()
+        } catch {}
+      }
+    },
     probe: (paths: string[]) => call('local:probe', { paths }),
     discard: (path: string) => call('local:discard', { path }),
     storageInfo: () => call('local:storageInfo'),

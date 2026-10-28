@@ -449,6 +449,42 @@ function pickStreams(list: any, mapper: (item: any) => any): any[] {
 }
 
 /**
+ * 单文件下载地址（本机构建 0.4.20）
+ *
+ * 和播放用的 `videoPlayurl` 不同：这里要的是**一个**带音轨的 MP4（网站「html5」平台的
+ * durl 单文件），这样才能直接落盘给本地播放器用，不需要合轨。
+ * 参数 pick：fnval=1 要求 durl、platform=html5 + high_quality=1 让服务端给 MP4
+ *（否则会给 flv，甚至分片）。没有 durl 时抛错（受限/需要登录/大会员等）。
+ */
+export async function videoDownloadUrl(
+  bvid: string,
+  cid: any,
+  qn = 0,
+): Promise<{ url: string; size: number; quality: number; format: string; acceptQuality: number[] }> {
+  const params = await encWbi({
+    bvid,
+    cid,
+    qn: qn || 1,
+    fnver: 0,
+    fnval: 1,
+    fourk: 1,
+    platform: 'html5',
+    high_quality: 1,
+  })
+  const data = await getData<any>(PLAYURL_URL, { params })
+  const durl = Array.isArray(data.durl) ? data.durl : []
+  if (!durl.length) throw new Error('这个视频拿不到单文件下载地址（可能需要登录/大会员，或只提供 DASH 流）')
+  if (durl.length > 1) throw new Error('这个视频被服务端拆成了多段，暂不支持下载')
+  return {
+    url: fixImageUrl(durl[0].url),
+    size: Number(durl[0].size) || 0,
+    quality: Number(data.quality) || 0,
+    format: String(data.format || 'mp4'),
+    acceptQuality: data.accept_quality || [],
+  }
+}
+
+/**
  * 播放地址（DASH 优先）：还原 `_n()`
  *
  * 参数：qn 清晰度（默认 80 = 1080P），fnval 4048 让服务端返回 DASH，

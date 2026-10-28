@@ -399,6 +399,10 @@ export function createMockBridge(): WbiBridge {
         await delay(120)
         return makeDetail(bvid).pages
       },
+      async downloadUrl(bvid: string, cid: any, qn = 0) {
+        await delay(200)
+        return { url: `mock://download/${bvid}-${cid}.mp4`, size: 48 * 1024 * 1024, quality: qn || 360, format: 'mp4', acceptQuality: [360, 480] }
+      },
       async playurl(bvid: string, cid: any, qn: number): Promise<PlayUrl> {
         await delay(320)
         const d = makeDetail(bvid)
@@ -594,6 +598,14 @@ export function createMockBridge(): WbiBridge {
       },
       async diagnose() {
         return { openDocument: false, getContent: false, sdk: 0, mediaDir: '' }
+      },
+      async onDownloadProgress() {
+        return () => {}
+      },
+      async download(options: { url: string; name?: string }) {
+        await delay(600)
+        const entry = makeLocalEntries(1)[0]
+        return { ...entry, name: options.name || '下载的视频.mp4' }
       },
       async sharedPending() {
         await delay(40)

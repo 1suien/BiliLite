@@ -176,7 +176,7 @@ export const useSettingsStore = defineStore('settings', {
           const reminders = (Array.isArray(t && t.reminders) ? t.reminders : [])
             .map((x: any) => String(x || '').trim())
             .filter((x: string) => /^\d{2}:\d{2}$/.test(x))
-          const times = [...new Set(reminders)].sort().slice(0, 8)
+          const times = [...new Set(reminders)].sort().slice(0, 10)
           return {
             name: String((t && t.name) || '').trim().slice(0, 12),
             color: FOCUS_COLORS[t && t.color] ? t.color : FOCUS_COLOR_KEYS[0],

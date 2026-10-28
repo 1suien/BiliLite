@@ -57,6 +57,8 @@ export const bili: WbiBridge = {
     view: (bvid: string) => impl().video.view(bvid),
     pages: (bvid: string) => impl().video.pages(bvid),
     playurl: (bvid: string, cid: any, qn: number) => impl().video.playurl(bvid, cid, qn),
+    downloadUrl: (bvid: string, cid: any, qn = 0) =>
+      impl().video.downloadUrl ? impl().video.downloadUrl!(bvid, cid, qn) : Promise.reject(new Error('当前环境不支持下载')),
     related: (bvid: string) => impl().video.related(bvid),
     danmaku: (cid: any, segment?: number) => impl().video.danmaku(cid, segment),
     online: (bvid: string, cid: any) => impl().video.online(bvid, cid),
@@ -96,6 +98,10 @@ export const bili: WbiBridge = {
     pickNative: () => (impl().local.pickNative ? impl().local.pickNative!() : impl().local.pickFiles()),
     diagnose: () =>
       impl().local.diagnose ? impl().local.diagnose!() : Promise.resolve({ openDocument: false, getContent: false, sdk: 0 }),
+    onDownloadProgress: (cb: (p: { received: number; total: number; name?: string }) => void) =>
+      impl().local.onDownloadProgress ? impl().local.onDownloadProgress!(cb) : Promise.resolve(() => {}),
+    download: (options: { url: string; name?: string; referer?: string }) =>
+      impl().local.download ? impl().local.download!(options) : Promise.reject(new Error('当前环境不支持下载')),
     sharedPending: () =>
       impl().local.sharedPending ? impl().local.sharedPending!() : Promise.resolve({ entries: [], missing: [] }),
     probe: (paths: string[]) =>
