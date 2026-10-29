@@ -100,15 +100,6 @@ export interface LocalPickResult {
   truncated?: boolean
 }
 
-/** 媒体库里的视频文件夹（0.4.26，安卓原生：按 MediaStore 的 bucket 聚合） */
-export interface LocalMediaFolder {
-  bucketId: string
-  name: string
-  count: number
-  size: number
-  samples?: string[]
-}
-
 export interface WbiBridge {
   platform?: string
   ping(): Promise<any>
@@ -169,16 +160,6 @@ export interface WbiBridge {
     pickFolder(): Promise<LocalPickResult>
     /** 安卓原生导入（0.4.15）：复制到 App 私有目录，条目可持久播放 */
     pickNative?(): Promise<LocalPickResult>
-    /** 选择「文件夹」导入（0.4.23）：原生递归遍历目录树，把音视频复制进私有目录 */
-    pickFolderImport?(): Promise<LocalPickResult>
-    /** 原生多选文件（0.4.25）：文件夹选择器打不开时的退路，不依赖 WebView 手势 */
-    pickMediaMultiple?(): Promise<LocalPickResult>
-    /** 媒体库视频文件夹（0.4.26）：不拉起系统选择器，直接读系统媒体库 */
-    listMediaFolders?(): Promise<{ folders: LocalMediaFolder[] }>
-    /** 导入某个媒体库文件夹里的全部视频（0.4.26） */
-    importMediaFolder?(options: { bucketId: string }): Promise<LocalPickResult>
-    /** 文件夹导入进度（0.4.26），返回取消订阅函数 */
-    onImportProgress?(cb: (p: { done: number; total: number; name?: string }) => void): Promise<() => void>
     /** 把 URL 下载到 App 私有目录（0.4.20） */
     download?(options: { url: string; name?: string; referer?: string }): Promise<{ id: string; path: string; name: string; size: number; mtime: number; [key: string]: any }>
     /** 原生下载进度（0.4.20），返回取消订阅函数 */

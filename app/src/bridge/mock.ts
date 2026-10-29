@@ -628,34 +628,6 @@ export function createMockBridge(): WbiBridge {
         await delay(260)
         return { entries: makeLocalEntries(5), dir: '/mock/课程视频' }
       },
-      /** 选文件夹导入的浏览器预览版（0.4.23）：只造条目 */
-      async pickFolderImport() {
-        await delay(300)
-        return { entries: makeLocalEntries(6), dir: '/mock/课程视频/选修' }
-      },
-      /** 原生多选文件的浏览器预览版（0.4.25） */
-      async pickMediaMultiple() {
-        await delay(280)
-        return { entries: makeLocalEntries(4), dir: '/mock/多选' }
-      },
-      /** 媒体库文件夹的浏览器预览版（0.4.26）：造几个文件夹 */
-      async listMediaFolders() {
-        await delay(220)
-        return {
-          folders: [
-            { bucketId: '1001', name: 'Movies', count: 4, size: 1288490188, samples: ['第一课.mp4', '第二课.mp4'] },
-            { bucketId: '1002', name: 'Download', count: 2, size: 366997488, samples: ['课程.mp4'] },
-            { bucketId: '1003', name: 'Pictures', count: 1, size: 24514560, samples: ['录屏.mp4'] },
-          ],
-        }
-      },
-      async importMediaFolder(_options: { bucketId: string }) {
-        await delay(340)
-        return { entries: makeLocalEntries(3), count: 3 }
-      },
-      async onImportProgress() {
-        return () => {}
-      },
       async register(paths: string[]) {
         await delay(120)
         return { entries: makeLocalEntries(paths.length || 1), missing: [] }

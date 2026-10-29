@@ -36,21 +36,6 @@ const items = ref<LocalRecord[]>([])
 const loading = ref(true)
 /** 导入进行中：两个入口按钮都禁用 */
 const busy = ref(false)
-/** 0.4.25：导入文件夹的现场状态（选择器打不开时这行会留下错误原文，方便截图定位） */
-const folderStatus = ref('')
-/** 媒体库里的视频文件夹（0.4.26：MediaStore 的 bucket） */
-interface LocalMediaFolder {
-  bucketId: string
-  name: string
-  count: number
-  size: number
-  samples?: string[]
-}
-/** 0.4.26：媒体库文件夹弹层（不拉起系统选择器） */
-const folderOpen = ref(false)
-const folderLoading = ref(false)
-const folderErr = ref('')
-const folders = ref<LocalMediaFolder[]>([])
 /** 正在解析时长与封面的文件名 */
 const parsing = ref('')
 function formatSize(size?: number) {
@@ -233,138 +218,6 @@ async function importEntries(entries: any[]) {
  * 安卓上实测可用），选中的视频复制一份进 App 私有目录（原生导入）或登记路径（浏览器预览），
  * 之后刷新/重启都还能播。
  */
-/**
- * 选「文件夹」导入（本机构建 0.4.23 起，0.4.24 加固：选择器打不开时自动退化成选文件）
- *
- * 安卓走原生 SAF 目录选择（ACTION_OPEN_DOCUMENT_TREE），把目录树里的音视频递归复制进
- * App 私有目录；没有目录选择器的 ROM / 浏览器里回退成普通选文件。
- */
-async function openFolderDialog() {
-  if (busy.value) return
-  const diag = `v${APP_VERSION} · 平台=${bili.platform} · 桥=${!!(bili.local && bili.local.listMediaFolders)}`
-  folderOpen.value = true
-  folderErr.value = ''
-  folderLoading.value = true
-  folderStatus.value = `${diag} · 正在读取系统媒体库里的视频文件夹…`
-  try {
-    // 0.4.27：不再默默退化成系统选择器，而是把「哪个接口缺失」直接显示出来
-    const localApi: any = bili.local || {}
-    let listFn: any = typeof localApi.listMediaFolders === 'function' ? localApi.listMediaFolders : null
-    const raw: any = (typeof window !== 'undefined' && (window as any).bili) || null
-    if (!listFn && raw && raw.local && typeof raw.local.listMediaFolders === 'function') {
-      listFn = raw.local.listMediaFolders.bind(raw.local)
-    }
-    if (!listFn) {
-      throw new Error(`安装包里没有媒体库接口 listMediaFolders（window.bili=${!!raw}）——可能是旧包，请装 0.4.27`)
-    }
-    const res: any = await listFn()
-    folders.value = (res && res.folders) || []
-    folderStatus.value = folders.value.length
-      ? `${diag} · 媒体库里找到 ${folders.value.length} 个视频文件夹`
-      : `${diag} · 媒体库里没有视频文件夹（也可能是「照片和视频」权限没给）`
-  } catch (e: any) {
-    const msg = (e && (e.message || e)) || '未知错误'
-    folderErr.value = msg
-    folderStatus.value = `${diag} · 读取媒体库失败：${msg}`
-  } finally {
-    folderLoading.value = false
-  }
-}
-
-/** 0.4.26：导入某个媒体库文件夹里的全部视频（不经过系统选择器） */
-async function importFolderByBucket(folder: LocalMediaFolder) {
-  if (busy.value) return
-  busy.value = true
-  folderOpen.value = false
-  folderStatus.value = `正在从「${folder.name}」导入 ${folder.count} 个视频…`
-  const startedAt = Date.now()
-  let off: any = () => {}
-  try {
-    if (bili.local.onImportProgress) {
-      off = await bili.local.onImportProgress!((p) => {
-        if (p && p.total) folderStatus.value = `正在导入 ${p.done}/${p.total}${p.name ? `：${p.name}` : ''}`
-      })
-    }
-    const res: any = await bili.local.importMediaFolder!({ bucketId: folder.bucketId })
-    const entries = (res && res.entries) || []
-    if (!entries.length) {
-      folderStatus.value = '这个文件夹里没有可导入的视频'
-      ui.toast('这个文件夹里没有可导入的视频')
-      return
-    }
-    await importEntries(entries)
-    const secs = ((Date.now() - startedAt) / 1000).toFixed(1)
-    folderStatus.value = `已导入 ${entries.length} 个文件（${secs}s）`
-  } catch (e: any) {
-    const msg = (e && (e.message || e)) || e
-    folderStatus.value = `导入失败：${msg}`
-    ui.err(msg || '导入文件夹失败')
-  } finally {
-    try {
-      off && off()
-    } catch {}
-    busy.value = false
-  }
-}
-
-/** 系统「选择文件夹」界面（0.4.23 起；个别 ROM 上会卡住，所以加了 15 秒超时） */
-async function pickFolderViaSystem() {
-  if (busy.value) return
-  busy.value = true
-  folderStatus.value = '正在打开系统「选择文件夹」界面…（15 秒没响应会自动放弃）'
-  const startedAt = Date.now()
-  try {
-    let res: any = null
-    if (bili.local.pickFolderImport) {
-      try {
-        res = await Promise.race([
-          bili.local.pickFolderImport!(),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('系统「选择文件夹」界面 15 秒没有返回（被 ROM 卡住了）')), 15000),
-          ),
-        ])
-        if (res && res.canceled) {
-          folderStatus.value = '已取消选择文件夹'
-          return
-        }
-        folderStatus.value = '已选到文件夹，正在读取文件列表…'
-      } catch (e: any) {
-        // 文件夹选择器打不开时先退到「原生多选文件」（不依赖 WebView 手势），再退到浏览器选文件
-        const msg = (e && (e.message || e)) || '未知错误'
-        folderStatus.value = `文件夹选择器打不开：${msg}；已改为「多选文件」…`
-        try {
-          res = await (bili.local.pickMediaMultiple ? bili.local.pickMediaMultiple() : bili.local.pickFolder())
-        } catch (e2: any) {
-          const msg2 = (e2 && (e2.message || e2)) || '未知错误'
-          folderStatus.value = `原生选文件也打不开：${msg2}；已改为浏览器选文件…`
-          res = await bili.local.pickFolder()
-        }
-      }
-    } else {
-      res = await bili.local.pickFolder()
-    }
-    if (res && res.canceled) {
-      folderStatus.value = '已取消选择'
-      return
-    }
-    const entries = (res && res.entries) || []
-    if (!entries.length) {
-      folderStatus.value = '没选到音视频文件（选的文件里没有支持的格式）'
-      ui.toast('没选到音视频文件')
-      return
-    }
-    folderStatus.value = `正在复制 ${entries.length} 个文件到 App 私有目录…`
-    await importEntries(entries)
-    const secs = ((Date.now() - startedAt) / 1000).toFixed(1)
-    folderStatus.value = `已导入 ${entries.length} 个文件（${secs}s）`
-  } catch (e: any) {
-    folderStatus.value = `导入失败：${(e && (e.message || e)) || e}`
-    ui.err(e.message || '导入文件夹失败')
-  } finally {
-    busy.value = false
-  }
-}
-
 async function importLocal() {
   if (busy.value) return
   busy.value = true
@@ -442,21 +295,15 @@ onMounted(() => {
       <div class="grow">
         <h1>本地</h1>
         <p class="muted" style="margin: 4px 0 0">
-          播放本机的视频文件：点「本地导入」选视频，或点「导入文件夹」把整个文件夹里的音视频一起导进来；
+          播放本机的视频文件：点「本地导入」选视频（可多选）；
           安卓 APK 会把文件复制进 App 私有目录（刷新、重启后还在，大文件边下边播），浏览器预览只登记路径。
           时长、封面和上次看到哪儿都存在本机。
-        </p>
-        <p v-if="folderStatus" class="muted" style="margin: 6px 0 0; font-size: 12px; word-break: break-all" data-folder-status>
-          {{ folderStatus }}
         </p>
       </div>
       <div class="row" style="flex: none; align-items: center">
         <span class="dim" style="font-size: 12px; margin-right: 4px" title="当前安装包版本">{{ 'v' + APP_VERSION }}</span>
         <button class="btn sm" :disabled="busy" @click="importLocal" data-local-import>
           <Icon name="folder" :size="14" /> 本地导入
-        </button>
-        <button class="btn sm ghost" :disabled="busy" @click="openFolderDialog" data-local-folder>
-          <Icon name="folder" :size="14" /> 导入文件夹
         </button>
       </div>
     </div>
@@ -526,45 +373,12 @@ onMounted(() => {
       v-else
       icon="film"
       title="还没有本地视频"
-      desc="点「本地导入」选几个视频，或点「导入文件夹」把整个文件夹里的音视频一起导进来。安卓 APK 会复制一份到 App 私有目录（刷新、重启后还在），浏览器预览只登记路径。"
+      desc="点「本地导入」选几个视频（可多选）。安卓 APK 会复制一份到 App 私有目录（刷新、重启后还在），浏览器预览只登记路径。"
     >
       <button class="btn sm" :disabled="busy" @click="importLocal">
         <Icon name="folder" :size="14" /> 本地导入
       </button>
-      <button class="btn sm ghost" :disabled="busy" @click="openFolderDialog">
-        <Icon name="folder" :size="14" /> 导入文件夹
-      </button>
     </EmptyBlock>
-    <!-- 0.4.26：媒体库文件夹弹层（不拉起系统「选择文件夹」界面） -->
-    <div v-if="folderOpen" class="fd-mask" @click.self="folderOpen = false" data-folder-mask>
-      <div class="fd-box">
-        <div class="fd-title">从媒体库选文件夹</div>
-        <p class="muted" style="margin: 6px 0 10px; font-size: 12px; line-height: 1.6">
-          列出的是系统媒体库（相册/视频 App 能看到的）里的视频文件夹，点一个就把里面全部视频复制到 App
-          私有目录。第一次会请求「照片和视频」权限，这是安卓系统自己的权限弹窗，不是文件夹选择器。
-        </p>
-        <div v-if="folderLoading" class="muted" style="padding: 6px 0">正在读取媒体库…</div>
-        <div v-else-if="folderErr" class="muted" style="padding: 6px 0; word-break: break-all">
-          读取失败：{{ folderErr }}
-        </div>
-        <div v-else-if="!folders.length" class="muted" style="padding: 6px 0">
-          媒体库里没有视频文件夹。
-        </div>
-        <div v-else class="fd-list">
-          <button v-for="f in folders" :key="f.bucketId" class="fd-row" @click="importFolderByBucket(f)">
-            <span class="grow">
-              <b>{{ f.name }}</b>
-              <span class="dim" style="display: block; font-size: 12px">{{ f.count }} 个视频 · {{ formatSize(f.size) }}</span>
-            </span>
-            <Icon name="folder" :size="16" />
-          </button>
-        </div>
-        <div class="row" style="margin-top: 12px; justify-content: space-between">
-          <button class="btn sm ghost" @click="folderOpen = false">取消</button>
-          <button class="btn sm ghost" @click="pickFolderViaSystem">改用系统选择器</button>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -641,52 +455,5 @@ onMounted(() => {
   display: block;
   height: 100%;
   background: var(--brand);
-}
-/* 0.4.26：媒体库文件夹弹层 */
-.fd-mask {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 18, 22, 0.42);
-  z-index: 70;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-.fd-box {
-  width: min(540px, 100%);
-  max-height: 76vh;
-  overflow: auto;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 16px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
-}
-.fd-title {
-  font-weight: 600;
-  font-size: 15px;
-}
-.fd-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 4px;
-}
-.fd-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  text-align: left;
-  padding: 9px 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--soft);
-  cursor: pointer;
-  font: inherit;
-  color: inherit;
-}
-.fd-row:hover {
-  border-color: var(--brand);
 }
 </style>

@@ -441,24 +441,6 @@ const handlers: Record<string, Handler> = {
     const res = await (await localMedia()).pickAndImport({ multiple: true })
     return res || { canceled: true }
   },
-  /** 选择「文件夹」导入（0.4.23）：原生 SAF 目录树 → 递归收集音视频 → 复制进私有目录 */
-  'local:pickFolderImport': async () => {
-    const res = await (await localMedia()).pickFolderAndImport()
-    return res || { canceled: true }
-  },
-  /** 原生多选文件（0.4.25）：文件夹选择器打不开时的退路，不依赖 WebView 手势 */
-  'local:pickMediaMultiple': async () => {
-    const res = await (await localMedia()).pickMediaMultiple()
-    return res || { canceled: true }
-  },
-  /** 媒体库文件夹（0.4.26）：读系统媒体库里的视频并按文件夹聚合，不拉起任何外部界面 */
-  'local:listMediaFolders': async () => {
-    const res = await (await localMedia()).listMediaFolders()
-    return (res && (res as any).folders) || []
-  },
-  /** 导入媒体库文件夹（0.4.26） */
-  'local:importMediaFolder': async ({ bucketId }: any) =>
-    (await localMedia()).importMediaFolder({ bucketId: String(bucketId || '') }),
   /** 取别的 App「分享 / 用其他应用打开」过来的文件（WPS 网盘里的视频走这条） */
   'local:sharedPending': async () => (await localMedia()).sharedPending(),
   /** 下载 URL 到 App 私有目录（0.4.20 起的通用能力） */
@@ -654,22 +636,6 @@ const bridge: WbiBridge & { invoke: typeof invoke; call: typeof call } = {
     pickFiles: () => call('local:pickFiles'),
     pickFolder: () => call('local:pickFolder'),
     pickNative: () => call('local:pickNative'),
-    pickFolderImport: () => call('local:pickFolderImport'),
-    pickMediaMultiple: () => call('local:pickMediaMultiple'),
-    listMediaFolders: () => call('local:listMediaFolders'),
-    importMediaFolder: (options: { bucketId: string }) => call('local:importMediaFolder', options),
-    /** 订阅文件夹导入进度（0.4.26），返回取消订阅函数 */
-    onImportProgress: async (cb: (p: { done: number; total: number; name?: string }) => void) => {
-      const plugin: any = await localMedia()
-      const handle = await plugin.addListener('importProgress', (data: any) => {
-        cb({ done: Number(data && data.done) || 0, total: Number(data && data.total) || 0, name: data && data.name })
-      })
-      return () => {
-        try {
-          handle.remove()
-        } catch {}
-      }
-    },
     diagnose: () => call('local:diagnose'),
     sharedPending: () => call('local:sharedPending'),
     download: (options: { url: string; name?: string; referer?: string }) => call('local:download', options),
