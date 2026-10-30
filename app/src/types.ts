@@ -346,3 +346,42 @@ export interface VideoTarget {
   startTime?: number
   fromCard?: boolean
 }
+
+/** 课表时段类型（本机构建 0.4.29：课表从「课程」改成时间块） */
+export type SlotKind = 'study' | 'break'
+
+/**
+ * 课表时段（Dexie: slots 表，本机构建 0.4.29）
+ *
+ * 一条 = 做什么 + 学习/休息 + 起止时间 + 星期（可多选）。
+ * 旧版 Course（名字 + 星期 + 提醒时间）首次启动时会自动迁移成时段。
+ */
+export interface ScheduleSlot {
+  id?: number
+  /** 做什么：新三 / 冥想 / 阅读 / 跟读 … */
+  name: string
+  /** 学习 / 休息 */
+  kind: SlotKind
+  /** 开始，HH:MM */
+  start: string
+  /** 结束，HH:MM */
+  end: string
+  /** 星期：1=周一 … 7=周日（可多选） */
+  days: number[]
+  /** 色板 key，见 stores/settings.ts 的 FOCUS_COLOR_KEYS */
+  color: string
+  /** 关联的专注目标名（可空） */
+  targetName: string
+  /** 关联的 B 站视频 BV 号（可空） */
+  bvid: string
+  videoTitle: string
+  /** 开始前弹提醒卡片 */
+  remindOn: boolean
+  /** 提前几分钟提醒 */
+  remindLead: number
+  note: string
+  createdAt: number
+}
+
+/** 某天某条时段的完成状态（存 localStorage，按天重置） */
+export type SlotStatus = 'done' | 'skipped' | 'todo'

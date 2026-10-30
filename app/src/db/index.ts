@@ -12,6 +12,7 @@ import type {
   Habit,
   HabitLog,
   Course,
+  ScheduleSlot,
   LocalSub,
   LocalVideo,
   ProgressRecord,
@@ -96,6 +97,7 @@ export class BiliLiteDB extends Dexie {
   habitLogs!: Table<HabitLog, string>
   /** 本机定制 0.4.12：课表 */
   courses!: Table<Course, number>
+  slots!: Table<ScheduleSlot, number>
 
   constructor() {
     super('study-bili')
@@ -256,6 +258,30 @@ export class BiliLiteDB extends Dexie {
       habits: '++id, name, archived, createdAt',
       habitLogs: 'key, habitId, date',
       courses: '++id, weekday, remindAt',
+    })
+    // 本机定制 0.4.29：课表改「时间块」（做什么 + 学习/休息 + 起止 + 星期可多选），新增 slots 表
+    this.version(10).stores({
+      progress: 'key, bvid, updatedAt, completed',
+      daily: 'date',
+      marks: '++id, bvid, cid, sec',
+      notes: '++id, bvid, cid, at',
+      shelf: 'bvid, at',
+      ups: 'mid, group, addedAt',
+      upgroups: 'name, at',
+      collect: '++id, bvid, folder, at',
+      collectfolders: 'name, at',
+      checkins: 'date, at',
+      upTime: 'key, mid, name',
+      books: 'id, addedAt, lastReadAt, format',
+      bookmarks: '++id, bookId, chapterIndex, at',
+      highlights: '++id, bookId, chapterIndex, at',
+      focus: '++id, day, startedAt, task',
+      subs: 'key, bvid, cid, at',
+      locals: 'id, path, addedAt, playedAt',
+      habits: '++id, name, archived, createdAt',
+      habitLogs: 'key, habitId, date',
+      courses: '++id, weekday, remindAt',
+      slots: '++id, kind, start, *days',
     })
   }
 }
@@ -671,6 +697,136 @@ export async function clearCourses() {
     await db.courses.clear()
   } catch (e: any) {
     console.warn('[course] 课表清空失败：', e && e.message)
+  }
+}
+
+/** ---------------- 课表时段（本机构建 0.4.29） ---------------- */
+
+function hhmmNum(v: any): number {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(v || '').trim())
+  if (!m) return -1
+  const h = Number(m[1])
+  const mi = Number(m[2])
+  if (h > 23 || mi > 59) return -1
+  return h * 60 + mi
+}
+
+function numToHHMM(min: number): string {
+  const m = Math.max(0, Math.min(24 * 60 - 1, Math.round(min)))
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+}
+
+function normDays(v: any): number[] {
+  const arr = Array.isArray(v) ? v : [v]
+  const out = arr
+    .map((x) => Math.round(Number(x)))
+    .filter((x) => x >= 1 && x <= 7)
+  return Array.from(new Set(out)).sort((a, b) => a - b)
+}
+
+export async function listSlots(): Promise<ScheduleSlot[]> {
+  try {
+    const rows = await db.slots.toArray()
+    return (rows as ScheduleSlot[]).sort((a, b) => (a.start || '').localeCompare(b.start || ''))
+  } catch (e: any) {
+    console.warn('[slot] 课表读取失败：', e && e.message)
+    return []
+  }
+}
+
+export async function putSlot(p: Partial<ScheduleSlot> = {}) {
+  const name = String(p.name || '').trim()
+  const start = numToHHMM(hhmmNum(p.start))
+  const end = numToHHMM(hhmmNum(p.end))
+  if (!name || hhmmNum(p.start) < 0 || hhmmNum(p.end) < 0 || end <= start) return null
+  const days = normDays(p.days && (p.days as number[]).length ? p.days : [1])
+  if (!days.length) return null
+  const rec: ScheduleSlot = {
+    id: Number(p.id) || 0,
+    name: name.slice(0, 40),
+    kind: p.kind === 'break' ? 'break' : 'study',
+    start,
+    end,
+    days,
+    color: String(p.color || 'blue'),
+    targetName: String(p.targetName || ''),
+    bvid: String(p.bvid || ''),
+    videoTitle: String(p.videoTitle || ''),
+    remindOn: !!p.remindOn,
+    remindLead: Math.max(0, Math.min(60, Math.round(Number(p.remindLead) || 0))),
+    note: String(p.note || '').slice(0, 200),
+    createdAt: Number(p.createdAt) || Date.now(),
+  }
+  try {
+    if (rec.id) {
+      await db.slots.put(rec)
+      return rec
+    }
+    const { id: _drop, ...rest } = rec
+    const id = await db.slots.add(rest as ScheduleSlot)
+    return { ...rec, id: Number(id) }
+  } catch (e: any) {
+    console.warn('[slot] 课表保存失败：', e && e.message)
+    return null
+  }
+}
+
+export async function removeSlot(id: number) {
+  const n = Number(id) || 0
+  if (!n) return false
+  try {
+    await db.slots.delete(n)
+    return true
+  } catch (e: any) {
+    console.warn('[slot] 课表删除失败：', e && e.message)
+    return false
+  }
+}
+
+export async function clearSlots() {
+  try {
+    await db.slots.clear()
+  } catch (e: any) {
+    console.warn('[slot] 课表清空失败：', e && e.message)
+  }
+}
+
+/**
+ * 0.4.29 迁移：旧版 courses（名字 + 星期 + 提醒时间）→ 时段
+ * 没有起止时间，就按「提醒时间开始、45 分钟后结束」来搬，颜色 / 关联 / 备注原样保留。
+ */
+export async function migrateCoursesToSlots(): Promise<number> {
+  try {
+    const rows = (await db.courses.toArray()) as any[]
+    if (!rows || !rows.length) return 0
+    const exist = await db.slots.count()
+    if (exist > 0) return 0
+    let n = 0
+    for (const c of rows) {
+      const remindAt = /^\d{1,2}:\d{2}$/.test(String((c && c.remindAt) || (c && c.start))) ? String(c.remindAt || c.start) : '08:00'
+      const a = hhmmNum(remindAt)
+      if (a < 0) continue
+      await db.slots.add({
+        name: String(c.name || '课程').slice(0, 40),
+        kind: 'study',
+        start: numToHHMM(a),
+        end: numToHHMM(a + 45),
+        days: normDays([Number(c.weekday) || 1]),
+        color: String(c.color || 'blue'),
+        targetName: String(c.targetName || ''),
+        bvid: String(c.bvid || ''),
+        videoTitle: String(c.videoTitle || ''),
+        remindOn: c.remindOn === undefined ? true : !!c.remindOn,
+        remindLead: 5,
+        note: String(c.note || ''),
+        createdAt: Number(c.createdAt) || Date.now(),
+      } as ScheduleSlot)
+      n++
+    }
+    return n
+  } catch (e: any) {
+    console.warn('[slot] 旧课表迁移失败：', e && e.message)
+    return 0
   }
 }
 

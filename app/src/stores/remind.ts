@@ -12,7 +12,7 @@
 import { defineStore } from 'pinia'
 import { useSettingsStore } from '@/stores/settings'
 import { useHabitsStore } from '@/stores/habits'
-import { useCoursesStore, weekdayOf } from '@/stores/courses'
+import { useSlotsStore, weekdayOf, minutesOf } from '@/stores/slots'
 import { todayStr, hhmm, addDays } from '@/utils/format'
 import {
   nativeNotifySupported,
@@ -24,7 +24,7 @@ import {
 const FIRED_KEY = 'study-bili-remind-fired'
 const TICK = 30 * 1000
 
-export type ReminderKind = 'habit' | 'focus' | 'course'
+export type ReminderKind = 'habit' | 'focus' | 'slot'
 
 export interface ReminderAction {
   label: string
@@ -134,32 +134,35 @@ export const useRemindStore = defineStore('remind', {
       return out
     },
 
-    /** 课表：今天这门课到点（0.4.14 起课表只记一个提醒时间，没有提前量） */
-    dueCourses(now = hhmm(), day = todayStr()): ReminderCard[] {
-      const courses = useCoursesStore()
+    /** 课表：今天某个时段开始前提醒（提前量每条自己设，默认 5 分钟） */
+    dueSlots(now = hhmm(), day = todayStr()): ReminderCard[] {
+      const slots = useSlotsStore()
       const wd = weekdayOf(day)
       const fired = this.firedFor(day)
       const at = /^\d{2}:\d{2}$/.test(String(now)) ? String(now) : '00:00'
       const out: ReminderCard[] = []
-      for (const c of courses.list) {
-        if (Number(c.weekday) !== wd || !c.remindOn) continue
-        const remindAt = /^\d{2}:\d{2}$/.test(String(c.remindAt || '')) ? String(c.remindAt) : ''
-        if (!remindAt) continue
+      for (const s of slots.list) {
+        if (!Array.isArray(s.days) || !s.days.includes(wd) || !s.remindOn) continue
+        const start = /^\d{2}:\d{2}$/.test(String(s.start || '')) ? String(s.start) : ''
+        if (!start) continue
+        const lead = Math.max(0, Math.min(60, Number(s.remindLead) || 0))
+        const remindAt = shift(start, -lead)
         if (at < remindAt) continue
-        // 到点后 10 分钟就不提醒了，免得下午才弹
+        // 提醒时刻之后 10 分钟就不再弹，免得下午才提醒上午的事
         if (at > shift(remindAt, 10)) continue
-        const key = `course:${c.id}:${day}`
+        const key = `slot:${s.id}:${day}`
         if (fired.includes(key)) continue
+        const mins = Math.max(0, minutesOf(s.end) - minutesOf(s.start))
         out.push({
           key,
-          kind: 'course',
-          title: `该上课了 · ${c.name}`,
-          body: `提醒时间 ${remindAt}`,
+          kind: 'slot',
+          title: lead ? `${lead} 分钟后 · ${s.name}` : `该开始「${s.name}」了`,
+          body: `${s.start}–${s.end} · ${s.kind === 'break' ? '休息' : '学习'} ${mins} 分钟`,
           at: Date.now(),
           actions: [
-            c.bvid
-              ? { label: '去看关联视频', to: { path: `/video/${c.bvid}` } }
-              : { label: '去学习页', to: { path: '/learn' } },
+            s.bvid
+              ? { label: '去看关联视频', to: { path: `/video/${s.bvid}` } }
+              : { label: '去课表', to: { path: '/schedule' } },
           ],
         })
       }
@@ -185,12 +188,12 @@ export const useRemindStore = defineStore('remind', {
       const nd = day || todayStr()
       const na = now || hhmm()
       const focus = this.dueFocus(na, nd)
-      const course = this.dueCourses(na, nd)
-      const all = [...focus, ...course]
+      const slot = this.dueSlots(na, nd)
+      const all = [...focus, ...slot]
       for (const card of all) this.push(card)
       if (all.length) this.markFired(nd, all.map((c) => c.key))
       this.lastCheck = { at: na, day: nd, cards: all.length }
-      return { focus: focus.map((c) => c.key), course: course.map((c) => c.key) }
+      return { focus: focus.map((c) => c.key), slot: slot.map((c) => c.key) }
     },
 
     /* ---------------------- 系统通知（软件外也能看到 + 提示音） ---------------------- */
@@ -198,7 +201,6 @@ export const useRemindStore = defineStore('remind', {
     nativeItems(): NativeReminderItem[] {
       const settings = useSettingsStore()
       const habits = useHabitsStore()
-      const courses = useCoursesStore()
       const out: NativeReminderItem[] = []
 
       // 专注目标：每个目标的多个提醒时间，每天重复
@@ -238,25 +240,29 @@ export const useRemindStore = defineStore('remind', {
         })
       }
 
-      // 课表：每周只有固定星期几，所以按「未来 7 天里对得上的日子」排一次性提醒
+      // 课表：每个时段按自己的星期重复，提前量换算成通知时间
+      const slots = useSlotsStore()
       const base = new Date()
-      for (const c of courses.list as any[]) {
-        if (!c || !c.remindOn) continue
-        const remindAt = String(c.remindAt || '')
-        if (!/^\d{2}:\d{2}$/.test(remindAt)) continue
-        const [hour, minute] = remindAt.split(':').map(Number)
+      for (const s of slots.list as any[]) {
+        if (!s || !s.remindOn) continue
+        const start = String(s.start || '')
+        if (!/^\d{2}:\d{2}$/.test(start)) continue
+        const lead = Math.max(0, Math.min(60, Number(s.remindLead) || 0))
+        const at = shift(start, -lead)
+        const [hour, minute] = at.split(':').map(Number)
+        const days = Array.isArray(s.days) ? s.days : []
         for (let i = 0; i < 8; i++) {
           const d = addDays(todayStr(base), i)
-          if (weekdayOf(d) !== Number(c.weekday)) continue
-          if (i === 0 && remindAt <= hhmm(base)) continue
+          if (!days.includes(weekdayOf(d))) continue
+          if (i === 0 && at <= hhmm(base)) continue
           const parts = d.split('-').map(Number)
           out.push({
-            key: `course:${c.id}:${d}`,
+            key: `slot:${s.id}:${d}`,
             hour,
             minute,
-            title: `该上课了 · ${c.name}`,
-            body: `提醒时间 ${remindAt}`,
-            path: c.bvid ? `/video/${c.bvid}` : '/learn',
+            title: lead ? `${lead} 分钟后 · ${s.name}` : `该开始「${s.name}」了`,
+            body: `${s.start}–${s.end}`,
+            path: s.bvid ? `/video/${s.bvid}` : '/schedule',
             date: { year: parts[0], month: parts[1], day: parts[2] },
           })
         }
@@ -288,7 +294,7 @@ export const useRemindStore = defineStore('remind', {
       Promise.all([
         useSettingsStore().init?.(),
         useHabitsStore().init?.(),
-        useCoursesStore().init?.(),
+        useSlotsStore().init?.(),
       ])
         .then(() => {
           this.check()

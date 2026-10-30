@@ -23,7 +23,7 @@ import { useSettingsStore } from '@/stores/settings'
 import { useLearnStore } from '@/stores/learn'
 import { useHabitsStore } from '@/stores/habits'
 import { useRemindStore } from '@/stores/remind'
-import { useCoursesStore } from '@/stores/courses'
+import { useSlotsStore } from '@/stores/slots'
 import { Capacitor } from '@capacitor/core'
 import { LocalNotifications } from '@capacitor/local-notifications'
 import { useUpsStore } from '@/stores/ups'
@@ -44,7 +44,7 @@ const settings = useSettingsStore()
 const learn = useLearnStore()
 const habits = useHabitsStore()
 const remind = useRemindStore()
-const courses = useCoursesStore()
+const slots = useSlotsStore()
 const ups = useUpsStore()
 const ui = useUiStore()
 
@@ -258,12 +258,12 @@ onMounted(async () => {
   }
   // 本机构建 0.4.13：提醒同时交给系统通知（应用在后台/切走也能看到，带提示音）
   try {
-    await courses.init()
+    await slots.init()
   } catch (e: any) {
-    console.warn('[courses] 课表初始化失败：', e && e.message)
+    console.warn('[slots] 课表初始化失败：', e && e.message)
   }
   watch(
-    () => [settings.settings.focusTargets, habits.habits, courses.list],
+    () => [settings.settings.focusTargets, habits.habits, slots.list],
     () => {
       if (nativeSyncTimer) clearTimeout(nativeSyncTimer)
       nativeSyncTimer = setTimeout(() => {

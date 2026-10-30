@@ -28,7 +28,7 @@ watch(
 const KIND_LABEL: Record<string, string> = {
   habit: '习惯打卡',
   focus: '专注提醒',
-  course: '课表提醒',
+  slot: '课表提醒',
 }
 
 function close(key: string) {
@@ -115,7 +115,7 @@ onUnmounted(() => {
 .reminder-card.kind-focus {
   border-left-color: var(--magenta, var(--brand));
 }
-.reminder-card.kind-course {
+.reminder-card.kind-slot {
   border-left-color: var(--blue, var(--brand));
 }
 @keyframes rc-in {
@@ -141,7 +141,7 @@ onUnmounted(() => {
 .kind-focus .rc-kind {
   color: var(--magenta, var(--brand));
 }
-.kind-course .rc-kind {
+.kind-slot .rc-kind {
   color: var(--blue, var(--brand));
 }
 .rc-close {

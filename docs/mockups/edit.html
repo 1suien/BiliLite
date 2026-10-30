@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="mock.css" />
+<title>课表 · 编辑时段</title>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand">
+      <div class="logo">学</div>
+      <div>
+        <div class="brand-name">BiliLite</div>
+        <div class="brand-sub">专注模式 · 黑白极简</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <div class="nav-item"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M4 9h16"/></svg>学习</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24"><path d="M5 12l4 4 10-10"/></svg>习惯</div>
+      <div class="nav-item active"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>课表</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24"><path d="M3 7h18M3 12h18M3 17h12"/></svg>本地</div>
+    </nav>
+    <div class="nav-sep"></div>
+    <nav class="nav">
+      <div class="nav-item"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"/></svg>UP 管理</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24"><path d="M12 4l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 17.4 6.8 20l1-5.8L3.5 10l5.9-.9z"/></svg>收藏</div>
+      <div class="nav-item"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.3 1a7 7 0 0 0-1.7-1L14.5 3h-4l-.4 2.6a7 7 0 0 0-1.7 1l-2.3-1-2 3.4 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7 7 0 0 0 1.7-1l2.3 1 2-3.4-2-1.5c.1-.3.1-.7.1-1z"/></svg>设置</div>
+    </nav>
+    <div class="user">
+      <div class="avatar"></div>
+      <div>
+        <div class="user-name">随流水儿</div>
+        <div class="user-sub">Lv6 · 已登录</div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="page-head">
+      <div>
+        <h1>课表</h1>
+        <div class="sub">10月30日 周四 · <b>学习日</b> · 今日 18 项 · 学习 <b>6 小时 30 分</b></div>
+      </div>
+      <div class="head-actions">
+        <div class="seg"><span class="on">今日</span><span>全周</span></div>
+        <button class="btn primary">＋ 添加时段</button>
+      </div>
+    </div>
+
+    <div class="body">
+      <div class="col-main">
+        <section class="now">
+          <div class="now-main">
+            <span class="chip-now"><i class="dot-live"></i>现在进行中</span>
+            <div class="now-name">新三</div>
+            <div class="now-meta"><b>09:05 – 10:50</b> · 学习 105 分钟 · 关联专注目标「考研」</div>
+            <div class="now-btns">
+              <button class="btn primary">开始专注</button>
+              <button class="btn ghost">跳过这一项</button>
+            </div>
+          </div>
+          <div class="ring"><div class="ring-in"><div class="ring-time">1:18</div><div class="ring-label">剩余 · 已过 26%</div></div></div>
+        </section>
+        <div class="tl">
+          <div class="sec">上午 <span class="range">08:00 – 11:00</span></div>
+          <div class="item done"><div class="t">08:00 – 08:45</div><div class="rail"><i></i></div><div class="n">新三<small>45 分钟</small></div><div class="s check">✓</div></div>
+          <div class="item done"><div class="t">08:45 – 09:05</div><div class="rail"><i></i></div><div class="n">冥想<small>休息</small></div><div class="s check">✓</div></div>
+          <div class="item now"><div class="t">09:05 – 10:50</div><div class="rail"><i></i></div><div class="n">新三<small>105 分钟</small></div><div class="s">进行中</div></div>
+          <div class="item"><div class="t">10:50 – 11:00</div><div class="rail"><i></i></div><div class="n">冥想<small>休息</small></div><div class="s">待开始</div></div>
+        </div>
+      </div>
+      <aside class="aside">
+        <div class="card">
+          <div class="card-h">今日进度</div>
+          <div class="stat-row">
+            <div class="stat"><b>5 / 18</b><span>已完成</span></div>
+            <div class="stat"><b>2:40</b><span>已学习</span></div>
+            <div class="stat"><b>6:30</b><span>计划</span></div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </main>
+</div>
+
+<!-- 弹层 -->
+<div class="mask"></div>
+<div class="sheet">
+  <h2>编辑时段</h2>
+  <div class="sheet-sub">09:05 – 10:50 · 周四 · 出现在「上午」里</div>
+  <div class="form">
+    <div class="field">
+      <label>做什么</label>
+      <div class="input focus">新三</div>
+    </div>
+    <div class="field">
+      <label>类型</label>
+      <div class="seg2"><span class="on">学习</span><span>休息</span></div>
+    </div>
+    <div class="field">
+      <label>时间</label>
+      <div class="two">
+        <div class="input">09:05</div>
+        <div class="input">10:50</div>
+      </div>
+    </div>
+    <div class="field">
+      <label>星期</label>
+      <div class="chips">
+        <span class="chip">一</span><span class="chip">二</span><span class="chip">三</span><span class="chip on">四</span><span class="chip">五</span><span class="chip ghost">六</span><span class="chip ghost">日</span>
+      </div>
+    </div>
+    <div class="field">
+      <label>关联（可选）</label>
+      <div class="two">
+        <div class="input">专注目标：考研</div>
+        <div class="input">B 站视频：无</div>
+      </div>
+    </div>
+    <div class="field">
+      <label>提醒</label>
+      <div class="switch-row"><span>开始前 5 分钟弹提醒卡片</span><i class="sw"></i></div>
+      <div class="switch-row"><span>开始时刻发系统通知</span><i class="sw"></i></div>
+    </div>
+  </div>
+  <div class="sheet-foot">
+    <a class="link">删除这个时段</a>
+    <span style="flex:1"></span>
+    <button class="btn">取消</button>
+    <button class="btn primary">保存</button>
+  </div>
+</div>
+</body>
+</html>
