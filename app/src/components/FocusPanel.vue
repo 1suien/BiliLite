@@ -58,6 +58,13 @@ const percent = computed(() => {
 })
 /** 顶部状态文案 */
 const statusText = computed(() => {
+  // 0.4.30：从课表「开始专注」进来的按计划专注
+  if (pomo.plan && pomo.mode === 'focus') {
+    const d = new Date(pomo.plan.endAt)
+    const hh = String(d.getHours()).padStart(2, '0')
+    const mm = String(d.getMinutes()).padStart(2, '0')
+    return `按计划 · ${pomo.plan.name} · 到 ${hh}:${mm} 结束`
+  }
   if (pomo.mode === 'break') {
     return pomo.running ? '休息中 · 起来走两步' : '休息时间'
   }
@@ -248,6 +255,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <button
+            v-if="!pomo.plan"
             class="btn sm ghost"
             :title="showSettings ? '收起时长设置' : '设置时长'"
             aria-label="时长设置"
@@ -264,7 +272,7 @@ onBeforeUnmount(() => {
             <Icon name="expand" :size="14" />
           </button>
         </div>
-        <div v-if="showSettings" class="focus-settings">
+        <div v-if="showSettings && !pomo.plan" class="focus-settings">
           <div class="row" style="gap: 8px">
             <label class="fs-lab">专注时长</label>
             <input

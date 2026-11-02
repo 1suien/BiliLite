@@ -74,10 +74,11 @@ const planText = (() => {
   const e2 = cur + 35
   const s3 = cur + 40
   const e3 = cur + 85
+  // 两个「锚点」放在清晨 / 深夜，保证分组标题（早晨…晚上）一定有 ≥2 组，
+  // 又不会和「现在」附近的三条动态时段重叠（重叠会让状态推断有歧义）
   return [
-    `06:00 06:15 跟读 学习`,
-    `07:00 07:45 新三 学习`,
-    `07:45 08:00 冥想 休息`,
+    `00:05 00:20 早读 学习`,
+    `23:35 23:50 复盘 学习`,
     `${hhmm(s1)} ${hhmm(e1)} 新三 学习`,
     `${hhmm(s2)} ${hhmm(e2)} 冥想 休息`,
     `${hhmm(s3)} ${hhmm(e3)} 新三 学习`,
@@ -130,7 +131,7 @@ async function main() {
     check('现在卡片是进行中（覆盖当前时刻）', (await page.locator('.now-card .chip-now', { hasText: '现在进行中' }).count()) === 1)
     const items = page.locator('.tl-item')
     const itemCount = await items.count()
-    check('今日时间轴有 6 项', itemCount === 6, `items=${itemCount}`)
+    check('今日时间轴有 5 项', itemCount === 5, `items=${itemCount}`)
     check('时间轴有分组标题（早晨/上午/下午/晚上）', (await page.locator('.tl-sec').count()) >= 2)
     check('进行中那项有 data-status=doing', (await page.locator('.tl-item[data-status="doing"]').count()) === 1)
     check('右栏有今日进度', (await page.locator('.sc-aside .sc-card', { hasText: '今日进度' }).count()) === 1)
@@ -160,10 +161,74 @@ async function main() {
     await wait(500)
     check('全周 7 列', (await page.locator('.wk-col').count()) === 7)
     check('今天那一列高亮', (await page.locator('.wk-col.today').count()) === 1)
-    check('全周里有生成的时段块', (await page.locator('.wk-blk').count()) >= 6)
+    check('全周里有生成的时段块', (await page.locator('.wk-blk').count()) >= 4)
     await page.screenshot({ path: `${OUT}/4-week.png` })
 
-    // ---------- 7. 无报错 ----------
+    // ---------- 7. 开始专注（0.4.30：点一下按计划开始） ----------
+    await page.locator('.sc-seg button', { hasText: '今日' }).click()
+    await wait(400)
+    const doingItem = page.locator('.tl-item[data-status="doing"]').first()
+    const doingSlot = Number(await doingItem.getAttribute('data-slot'))
+    const doingName = await doingItem.evaluate((el) => {
+      const span = el.querySelector('.tl-name')
+      return span && span.childNodes.length ? String(span.childNodes[0].textContent || '').trim() : ''
+    })
+    await page.locator('.now-card button', { hasText: '开始专注' }).click()
+    await wait(800)
+    check('出现专注胶囊', (await page.locator('.focus-pill').count()) === 1)
+    const plan1 = await page.evaluate(() => {
+      try {
+        return JSON.parse(localStorage.getItem('study-bili-pomodoro') || '{}').plan || null
+      } catch {
+        return null
+      }
+    })
+    check('计划专注已开始（slotId + endAt）', !!(plan1 && plan1.slotId === doingSlot && plan1.endAt > Date.now()))
+    check('现在卡片变成「返回专注」', (await page.locator('.now-card button', { hasText: '返回专注' }).count()) === 1)
+    const targetsNow = await page.evaluate(() => {
+      try {
+        return (JSON.parse(localStorage.getItem('bililite.mock.settings') || '{}').focusTargets || []).map(
+          (t) => t.name,
+        )
+      } catch {
+        return []
+      }
+    })
+    check('首次点击自动生成专注目标', targetsNow.includes(doingName), JSON.stringify(targetsNow))
+    // 休息块没有「专注」按钮
+    const breakItem = page.locator('.tl-item', { hasText: '休息' }).first()
+    check(
+      '休息块没有专注按钮',
+      (await breakItem.locator('button', { hasText: '专注' }).count()) === 0,
+    )
+    await page.screenshot({ path: `${OUT}/5-focus.png` })
+
+    // ---------- 8. 到点自动完成 ----------
+    await page.evaluate(() => {
+      const k = 'study-bili-pomodoro'
+      const raw = JSON.parse(localStorage.getItem(k) || '{}')
+      raw.plan = { ...(raw.plan || {}), endAt: Date.now() + 1500, minutes: 1 }
+      localStorage.setItem(k, JSON.stringify(raw))
+    })
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await wait(4500)
+    check('到点后专注胶囊消失', (await page.locator('.focus-pill').count()) === 0)
+    check(
+      '到点后该时段自动标记完成',
+      (await page.locator(`.tl-item[data-slot="${doingSlot}"]`).getAttribute('data-status')) === 'done',
+    )
+    const slotStatus = await page.evaluate(() => {
+      try {
+        const all = JSON.parse(localStorage.getItem('study-bili-slot-status') || '{}')
+        return Object.values(all)[0] || null
+      } catch {
+        return null
+      }
+    })
+    check('完成状态已落库', !!(slotStatus && slotStatus[String(doingSlot)] === 'done'))
+    await page.screenshot({ path: `${OUT}/6-done.png` })
+
+    // ---------- 9. 无报错 ----------
     check('无 console 错误', errors.length === 0, errors.slice(0, 3).join(' | '))
   } finally {
     await browser.close()

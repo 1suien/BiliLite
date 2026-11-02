@@ -27,13 +27,15 @@ import {
   weekdayOf,
 } from '@/stores/slots'
 import { useSlotsStore } from '@/stores/slots'
-import { useSettingsStore } from '@/stores/settings'
+import { makeFocusTarget, useSettingsStore } from '@/stores/settings'
+import { usePomodoroStore } from '@/stores/pomodoro'
 import { useUiStore } from '@/stores/ui'
 import { todayStr } from '@/utils/format'
 import type { ScheduleSlot, SlotKind } from '@/types'
 
 const slots = useSlotsStore()
 const settings = useSettingsStore()
+const pomo = usePomodoroStore()
 const ui = useUiStore()
 const router = useRouter()
 
@@ -126,9 +128,74 @@ function normalizeBvid(text: string) {
 
 /* ------------------------------ 操作 ------------------------------ */
 
-function startFocus(s: ScheduleSlot) {
-  router.push({ path: '/learn', query: s.targetName ? { target: s.targetName } : {} })
+/** FocusPanel 里最多显示 12 个目标（保存上限 24） */
+const MAX_FOCUS_TARGETS = 24
+
+/** 某个 HH:MM 对应今天的毫秒时间戳 */
+function atToday(hhmm: string) {
+  const m = minutesOf(hhmm)
+  if (m < 0) return 0
+  const d = new Date()
+  d.setHours(Math.floor(m / 60), m % 60, 0, 0)
+  return d.getTime()
 }
+
+/**
+ * 0.4.30：点「开始专注」时保证目标存在。
+ * 优先用时段关联的专注目标，没有就用时段名；列表里没有就自动建一个（只在这一刻提示一次）。
+ */
+async function ensureFocusTarget(s: ScheduleSlot): Promise<string> {
+  const wanted = String(s.targetName || s.name || '专注').trim().slice(0, 12) || '专注'
+  const list = Array.isArray(settings.settings.focusTargets) ? settings.settings.focusTargets : []
+  const hit = list.find((t: any) => t && t.name === wanted)
+  if (hit) return wanted
+  if (list.length >= MAX_FOCUS_TARGETS) {
+    ui.toast('专注目标已满，这次只绑定不新建', 'info', 3000)
+    return wanted
+  }
+  await settings.setFocusTargets([...list, makeFocusTarget(wanted, list.length)])
+  ui.toast(`已自动创建专注目标「${wanted}」`, 'info', 3200)
+  return wanted
+}
+
+/** 0.4.30：点一下就开始按计划专注（结束点对齐这一项的结束时间） */
+async function startFocus(s: ScheduleSlot) {
+  if (!s.id) return
+  if (s.kind === 'break') {
+    ui.toast('休息时段不用专注，休息一下', 'info', 2200)
+    return
+  }
+  const endAt = atToday(s.end)
+  const now = Date.now()
+  if (endAt <= now + 30_000) {
+    // 已经结束：改成「补记完成」，不虚增学习时长
+    slots.setStatus(today.value, s.id, 'done')
+    ui.ok(`已补记完成「${s.name}」`)
+    return
+  }
+  const name = await ensureFocusTarget(s)
+  if (pomo.running && pomo.mode === 'focus' && pomo.plan && pomo.plan.slotId === s.id) {
+    router.push('/learn')
+    return
+  }
+  if (pomo.running && pomo.mode === 'focus') {
+    const ok = await ui.confirm(
+      '切换专注目标？',
+      `正在专注「${pomo.task ? pomo.task.name : '当前任务'}」，要中断它并开始「${name}」吗？`,
+      '切换',
+    )
+    if (!ok) return
+  }
+  const res = await pomo.startPlanned({ name, slotId: s.id, bvid: s.bvid || null, endAt })
+  if (res.switched) ui.toast(`已切换到「${name}」`, 'info', 2400)
+  else ui.ok(`开始专注「${name}」`)
+}
+
+/** 当前这一项是不是正在被专注（用于卡片按钮文案） */
+const focusRunningHere = computed(() => {
+  const c = current.value
+  return !!(pomo.running && pomo.plan && c && c.id && pomo.plan.slotId === c.id)
+})
 
 function completeSlot(s: ScheduleSlot) {
   if (!s.id) return
@@ -320,6 +387,8 @@ async function generateFromPaste() {
 onMounted(async () => {
   await settings.init()
   await slots.init()
+  // 0.4.30：从后台/刷新回来，接着跑课表计划的专注
+  pomo.init()
   timer = window.setInterval(() => {
     nowMin.value = new Date().getHours() * 60 + new Date().getMinutes()
   }, 20 * 1000)
@@ -375,7 +444,12 @@ onUnmounted(() => {
                   <template v-if="current.targetName"> · 关联「{{ current.targetName }}」</template>
                 </div>
                 <div class="now-btns">
-                  <button class="btn primary" @click="startFocus(current)">开始专注</button>
+                  <button v-if="!focusRunningHere" class="btn primary" @click="startFocus(current)">
+                    开始专注
+                  </button>
+                  <button v-else class="btn primary" @click="router.push('/learn')">
+                    返回专注 · 还剩 {{ pomo.clock }}
+                  </button>
                   <button class="btn ghost" @click="completeSlot(current)">标记完成</button>
                   <button class="btn ghost" @click="skipSlot(current)">跳过</button>
                 </div>
@@ -437,6 +511,13 @@ onUnmounted(() => {
                     <template v-else-if="statusOf(s) === 'skipped'">
                       <button class="tl-skip" title="撤销" @click.stop="undoSlot(s)">已跳过</button>
                     </template>
+                    <button
+                      v-else-if="minutesOf(s.end) <= nowMin"
+                      class="btn mini ghost"
+                      @click.stop="completeSlot(s)"
+                    >
+                      补记完成
+                    </button>
                     <span v-else class="tl-todo">待开始</span>
                   </span>
                 </div>
@@ -630,6 +711,13 @@ onUnmounted(() => {
           </button>
         </div>
       </div>
+    </div>
+    <!-- 0.4.30：按计划专注中，右下角常驻胶囊 -->
+    <div v-if="pomo.running && pomo.plan" class="focus-pill" data-focus-pill @click="router.push('/learn')">
+      <span class="fp-dot" />
+      <span class="fp-name">{{ pomo.plan.name }}</span>
+      <span class="fp-left mono">{{ pomo.clock }}</span>
+      <span class="fp-go">打开</span>
     </div>
   </div>
 </template>
@@ -1257,6 +1345,48 @@ onUnmounted(() => {
   flex-wrap: wrap;
   margin-top: 12px;
   font-size: 12px;
+}
+
+.focus-pill {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+  font-size: 13px;
+}
+.fp-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent, #e60023);
+  animation: fp-pulse 1.6s ease-in-out infinite;
+}
+@keyframes fp-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.fp-name {
+  font-weight: 600;
+  max-width: 10em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fp-left {
+  color: var(--t2, #666);
+}
+.fp-go {
+  color: var(--accent, #e60023);
+  font-weight: 600;
 }
 
 @media (max-width: 900px) {

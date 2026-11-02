@@ -16,6 +16,7 @@ import {
 import { todayStr, formatClock, formatDuration } from '@/utils/format'
 import { useUiStore } from '@/stores/ui'
 import { useLearnStore } from '@/stores/learn'
+import { useSlotsStore } from '@/stores/slots'
 import type { FocusSession } from '@/types'
 
 const STORAGE_KEY = 'study-bili-pomodoro'
@@ -26,14 +27,25 @@ const MIN_RECORD_SECONDS = 30
 
 /** 从 localStorage 读上次的番茄设置 */
 function loadPomodoroConfig() {
-  const fallback = { ...DEFAULT_DURATIONS, day: todayStr(), lastTask: null as string | null }
+  const fallback = { ...DEFAULT_DURATIONS, day: todayStr(), lastTask: null as string | null, plan: null as any }
   try {
     const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
     const num = (v: any, d: number) => {
       const n = Number(v)
       return Number.isFinite(n) && n >= 1 && n <= 180 ? Math.round(n) : d
     }
+    const plan =
+      raw.plan && typeof raw.plan === 'object' && Number(raw.plan.endAt) > 0
+        ? {
+            slotId: Number(raw.plan.slotId) || null,
+            name: String(raw.plan.name || '').slice(0, 24) || '专注',
+            bvid: raw.plan.bvid || null,
+            endAt: Number(raw.plan.endAt),
+            minutes: Math.max(1, Math.min(600, Number(raw.plan.minutes) || 25)),
+          }
+        : null
     return {
+      plan,
       day: raw.day || todayStr(),
       focusMin: num(raw.focusMin, DEFAULT_DURATIONS.focusMin),
       // 兼容旧版本的 shortMin 字段
@@ -131,6 +143,14 @@ export const usePomodoroStore = defineStore('pomodoro', {
       breakMin: cfg.breakMin,
       /** 'focus' | 'break' */
       mode: 'focus' as 'focus' | 'break',
+      /** 0.4.30：按课表计划开的这一轮（null = 普通番茄钟） */
+      plan: cfg.plan as null | {
+        slotId: number | null
+        name: string
+        bvid: string | null
+        endAt: number
+        minutes: number
+      },
       running: false,
       remain: cfg.focusMin * 60,
       endAt: 0,
@@ -151,7 +171,7 @@ export const usePomodoroStore = defineStore('pomodoro', {
     }
   },
   getters: {
-    minutesOf: (s) => (s.mode === 'focus' ? s.focusMin : s.breakMin),
+    minutesOf: (s) => (s.plan ? s.plan.minutes : s.mode === 'focus' ? s.focusMin : s.breakMin),
     totalSeconds(): number {
       return this.minutesOf * 60
     },
@@ -295,6 +315,22 @@ export const usePomodoroStore = defineStore('pomodoro', {
         this.recordedAt = 0
       }
       this.persist()
+      // 0.4.30：刷新/重启/从后台回来时恢复「按计划专注」
+      if (this.plan && this.mode === 'focus') {
+        const left = Math.round((this.plan.endAt - Date.now()) / 1000)
+        if (left > 0) {
+          if (this.running) {
+            this.endAt = this.plan.endAt
+            this.remain = left
+          } else {
+            this.start()
+          }
+        } else if (!this.running) {
+          // 已经过点了（比如 App 杀进程期间到点）：补记完成并标记课表
+          this.remain = 0
+          await this.finish(true)
+        }
+      }
       // 从后台切回来时补一次 tick（手机息屏后 setInterval 会被节流）
       if (!this.visibilityHooked && typeof document !== 'undefined') {
         this.visibilityHooked = true
@@ -313,6 +349,7 @@ export const usePomodoroStore = defineStore('pomodoro', {
             focusMin: this.focusMin,
             breakMin: this.breakMin,
             lastTask: this.task ? this.task.name : '',
+            plan: this.plan,
           }),
         )
       } catch {}
@@ -342,6 +379,7 @@ export const usePomodoroStore = defineStore('pomodoro', {
     },
     setMode(mode: 'focus' | 'break') {
       if (['focus', 'break'].includes(mode)) {
+        this.plan = null
         this.stopTick()
         this.accrue()
         this.running = false
@@ -366,11 +404,78 @@ export const usePomodoroStore = defineStore('pomodoro', {
     clearTask() {
       this.setTask(null)
     },
+    /**
+     * 0.4.30：按课表计划开一轮专注。
+     * @param opts.endAt 计划结束时间戳（对齐课表时段结束）；不给就按 minutes 跑
+     * @returns switched = 是否把原来正在跑的轮次按「部分完成」结算后切换过来
+     */
+    async startPlanned(opts: {
+      name: string
+      slotId?: number | null
+      bvid?: string | null
+      endAt?: number
+      minutes?: number
+    }): Promise<{ switched: boolean }> {
+      const name = String(opts.name || '').trim().slice(0, 24) || '专注'
+      const slotId = opts.slotId != null ? Number(opts.slotId) : null
+      const same =
+        this.running &&
+        this.plan &&
+        this.plan.name === name &&
+        (slotId == null ? true : this.plan.slotId === slotId)
+      if (same) return { switched: false }
+      let switched = false
+      if (this.running && this.mode === 'focus') {
+        switched = true
+        await this.finish(false)
+      }
+      const endAt = Number(opts.endAt) || 0
+      const minutes = endAt
+        ? Math.max(1, Math.min(600, Math.ceil((endAt - Date.now()) / 60000)))
+        : Math.max(1, Math.min(600, Math.round(Number(opts.minutes) || this.focusMin)))
+      this.stopTick()
+      this.accrue()
+      this.mode = 'focus'
+      this.plan = {
+        slotId,
+        name,
+        bvid: opts.bvid || null,
+        endAt: endAt || Date.now() + minutes * 60000,
+        minutes,
+      }
+      this.task = { name, bvid: opts.bvid || null, cover: '' }
+      this.focusedSeconds = 0
+      this.startedAt = 0
+      this.recordedAt = 0
+      this.runStart = null
+      this.running = false
+      this.remain = minutes * 60
+      const now = Date.now()
+      this.endAt = this.plan.endAt
+      this.runStart = now
+      this.startedAt = now
+      this.running = true
+      this.remain = Math.max(1, Math.round((this.endAt - now) / 1e3))
+      this.persist()
+      this.tick()
+      this.timer = setInterval(() => this.tick(), 250)
+      return { switched }
+    },
     start() {
       if (this.running) return
       if (this.remain <= 0) this.remain = this.totalSeconds
       const now = Date.now()
       this.endAt = now + this.remain * 1e3
+      if (this.plan && this.mode === 'focus') {
+        // 0.4.30：按计划专注时结束点钉在课表时段结束，暂停恢复也不后漂
+        if (this.plan.endAt <= now) {
+          this.plan = null
+          this.remain = this.totalSeconds
+        } else {
+          this.endAt = this.plan.endAt
+          this.remain = Math.max(1, Math.round((this.endAt - now) / 1e3))
+        }
+      }
       // 新的一轮：清空统计
       if (this.remain >= this.totalSeconds || !this.startedAt) {
         this.focusedSeconds = 0
@@ -393,6 +498,7 @@ export const usePomodoroStore = defineStore('pomodoro', {
       this.running ? this.pause() : this.start()
     },
     reset() {
+      this.plan = null
       this.stopTick()
       this.accrue()
       this.running = false
@@ -421,6 +527,55 @@ export const usePomodoroStore = defineStore('pomodoro', {
       const elapsed = this.elapsedSeconds
       const isFocus = this.mode === 'focus'
       const focusSec = isFocus ? elapsed : 0
+      // 0.4.30：按计划开的专注——到点 = 这一项完成（记时长 + 标课表完成），不进番茄休息
+      if (this.plan && isFocus) {
+        const planned = this.plan
+        this.plan = null
+        if (natural) {
+          this.rounds += 1
+          const seconds = focusSec > 0 ? focusSec : planned.minutes * 60
+          const minutes = Math.max(1, Math.round(seconds / 60))
+          const saved =
+            seconds >= MIN_RECORD_SECONDS ? await this.record({ seconds, completed: true }) : null
+          if (saved) {
+            try {
+              const learn = useLearnStore()
+              Promise.resolve(learn.addSeconds(seconds)).catch(() => {})
+            } catch {}
+          }
+          if (planned.slotId != null) {
+            try {
+              useSlotsStore().setStatus(todayStr(), planned.slotId, 'done')
+            } catch {}
+          }
+          try {
+            useUiStore().ok(
+              saved
+                ? `计划完成：「${planned.name}」${minutes} 分钟已记录`
+                : `「${planned.name}」结束（不足 30 秒不计入）`,
+            )
+          } catch {}
+          notify('⏱ 计划专注完成', `「${planned.name}」${minutes} 分钟已计入学习时长`)
+          beep(2)
+        } else if (focusSec >= MIN_RECORD_SECONDS) {
+          this.record({ seconds: focusSec, completed: false })
+          try {
+            useUiStore().ok(`已按「部分完成」记下 ${formatClock(focusSec)} 专注`)
+          } catch {}
+        } else {
+          try {
+            useUiStore().toast('这轮不到 30 秒，没有记进专注记录')
+          } catch {}
+        }
+        this.running = false
+        this.mode = 'focus'
+        this.focusedSeconds = 0
+        this.startedAt = 0
+        this.recordedAt = 0
+        this.remain = this.totalSeconds
+        this.persist()
+        return
+      }
       if (natural && isFocus) {
         this.rounds += 1
         this.persist()
