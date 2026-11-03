@@ -817,7 +817,7 @@ export async function migrateCoursesToSlots(): Promise<number> {
         bvid: String(c.bvid || ''),
         videoTitle: String(c.videoTitle || ''),
         remindOn: c.remindOn === undefined ? true : !!c.remindOn,
-        remindLead: 5,
+        remindLead: 0,
         note: String(c.note || ''),
         createdAt: Number(c.createdAt) || Date.now(),
       } as ScheduleSlot)

@@ -112,6 +112,7 @@ async function main() {
     check('空状态提示「今天还没有计划」', (await page.locator('.sc-empty').count()) === 1)
     await page.screenshot({ path: `${OUT}/1-empty.png` })
 
+
     // ---------- 2. 从表格粘贴 ----------
     await page.locator('button[title="从表格粘贴"]').click()
     await wait(300)
@@ -137,10 +138,59 @@ async function main() {
     check('右栏有今日进度', (await page.locator('.sc-aside .sc-card', { hasText: '今日进度' }).count()) === 1)
     await page.screenshot({ path: `${OUT}/2-today.png` })
 
+    // ---------- 1.5 「已学习」= 今日专注记录（种子 30 分 + 90 分） ----------
+    await page.evaluate(() => {
+      const p = (x) => String(x).padStart(2, '0')
+      const d = new Date()
+      const day = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+      return new Promise((resolve) => {
+        const req = indexedDB.open('study-bili')
+        req.onsuccess = () => {
+          const db = req.result
+          const tx = db.transaction('focus', 'readwrite')
+          const st = tx.objectStore('focus')
+          const now = Date.now()
+          st.add({ day, startedAt: now - 3600000, seconds: 1800, completed: true, task: '新三', bvid: null, cover: '', mode: 'focus', focusMin: 30 })
+          st.add({ day, startedAt: now - 1800000, seconds: 5400, completed: true, task: '新三', bvid: null, cover: '', mode: 'focus', focusMin: 90 })
+          tx.oncomplete = () => resolve(true)
+          tx.onerror = () => resolve(false)
+        }
+        req.onerror = () => resolve(false)
+      })
+    })
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await wait(1600)
+    const learned1 = await page.locator('.stat', { hasText: '已学习' }).locator('b').innerText()
+
+    // 再加 30 分钟专注记录：已学习应该跟着涨 30 分钟（证明绑定的是专注记录，不是课表估算）
+    await page.evaluate(() => {
+      const p = (x) => String(x).padStart(2, '0')
+      const d = new Date()
+      const day = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+      return new Promise((resolve) => {
+        const req = indexedDB.open('study-bili')
+        req.onsuccess = () => {
+          const db = req.result
+          const tx = db.transaction('focus', 'readwrite')
+          tx.objectStore('focus').add({ day, startedAt: Date.now() - 600000, seconds: 1800, completed: true, task: '新三', bvid: null, cover: '', mode: 'focus', focusMin: 30 })
+          tx.oncomplete = () => resolve(true)
+          tx.onerror = () => resolve(false)
+        }
+        req.onerror = () => resolve(false)
+      })
+    })
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await wait(1600)
+    const learned2 = await page.locator('.stat', { hasText: '已学习' }).locator('b').innerText()
+    check('已学习跟随今日专注记录变化（+30 分钟后数字变了）', learned1 !== learned2 && learned2.includes('小时'), `${learned1} -> ${learned2}`)
+    check('已学习不是课表估算（≠ 计划时长）', learned2 !== (await page.locator('.stat', { hasText: '计划' }).locator('b').innerText()), learned2)
+
     // ---------- 4. 编辑抽屉 ----------
     await page.locator('.tl-item', { hasText: '冥想' }).first().click()
     await wait(300)
     check('点时间轴打开抽屉', (await page.locator('.drawer').count()) === 1)
+    const leadVal = await page.locator('.drawer input[data-remind-lead]').inputValue()
+    check('编辑抽屉「提前提醒」默认 0（不提前）', leadVal === '0', leadVal)
     await page.locator('.drawer input[name="slotName"]').fill('冥想放松')
     await page.locator('.drawer button', { hasText: '保存' }).click()
     await wait(700)
@@ -155,6 +205,8 @@ async function main() {
     await wait(400)
     const doneAfter = await page.locator('.tl-item[data-status="done"]').count()
     check('点 ✓ 撤销后变回待开始', doneAfter === doneBefore - 1, `done=${doneAfter}`)
+    const learnedAfter = await page.locator('.stat', { hasText: '已学习' }).locator('b').innerText()
+    check('只勾课表不虚增已学习（仍按专注记录）', learnedAfter === learned2, `${learned2} -> ${learnedAfter}`)
 
     // ---------- 6. 全周 ----------
     await page.locator('.sc-seg button', { hasText: '全周' }).click()

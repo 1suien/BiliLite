@@ -48,6 +48,8 @@ let timer = 0
 const todayList = computed(() => slots.today)
 const stat = computed(() => slots.statOf(todayList.value))
 const progress = computed(() => (stat.value.total ? Math.round((stat.value.done / stat.value.total) * 100) : 0))
+/** 今日专注时长（秒 → 分钟）："已学习"按真实专注记录显示，不按课表估算 */
+const focusMinutes = computed(() => Math.round(pomo.todaySeconds / 60))
 
 function isDoing(s: ScheduleSlot) {
   const a = minutesOf(s.start)
@@ -228,7 +230,7 @@ const editor = ref({
   targetName: '',
   bvid: '',
   remindOn: true,
-  remindLead: 5,
+  remindLead: 0,
   note: '',
 })
 
@@ -248,7 +250,7 @@ function openCreate(weekday = todayWd.value, seed?: { start?: string; end?: stri
     targetName: '',
     bvid: '',
     remindOn: true,
-    remindLead: 5,
+    remindLead: 0,
     note: '',
   }
 }
@@ -371,7 +373,7 @@ async function generateFromPaste() {
           days: [d],
           color: 'blue',
           remindOn: true,
-          remindLead: 5,
+          remindLead: 0,
         },
         { silent: true },
       )
@@ -530,7 +532,7 @@ onUnmounted(() => {
               <div class="sc-card-h">今日进度</div>
               <div class="stat-row">
                 <div class="stat"><b>{{ stat.done }} / {{ stat.total }}</b><span>已完成</span></div>
-                <div class="stat"><b>{{ fmtDur(stat.learned) }}</b><span>已学习</span></div>
+                <div class="stat" title="今日专注记录合计（开始专注与手动补记都计入）"><b>{{ fmtDur(focusMinutes) }}</b><span>已学习</span></div>
                 <div class="stat"><b>{{ fmtDur(stat.plan) }}</b><span>计划</span></div>
               </div>
               <div class="bar"><i :style="{ width: progress + '%' }" /></div>
@@ -652,10 +654,10 @@ onUnmounted(() => {
           <span>提醒</span>
           <span class="row" style="gap: 10px; align-items: center; flex-wrap: wrap">
             <label class="switch-line">
-              <input v-model="editor.remindOn" type="checkbox" /> 开始前提醒
+              <input v-model="editor.remindOn" type="checkbox" /> 提醒
             </label>
             <span class="row" style="gap: 6px; align-items: center">
-              <input v-model.number="editor.remindLead" class="input input-mini" type="number" min="0" max="60" step="5" /> 分钟
+              <input v-model.number="editor.remindLead" data-remind-lead class="input input-mini" type="number" min="0" max="60" step="1" /> 分钟 <span class="lead-hint">0 = 到点才提醒</span>
             </span>
           </span>
         </label>
@@ -1039,6 +1041,11 @@ onUnmounted(() => {
   font-size: 16px;
   letter-spacing: -0.3px;
 }
+.lead-hint {
+  font-size: 11px;
+  color: var(--t3);
+}
+
 .stat span {
   display: block;
   font-size: 10.5px;
