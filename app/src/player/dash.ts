@@ -85,6 +85,15 @@ export interface DashStat {
   t0: number
   tResp: number
   tFirst: number
+  /** 首段媒体进缓冲（可播的前提） */
+  tReady: number
+  /** 元素拿到 canplay（解码器就绪） */
+  tCanPlay: number
+  /** 首次真正播放（playing 事件） */
+  tPlay: number
+  /** append 次数 / append 总耗时（定位 MSE 慢） */
+  appends: number
+  appendMs: number
   host: string
   vBytes: number
   aBytes: number
@@ -482,7 +491,19 @@ class DashKernel implements DashPlayer {
   private bound: Record<string, EventListener> = {}
 
   /** 拉流/首帧统计（安卓端调试行用） */
-  stat: DashStat = { t0: 0, tResp: 0, tFirst: 0, host: '', vBytes: 0, aBytes: 0 }
+  stat: DashStat = {
+    t0: 0,
+    tResp: 0,
+    tFirst: 0,
+    tReady: 0,
+    tCanPlay: 0,
+    tPlay: 0,
+    appends: 0,
+    appendMs: 0,
+    host: '',
+    vBytes: 0,
+    aBytes: 0,
+  }
 
   constructor(video: HTMLVideoElement, hooks: DashPlayerHooks = {}) {
     this.video = video
@@ -522,7 +543,14 @@ class DashKernel implements DashPlayer {
       this.hooks.onState?.('ended')
     })
     on('play', () => this.hooks.onState?.('playing'))
-    on('playing', () => this.hooks.onState?.('playing'))
+    on('playing', () => {
+      if (this.stat && !this.stat.tPlay) this.stat.tPlay = Math.round(performance.now() - this.stat.t0)
+      this.hooks.onState?.('playing')
+    })
+    on('canplay', () => {
+      if (this.stat && !this.stat.tCanPlay) this.stat.tCanPlay = Math.round(performance.now() - this.stat.t0)
+      this.kickPlay()
+    })
     on('pause', () => this.hooks.onState?.('paused'))
     on('waiting', () => this.hooks.onState?.('waiting', '缓冲中…'))
     on('error', () => {
@@ -589,7 +617,19 @@ class DashKernel implements DashPlayer {
     const payload = normalizeSource(src)
     this.payload = payload
     this.duration = payload.dash ? (payload.dash.duration || 0) / 1000 : 0
-    this.stat = { t0: performance.now(), tResp: 0, tFirst: 0, host: '', vBytes: 0, aBytes: 0 }
+    this.stat = {
+      t0: performance.now(),
+      tResp: 0,
+      tFirst: 0,
+      tReady: 0,
+      tCanPlay: 0,
+      tPlay: 0,
+      appends: 0,
+      appendMs: 0,
+      host: '',
+      vBytes: 0,
+      aBytes: 0,
+    }
     if (opts.durationHint) this.setDurationHint(opts.durationHint)
     if (opts.volume != null) this.video.volume = Math.min(1, Math.max(0, opts.volume))
     if (opts.muted != null) this.video.muted = !!opts.muted
@@ -611,13 +651,18 @@ class DashKernel implements DashPlayer {
 
     if (opts.autoplay !== false) {
       this.wasPlaying = true
-      try {
-        await this.video.play()
-      } catch {
-        // 浏览器自动播放被拦截：不当作错误，交给 UI 提示点击
-        this.wasPlaying = false
-        this.hooks.onState?.('paused', '自动播放被拦截，点击画面开始播放')
-      }
+      // 注意：不要 await play()——它要到「真正开播」才 resolve，会把 load() 卡住、
+      // 页面一直转圈。改成后台调用 + 看门狗兜底。
+      this.video
+        .play()
+        .then(() => {
+          if (this.stat && !this.stat.tPlay) this.stat.tPlay = Math.round(performance.now() - this.stat.t0)
+        })
+        .catch(() => {
+          this.wasPlaying = false
+          this.hooks.onState?.('paused', '点一下画面开始播放')
+        })
+      this.startPlayWatchdog(this.gen)
     }
   }
 
@@ -735,6 +780,7 @@ class DashKernel implements DashPlayer {
       const vsb = this.videoBuffer
       const asb = this.audioBuffer
       if ((vsb && vsb.buffered && vsb.buffered.length) || (asb && asb.buffered && asb.buffered.length)) {
+        if (this.stat && !this.stat.tReady) this.stat.tReady = Math.round(performance.now() - this.stat.t0)
         return true
       }
       await sleep(120)
@@ -796,6 +842,39 @@ class DashKernel implements DashPlayer {
     this.settleDuration()
     if (needsSeek && gen === this.gen && !this.destroyed) {
       this.jumpWhenBuffered(startTime, gen).catch(() => {})
+    }
+  }
+
+  /** 有数据就试着播一下：不改变用户意图，只负责「别卡在缓冲态」 */
+  private kickPlay() {
+    if (!this.wasPlaying || this.destroyed) return
+    const el = this.video
+    if (!el || !el.paused) return
+    try {
+      el.play().catch(() => {})
+    } catch {
+      // ignore
+    }
+  }
+
+  /** 起播看门狗：媒体可播但一直没播起来（WebView 偶发自动播放被拦）时补几次 play() */
+  private async startPlayWatchdog(gen: number, tries = 12) {
+    for (let i = 0; i < tries; i++) {
+      if (this.destroyed || gen !== this.gen) return
+      const el = this.video
+      if (!el || !el.paused) return
+      if (el.readyState >= 2) {
+        try {
+          await el.play()
+          return
+        } catch {
+          // 等下一轮
+        }
+      }
+      await sleep(300)
+    }
+    if (gen === this.gen && !this.destroyed && this.video && this.video.paused) {
+      this.hooks.onState?.('paused', '点一下画面开始播放')
     }
   }
 
@@ -1148,8 +1227,11 @@ class DashKernel implements DashPlayer {
     }
     if (!ok) return false
 
+    const appendStart = performance.now()
     await waitUpdate(sb, 5000)
     if (this.stat) {
+      this.stat.appends += 1
+      this.stat.appendMs += Math.round(performance.now() - appendStart)
       if (!this.stat.tFirst) this.stat.tFirst = Math.round(performance.now() - this.stat.t0)
       if (kind === 'video') this.stat.vBytes += bytes.byteLength
       else this.stat.aBytes += bytes.byteLength
@@ -1158,6 +1240,8 @@ class DashKernel implements DashPlayer {
       this.appendLogged[kind] = true
       log('first append ok', kind, 'len=' + bytes.byteLength, 'buffered=' + this.bufferedText())
     }
+    // 有数据就先起播：不要等「全部准备好」再播，起播越快越好
+    if (kind === 'video') this.kickPlay()
     return true
   }
 

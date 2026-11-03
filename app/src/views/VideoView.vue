@@ -104,6 +104,7 @@ const playurl = ref<any>(null)
 let addrStart = 0
 let addrMs = 0
 let firstFrameMs = 0
+let slowHintTimer: any = null
 
 /** 安卓端才显示那行性能信息 */
 const isAndroid =
@@ -117,7 +118,11 @@ function updatePerf() {
   if (addrMs) parts.push(`地址 ${(addrMs / 1000).toFixed(1)}s`)
   const st = (player as any)?.stat
   if (st && st.tFirst) parts.push(`首块 ${(st.tFirst / 1000).toFixed(1)}s`)
+  if (st && st.tReady) parts.push(`就绪 ${(st.tReady / 1000).toFixed(1)}s`)
+  if (st && st.tCanPlay) parts.push(`可播 ${(st.tCanPlay / 1000).toFixed(1)}s`)
+  if (st && st.tPlay) parts.push(`播放 ${(st.tPlay / 1000).toFixed(1)}s`)
   if (firstFrameMs) parts.push(`首帧 ${(firstFrameMs / 1000).toFixed(1)}s`)
+  if (st && st.appends) parts.push(`append ${st.appends}次/${(st.appendMs / 1000).toFixed(1)}s`)
   if (st && st.host) {
     parts.push(
       String(st.host)
@@ -901,6 +906,15 @@ async function loadPlayurl() {
     })
     startTimers()
     updatePerf()
+    // 起播慢时给个人话提示（数据其实早到了，多半是没播起来）
+    if (slowHintTimer) clearTimeout(slowHintTimer)
+    slowHintTimer = setTimeout(() => {
+      slowHintTimer = null
+      const el = videoEl.value
+      if (!firstFrameMs && el && el.paused && !errorText.value) {
+        status.value = '起播较慢：点一下画面开始播放'
+      }
+    }, 6000)
     applyRate()
     refreshLocalSubs().catch(() => {})
     if (settings.settings.subAuto) loadOnlineSubs().catch(() => {})
@@ -1304,6 +1318,10 @@ watch(playing, (val) => {
     if (isAndroid && addrStart && !firstFrameMs) {
       firstFrameMs = performance.now() - addrStart
       updatePerf()
+    }
+    if (slowHintTimer) {
+      clearTimeout(slowHintTimer)
+      slowHintTimer = null
     }
     scheduleHide()
   } else {
