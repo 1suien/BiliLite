@@ -75,6 +75,11 @@ export interface PlayUrlVideo {
   height?: number
   mimeType?: string
   frameRate?: string
+  /** B 站给的字节区间（初始化段/索引段），用于秒级定位跳转（0.4.35） */
+  segmentBase?: {
+    initialization?: string
+    indexRange?: string
+  }
 }
 
 export interface PlayUrlAudio {
@@ -84,6 +89,10 @@ export interface PlayUrlAudio {
   bandwidth?: number
   codecs?: string
   mimeType?: string
+  segmentBase?: {
+    initialization?: string
+    indexRange?: string
+  }
 }
 
 export interface PlayUrl {

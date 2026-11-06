@@ -73,6 +73,8 @@ export interface DashTrack {
   id: number
   url: string
   backup?: string[]
+  /** 0.4.35：B 站返回的初始化段/索引段字节区间，用于秒级定位 */
+  segmentBase?: { initialization?: string; indexRange?: string }
   codecs?: string
   mimeType?: string
   width?: number
@@ -149,6 +151,25 @@ function log(...args: any[]) {
 }
 
 /* ------------------------------- 小工具 ------------------------------- */
+
+/** 解析 B 站 segment_base 的字节区间，形如 "1032-1870" */
+function parseByteRange(raw?: string | null): { from: number; to: number } | null {
+  if (!raw) return null
+  const m = String(raw).match(/^(\d+)-(\d+)$/)
+  if (!m) return null
+  const from = Number(m[1])
+  const to = Number(m[2])
+  if (!(to >= from) || from < 0) return null
+  return { from, to }
+}
+
+/** 秒 → m:ss（状态栏用） */
+function clockLabel(sec: number): string {
+  const s = Math.max(0, Math.floor(sec || 0))
+  const m = Math.floor(s / 60)
+  const r = s % 60
+  return m + ':' + String(r).padStart(2, '0')
+}
 
 /** 等 SourceBuffer 的 updateend（或 error），超时也放行 */
 function waitUpdate(sb: SourceBuffer, timeout = 5000): Promise<void> {
@@ -751,7 +772,7 @@ class DashKernel implements DashPlayer {
     const videoUrls = trackUrls(videoTrack)
     const audioUrls = trackUrls(audioTrack)
     // 流是后台拉着的：不要 await，等首块数据回来就可以起播
-    this.startStreams(gen, startTime, videoUrls, audioUrls).catch((e: any) => {
+    this.startStreams(gen, startTime, videoUrls, audioUrls, videoTrack.segmentBase, audioTrack.segmentBase).catch((e: any) => {
       if (gen === this.gen && !this.destroyed) {
         log('streaming failed', e && e.message)
         this.hooks.onError?.(e)
@@ -797,15 +818,22 @@ class DashKernel implements DashPlayer {
    * 起流：起播点 > 1s 时先用 sidx 探测字节偏移，尝试「从中间续拉」；
    * 失败就重建 MediaSource，退回「从 0 顺序拉 + 缓冲到位再跳」。
    */
-  private async startStreams(gen: number, startTime: number, videoUrls: string[], audioUrls: string[]) {
+  private async startStreams(
+    gen: number,
+    startTime: number,
+    videoUrls: string[],
+    audioUrls: string[],
+    videoSeg?: { initialization?: string; indexRange?: string },
+    audioSeg?: { initialization?: string; indexRange?: string },
+  ) {
     const needsSeek = startTime > 1
     let vProbe: { urls: string[]; offset: number; initBytes: Uint8Array } | null = null
     let aProbe: typeof vProbe = null
 
     if (needsSeek) {
       ;[vProbe, aProbe] = await Promise.all([
-        this.probeRanged('video', videoUrls, gen, startTime),
-        this.probeRanged('audio', audioUrls, gen, startTime),
+        this.probeRanged('video', videoUrls, gen, startTime, videoSeg),
+        this.probeRanged('audio', audioUrls, gen, startTime, audioSeg),
       ])
     }
 
@@ -951,7 +979,7 @@ class DashKernel implements DashPlayer {
         this.audioBuffer = null
       }
     }
-    this.status('缓冲中…')
+    this.status(this.restarting ? '正在跳转…' : '缓冲中…')
 
     // 时长：已知就写死，未知先设 Infinity，等缓冲够了再收尾
     const dur = this.saneSeconds(this.duration)
@@ -1006,7 +1034,40 @@ class DashKernel implements DashPlayer {
     urls: string[],
     gen: number,
     startTime: number,
+    segmentBase?: { initialization?: string; indexRange?: string },
   ): Promise<{ urls: string[]; offset: number; initBytes: Uint8Array } | null> {
+    // ① 优先用 B 站的 segment_base：直接按字节区间取 sidx/初始化段，一跳就到（0.4.35）
+    const idx = parseByteRange(segmentBase && segmentBase.indexRange)
+    if (idx) {
+      for (let i = 0; i < urls.length; i++) {
+        const url = urls[i]
+        try {
+          const res = await this.fetchBytes(url, idx.from, idx.to, gen)
+          if (!res || res.status !== 206) continue
+          const sidx = parseSidx(res.bytes)
+          if (!sidx) continue
+          // 索引段是从 idx.from 开始取的，把 initEnd 换算回文件绝对偏移
+          const absolute = { ...sidx, initEnd: idx.from + sidx.initEnd }
+          let initBytes: Uint8Array = new Uint8Array(0)
+          const init = parseByteRange(segmentBase && segmentBase.initialization)
+          if (init) {
+            const resInit = await this.fetchBytes(url, init.from, init.to, gen)
+            if (resInit && resInit.bytes.length) initBytes = resInit.bytes
+          }
+          if (!initBytes.length) continue
+          log(
+            'segment_base seek',
+            kind,
+            'index=' + segmentBase!.indexRange,
+            'init=' + segmentBase!.initialization,
+            'offset=' + sidxOffset(absolute, startTime),
+          )
+          return { urls: urls.slice(i), offset: sidxOffset(absolute, startTime), initBytes }
+        } catch (e: any) {
+          log('segment_base probe failed', url.slice(0, 60), (e && e.message) || String(e))
+        }
+      }
+    }
     for (let i = 0; i < urls.length; i++) {
       const url = urls[i]
       try {
@@ -1325,15 +1386,33 @@ class DashKernel implements DashPlayer {
 
   /** 等目标时间点进缓冲后再跳（顺序拉兜底模式用） */
   private async jumpWhenBuffered(sec: number, gen: number) {
+    const label = clockLabel(sec)
     for (let i = 0; i < 160; i++) {
       if (gen !== this.gen || this.destroyed) return
       if (this.isBuffered(sec)) {
         try {
           this.video.currentTime = sec
         } catch {}
+        this.status('')
         return
       }
+      if (i % 10 === 0) {
+        // 线路不支持按位置拉流时只能顺序缓冲，这里把「已经缓存到哪」写出来
+        const end = this.bufferedEnd()
+        this.status('这条线路不支持定位，正在缓冲到 ' + label + (end > 0 ? '（已缓存 ' + clockLabel(end) + '）' : ''))
+      }
       await sleep(120)
+    }
+    this.status('')
+  }
+
+  /** 当前缓冲终点（秒） */
+  private bufferedEnd(): number {
+    try {
+      const b = this.video.buffered
+      return b.length ? b.end(b.length - 1) : 0
+    } catch {
+      return 0
     }
   }
 

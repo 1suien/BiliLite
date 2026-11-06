@@ -522,6 +522,7 @@ export async function videoPlayurl(bvid: string, cid: any, qn = 80): Promise<Pla
           video: pickStreams(dash.video, (v: any) => {
             const url = fixImageUrl(v.baseUrl || v.base_url)
             const backup = (v.backupUrl || v.backup_url || []).map(fixImageUrl)
+            const seg = v.segment_base || v.segmentBase || {}
             // url/backup 是原实现字段；baseUrl/backupUrl 是 types.ts 的字段名
             return {
               id: v.id,
@@ -535,11 +536,16 @@ export async function videoPlayurl(bvid: string, cid: any, qn = 80): Promise<Pla
               height: v.height,
               bandwidth: v.bandwidth,
               frameRate: v.frameRate,
+              segmentBase: {
+                initialization: seg.initialization || seg.initRange || undefined,
+                indexRange: seg.index_range || seg.indexRange || undefined,
+              },
             }
           }),
           audio: pickStreams(dash.audio, (a: any) => {
             const url = fixImageUrl(a.baseUrl || a.base_url)
             const backup = (a.backupUrl || a.backup_url || []).map(fixImageUrl)
+            const seg = a.segment_base || a.segmentBase || {}
             return {
               id: a.id,
               url,
@@ -549,6 +555,10 @@ export async function videoPlayurl(bvid: string, cid: any, qn = 80): Promise<Pla
               codecs: a.codecs,
               mimeType: a.mimeType || 'audio/mp4',
               bandwidth: a.bandwidth,
+              segmentBase: {
+                initialization: seg.initialization || seg.initRange || undefined,
+                indexRange: seg.index_range || seg.indexRange || undefined,
+              },
             }
           }),
         }
