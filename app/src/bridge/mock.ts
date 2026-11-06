@@ -438,6 +438,16 @@ export function createMockBridge(): WbiBridge {
         await delay(140)
         return { list: subtitleTracks(bvid) }
       },
+      async comments(aid: number, opts: any = {}) {
+        await delay(240)
+        const pn = Number(opts.pn) || 1
+        const sort = opts.sort === 'new' ? 'new' : 'hot'
+        return { count: 4620, comments: mockComments(aid, sort, pn) }
+      },
+      async commentReplies(aid: number, root: number) {
+        await delay(160)
+        return { count: 3, comments: mockCommentReplies(root) }
+      },
       async sendDanmaku(payload: any) {
         await delay(200)
         if (!isLoggedIn()) {
@@ -679,4 +689,70 @@ export function installMockBridge(): void {
     '%c[mock] 已启用 mock 数据桥（不是真实 B 站接口）',
     'color:#fb7299;font-weight:600',
   )
+}
+
+/* ---------------- 评论区 mock（0.4.36） ---------------- */
+
+const MOCK_COMMENT_NAMES = ['随流水儿', '考研的阿泽', '晚风与书', 'Luna_学习版', '背单词的猫', '小满同学']
+const MOCK_COMMENT_TEXTS = [
+  '老师讲得真清楚，第三册终于坚持到第 7 课了。',
+  'Mutilated ladies 这段我反复听了三遍，终于懂了。',
+  '打卡：今天跟读 45 分钟，比昨天专注多了。',
+  '同意楼上，这篇的习语用得太妙了。',
+  '有没有一起背单词的，拉个群互相监督？',
+  '每次听到 Why did Jane cook John\'s wallet? 都想笑。',
+]
+
+function mockComments(aid: number, sort: string, pn: number) {
+  const base = hash(String(aid) + sort + pn)
+  const list = [] as any[]
+  for (let i = 0; i < 20; i += 1) {
+    const n = base + i
+    const rpid = 200000000000 + n
+    const rcount = i % 3 === 0 ? 2 + (n % 5) : 0
+    list.push({
+      rpid,
+      mid: 100000 + (n % 900),
+      uname: MOCK_COMMENT_NAMES[n % MOCK_COMMENT_NAMES.length],
+      avatar: '',
+      message: MOCK_COMMENT_TEXTS[n % MOCK_COMMENT_TEXTS.length] + (pn > 1 ? '（第 ' + pn + ' 页）' : ''),
+      like: (n * 37) % 900,
+      ctime: Math.floor(Date.now() / 1000) - (n + pn * 20) * 3600,
+      rcount,
+      isUp: i === 3,
+      replies: rcount
+        ? Array.from({ length: 3 }, (_v, k) => ({
+            rpid: rpid * 10 + k,
+            mid: 200000 + k,
+            uname: '回复者' + (k + 1),
+            avatar: '',
+            message: '楼中楼第 ' + (k + 1) + ' 条：这个我也想问。',
+            like: k,
+            ctime: Math.floor(Date.now() / 1000) - (k + 1) * 600,
+            rcount: 0,
+            isUp: false,
+            replies: [],
+            location: '',
+          }))
+        : [],
+      location: i % 4 === 0 ? '来自 上海' : '',
+    })
+  }
+  return list
+}
+
+function mockCommentReplies(root: number) {
+  return Array.from({ length: 3 }, (_v, k) => ({
+    rpid: root * 10 + 100 + k,
+    mid: 300000 + k,
+    uname: '回复者' + (k + 1),
+    avatar: '',
+    message: '追加的楼中楼第 ' + (k + 1) + ' 条。',
+    like: k * 2,
+    ctime: Math.floor(Date.now() / 1000) - (k + 1) * 900,
+    rcount: 0,
+    isUp: false,
+    replies: [],
+    location: '',
+  }))
 }

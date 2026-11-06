@@ -394,3 +394,27 @@ export interface ScheduleSlot {
 
 /** 某天某条时段的完成状态（存 localStorage，按天重置） */
 export type SlotStatus = 'done' | 'skipped' | 'todo'
+
+/** 评论（0.4.36 评论区）：主评论与楼中楼共用 */
+export interface CommentItem {
+  rpid: number
+  mid: number
+  uname: string
+  avatar: string
+  message: string
+  like: number
+  ctime: number
+  /** 楼中楼回复数 */
+  rcount: number
+  /** 是否 UP 主本人 */
+  isUp: boolean
+  /** 前几条楼中楼预览 */
+  replies: CommentItem[]
+  /** 例如「来自 上海」 */
+  location: string
+}
+
+export interface CommentsResult {
+  count: number
+  comments: CommentItem[]
+}

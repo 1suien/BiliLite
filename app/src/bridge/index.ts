@@ -64,6 +64,12 @@ export const bili: WbiBridge = {
     online: (bvid: string, cid: any) => impl().video.online(bvid, cid),
     subtitle: (bvid: string, cid: any) => impl().video.subtitle(bvid, cid),
     sendDanmaku: (payload: any) => impl().video.sendDanmaku(payload),
+    comments: (aid: number, opts?: { pn?: number; ps?: number; sort?: 'hot' | 'new' }) =>
+      impl().video.comments ? impl().video.comments!(aid, opts) : Promise.reject(new Error('当前环境不支持评论')),
+    commentReplies: (aid: number, root: number, opts?: { pn?: number; ps?: number }) =>
+      impl().video.commentReplies
+        ? impl().video.commentReplies!(aid, root, opts)
+        : Promise.reject(new Error('当前环境不支持评论回复')),
   },
   up: {
     info: (mid: any) => impl().up.info(mid),

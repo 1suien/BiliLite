@@ -34,7 +34,7 @@ import { useSettingsStore } from '@/stores/settings'
 import { useUiStore } from '@/stores/ui'
 import { useAuthStore } from '@/stores/auth'
 import { useMiniStore } from '@/stores/mini'
-import type { SubtitleCue, SubtitleTrack, VideoDetail, VideoPage } from '@/types'
+import type { CommentItem, SubtitleCue, SubtitleTrack, VideoDetail, VideoPage } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -96,6 +96,96 @@ const pages = ref<VideoPage[]>([])
 /** 当前分 P 下标 */
 const pageIndex = ref(0)
 /** 相关推荐 */
+/* ------------------------------- 评论区（0.4.36） ------------------------------- */
+interface ViewComment extends CommentItem {
+  _loading?: boolean
+  _repliesDone?: boolean
+}
+
+const comments = ref<ViewComment[]>([])
+const commentCount = ref(0)
+const commentSort = ref<'hot' | 'new'>('hot')
+const commentPage = ref(1)
+const commentLoading = ref(false)
+const commentError = ref('')
+const commentHasMore = ref(true)
+
+/** 相对时间：刚刚 / N 分钟前 / N 小时前 / N 天前 / 日期 */
+function timeAgo(sec: number): string {
+  if (!sec) return ''
+  const diff = Math.max(0, Math.floor(Date.now() / 1000) - Math.floor(sec))
+  if (diff < 60) return '刚刚'
+  if (diff < 3600) return Math.floor(diff / 60) + ' 分钟前'
+  if (diff < 86400) return Math.floor(diff / 3600) + ' 小时前'
+  if (diff < 86400 * 30) return Math.floor(diff / 86400) + ' 天前'
+  return formatDateTime(sec)
+}
+
+/** 拉一页评论（reset=true 从第一页重来） */
+async function loadComments(reset = true) {
+  const d = detail.value
+  if (!d || !d.aid) return
+  if (reset) {
+    comments.value = []
+    commentPage.value = 1
+    commentCount.value = Number(d.stat?.reply) || 0
+    commentHasMore.value = true
+  }
+  commentLoading.value = true
+  commentError.value = ''
+  try {
+    const res = await bili.video.comments(d.aid, {
+      pn: commentPage.value,
+      ps: 20,
+      sort: commentSort.value,
+    })
+    const list = (res.comments || []) as ViewComment[]
+    comments.value = reset ? list : comments.value.concat(list)
+    commentCount.value = res.count || commentCount.value
+    commentHasMore.value = list.length >= 20
+  } catch (e: any) {
+    commentError.value = e?.message || '评论加载失败'
+  } finally {
+    commentLoading.value = false
+  }
+}
+
+/** 切到评论 tab 才加载（懒加载，不影响起播） */
+function openTab(name: string) {
+  tab.value = name
+  if (name === 'comments' && !comments.value.length && !commentLoading.value) void loadComments(true)
+}
+
+function switchCommentSort(sort: 'hot' | 'new') {
+  if (commentSort.value === sort) return
+  commentSort.value = sort
+  void loadComments(true)
+}
+
+async function loadMoreComments() {
+  if (commentLoading.value || !commentHasMore.value) return
+  commentPage.value += 1
+  await loadComments(false)
+}
+
+/** 展开/继续加载楼中楼 */
+async function expandReplies(item: ViewComment) {
+  const d = detail.value
+  if (!d || !d.aid || item._loading) return
+  item._loading = true
+  try {
+    const res = await bili.video.commentReplies(d.aid, item.rpid, { pn: 1, ps: 10 })
+    const exists = new Set((item.replies || []).map((r) => r.rpid))
+    const fresh = ((res.comments || []) as ViewComment[]).filter((r) => !exists.has(r.rpid))
+    item.replies = (item.replies || []).concat(fresh)
+    item._repliesDone = res.comments.length < 10 || item.replies.length >= Number(item.rcount || 0)
+  } catch (e: any) {
+    ui.err(e?.message || '回复加载失败')
+  } finally {
+    item._loading = false
+  }
+}
+
 const related = ref<any[]>([])
 /** 当前 playurl（原始数据桥形态，清晰度面板要用） */
 const playurl = ref<any>(null)
@@ -1795,6 +1885,9 @@ onBeforeUnmount(() => {
           笔记（{{ notes.length }}）
         </div>
         <div :class="['tab', { on: tab === 'related' }]" @click="tab = 'related'">相关推荐</div>
+        <div :class="['tab', { on: tab === 'comments' }]" @click="openTab('comments')">
+          评论<span v-if="commentCount" class="dim">（{{ formatCount(commentCount) }}）</span>
+        </div>
       </div>
 
       <div
@@ -1831,7 +1924,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div v-else style="display: flex; flex-direction: column; gap: 4px">
+      <div v-else-if="tab === 'related'" style="display: flex; flex-direction: column; gap: 4px">
         <template v-if="related.length">
           <div
             v-for="r in related"
@@ -1847,6 +1940,92 @@ onBeforeUnmount(() => {
           </div>
         </template>
         <EmptyBlock v-else icon="film" title="暂无相关推荐" />
+      </div>
+
+      <div v-else-if="tab === 'comments'" class="panel">
+        <div class="row cmt-head">
+          <b style="font-size: 13px">评论</b>
+          <span class="dim">{{ formatCount(commentCount) }} 条</span>
+          <span class="grow" />
+          <button :class="['mini', 'cmt-sort-btn', { on: commentSort === 'hot' }]" @click="switchCommentSort('hot')">热门</button>
+          <button :class="['mini', 'cmt-sort-btn', { on: commentSort === 'new' }]" @click="switchCommentSort('new')">最新</button>
+        </div>
+
+        <div
+          v-if="commentLoading && !comments.length"
+          class="row"
+          style="gap: 10px; padding: 12px 0"
+        >
+          <span class="spinner" /><span class="dim">正在加载评论…</span>
+        </div>
+        <div v-else-if="commentError && !comments.length" class="cmt-empty">
+          <span class="dim">评论加载失败：{{ commentError }}</span>
+          <button class="btn sm ghost" @click="loadComments(true)">重试</button>
+        </div>
+        <div v-else-if="!comments.length" class="cmt-empty">
+          <span class="dim">还没有评论，来抢第一条（暂时只能看）</span>
+        </div>
+
+        <template v-else>
+          <div v-for="c in comments" :key="c.rpid" class="cmt">
+            <div v-if="c.avatar" class="cmt-av">
+              <img :src="c.avatar" :alt="c.uname" />
+            </div>
+            <div v-else class="cmt-av cmt-av-ph">{{ c.uname.slice(0, 1) }}</div>
+            <div class="cmt-main">
+              <div class="cmt-meta">
+                <b>{{ c.uname }}</b>
+                <i v-if="c.isUp" class="cmt-up">UP</i>
+                <span class="dim">{{ timeAgo(c.ctime) }}</span>
+                <span v-if="c.location" class="dim">· {{ c.location }}</span>
+              </div>
+              <div class="cmt-text">{{ c.message }}</div>
+              <div class="cmt-actions">
+                <span>♡ {{ formatCount(c.like) }}</span>
+                <span
+                  v-if="c.rcount"
+                  class="cmt-reply-btn"
+                  @click="expandReplies(c)"
+                >
+                  {{ c._loading ? '加载中…' : (c.replies.length ? '展开回复 ' : '查看 ' + c.rcount + ' 条回复') }}
+                </span>
+              </div>
+
+              <div v-if="c.replies.length" class="cmt-replies">
+                <div v-for="r in c.replies" :key="r.rpid" class="cmt cmt-child">
+                  <div class="cmt-main">
+                    <div class="cmt-meta">
+                      <b>{{ r.uname }}</b>
+                      <i v-if="r.isUp" class="cmt-up">UP</i>
+                      <span class="dim">{{ timeAgo(r.ctime) }}</span>
+                    </div>
+                    <div class="cmt-text">{{ r.message }}</div>
+                  </div>
+                </div>
+                <button
+                  v-if="!c._repliesDone && c.replies.length < (c.rcount || 0)"
+                  class="btn sm ghost"
+                  :disabled="c._loading"
+                  @click="expandReplies(c)"
+                >
+                  加载更多回复
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="cmt-foot">
+            <button
+              v-if="commentHasMore"
+              class="btn sm"
+              :disabled="commentLoading"
+              @click="loadMoreComments"
+            >
+              {{ commentLoading ? '加载中…' : '加载更多评论' }}
+            </button>
+            <span v-else class="dim">没有更多评论了</span>
+          </div>
+        </template>
       </div>
     </div>
 

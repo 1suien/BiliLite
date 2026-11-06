@@ -18,6 +18,8 @@ import { buildUrl, biliError, getData, request } from './http'
 import { state } from './state'
 import { clearWbiCache, encWbi, md5Hex } from './wbi'
 import type {
+  CommentItem,
+  CommentsResult,
   DanmakuItem,
   FavFolder,
   FavResource,
@@ -73,6 +75,8 @@ const LATEST_CONCURRENCY = 4
 const DM_LIST_URL = 'https://api.bilibili.com/x/v1/dm/list.so'
 const DM_COMMENT_BASE = 'https://comment.bilibili.com'
 const DM_POST_URL = 'https://api.bilibili.com/x/v2/dm/post'
+const REPLY_WBI_URL = 'https://api.bilibili.com/x/v2/reply/wbi/main'
+const REPLY_REPLY_URL = 'https://api.bilibili.com/x/v2/reply/reply'
 const PLAYER_WBI_URL = 'https://api.bilibili.com/x/player/wbi/v2'
 const PLAYER_URL = 'https://api.bilibili.com/x/player/v2'
 const ONLINE_URL = 'https://api.bilibili.com/x/player/online/total'
@@ -441,6 +445,76 @@ export async function videoRelated(bvid: string): Promise<VideoCard[]> {
       pubdate: item.pubdate,
     }),
   )
+}
+
+/**
+ * 评论列表（0.4.36 评论区）
+ *
+ * 新版接口必须带 WBI 签名：`/x/v2/reply/wbi/main`，
+ * mode=3 热门（默认）、mode=2 最新；按 20 条一页取。
+ */
+export async function videoComments(
+  aid: number,
+  opts: { pn?: number; ps?: number; sort?: 'hot' | 'new' } = {},
+): Promise<CommentsResult> {
+  const pn = Math.max(1, Number(opts.pn) || 1)
+  const ps = Math.max(1, Math.min(40, Number(opts.ps) || 20))
+  const mode = opts.sort === 'new' ? 2 : 3
+  const params = { oid: aid, type: 1, mode, plat: 1, pn, ps, web_location: 1315875 }
+  let data: any = null
+  try {
+    data = await getData<any>(REPLY_WBI_URL, { params: await encWbi(params) })
+  } catch (e: any) {
+    // 签名/风控失败再重签一次（原实现同款兜底）
+    clearWbiCache()
+    data = await getData<any>(REPLY_WBI_URL, { params: await encWbi(params) })
+  }
+  const cursor = (data && data.cursor) || {}
+  const list = (data && data.replies) || []
+  return {
+    count: Number(cursor.all_count || (data && data.page && data.page.count) || 0),
+    comments: list.map((item: any) => mapComment(item)),
+  }
+}
+
+/** 楼中楼（0.4.36）：root 为主评论的 rpid */
+export async function videoCommentReplies(
+  aid: number,
+  root: number,
+  opts: { pn?: number; ps?: number } = {},
+): Promise<CommentsResult> {
+  const pn = Math.max(1, Number(opts.pn) || 1)
+  const ps = Math.max(1, Math.min(30, Number(opts.ps) || 10))
+  const data = await getData<any>(REPLY_REPLY_URL, {
+    params: { oid: aid, type: 1, root, pn, ps },
+  })
+  const page = (data && data.page) || {}
+  return {
+    count: Number(page.count || 0),
+    comments: ((data && data.replies) || []).map((item: any) => mapComment(item)),
+  }
+}
+
+/** 评论归一：主评论/楼中楼共用 */
+function mapComment(item: any): CommentItem {
+  const m = (item && item.member) || {}
+  const c = (item && item.content) || {}
+  const control = (item && item.reply_control) || {}
+  return {
+    rpid: Number(item && item.rpid) || 0,
+    mid: Number(m.mid) || 0,
+    uname: String(m.uname || '匿名用户'),
+    avatar: fixImageUrl(m.avatar),
+    message: String(c.message || '').trim(),
+    like: Number(item && item.like) || 0,
+    ctime: Number(item && item.ctime) || 0,
+    rcount: Number(item && item.rcount) || 0,
+    isUp: !!(m.up_flag || (item && item.up_flag)),
+    replies: Array.isArray(item && item.replies)
+      ? item.replies.slice(0, 3).map((r: any) => mapComment(r))
+      : [],
+    location: String(control.location || ''),
+  }
 }
 
 /** 播放地址数组过滤：只保留有 url 的项：还原 `ke()` */

@@ -5,6 +5,8 @@
  * index-jTHZJced.js（安卓桥实现）反推得到的，两个平台完全一致。
  */
 import type {
+  CommentItem,
+  CommentsResult,
   FavFolder,
   FavResource,
   SubtitleTrack,
@@ -128,6 +130,10 @@ export interface WbiBridge {
     online(bvid: string, cid: any): Promise<{ total: number; count: number }>
     subtitle(bvid: string, cid: any): Promise<{ list: SubtitleTrack[] }>
     sendDanmaku(payload: any): Promise<any>
+    /** 评论列表（0.4.36） */
+    comments?(aid: number, opts?: { pn?: number; ps?: number; sort?: 'hot' | 'new' }): Promise<CommentsResult>
+    /** 楼中楼（0.4.36） */
+    commentReplies?(aid: number, root: number, opts?: { pn?: number; ps?: number }): Promise<CommentsResult>
   }
   up: {
     info(mid: any): Promise<UpCardInfo>
