@@ -1423,3 +1423,33 @@ html[data-platform="android"] .app.theater .scroll {
 body.has-reminder .page-float {
   display: none !important;
 }
+
+/* ---------- 播放器手势（0.4.34）：横滑调进度浮层 / 双击快进 ---------- */
+.player-stage {
+  touch-action: none;
+}
+.seek-hint {
+  position: absolute;
+  left: 50%;
+  top: 16%;
+  transform: translateX(-50%);
+  z-index: 9;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  pointer-events: none;
+  backdrop-filter: blur(6px);
+}
+.seek-hint b {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+.seek-hint span {
+  font-size: 13px;
+  opacity: 0.82;
+}

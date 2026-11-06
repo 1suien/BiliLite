@@ -107,6 +107,8 @@ export interface DashPlayer {
   play(): void
   pause(): void
   seek(sec: number): void
+  /** 请求跳转（0.4.34：防抖 + 串行化，点击/拖动/键盘统一入口） */
+  requestSeek(sec: number): void
   setVolume(v: number): void
   setRate(v: number): void
   /** 切换清晰度：从当前 playurl 的候选轨里重新选轨并重新 load（不改网络请求） */
@@ -474,6 +476,9 @@ class DashKernel implements DashPlayer {
   private durationHint = 0
   private ready = false
   private restarting = false
+  /** 跳转串行化（0.4.34）：同一时刻只允许一次重建，期间的新请求只保留最后一个 */
+  private seekInFlight = false
+  private pendingSeek: number | null = null
   private recovering = false
   private recoveries = 0
   /** 进行中的请求（destroy 时全部 abort） */
@@ -1344,25 +1349,8 @@ class DashKernel implements DashPlayer {
       return
     }
     if (this.isBuffered(at)) return
-
-    const resume = !this.video.paused || this.wasPlaying
-    this.restarting = true
-    this.status('正在跳转…')
-    const payload = this.payload
-    try {
-      if (payload) await this.openDash(payload, at)
-      // 重开流后音量/状态要还原
-      const vol = this.video.volume
-      this.video.volume = vol
-      if (resume) {
-        this.wasPlaying = true
-        await this.ensurePlaying(this.gen, 6)
-      }
-    } catch (e: any) {
-      this.hooks.onError?.(e)
-    } finally {
-      this.restarting = false
-    }
+    // 统一走跳转队列（0.4.34）：同一时刻只允许一次重建
+    this.requestSeek(at)
   }
 
   /** range 请求固定区间（探测 sidx 用） */
@@ -1427,11 +1415,73 @@ class DashKernel implements DashPlayer {
     this.video.pause()
   }
 
+  /** 请求跳转（0.4.34）：防抖 + 串行化，点击/拖动/键盘统一入口 */
+  requestSeek(sec: number) {
+    const total = this.getDuration()
+    const at = Math.max(0, Math.min(sec, this.saneSeconds(total) ? total - 0.4 : sec))
+    if (Math.abs(at - this.video.currentTime) < 0.5 && this.isBuffered(at)) return
+    if (this.seekInFlight) {
+      this.pendingSeek = at
+      return
+    }
+    void this.runSeek(at)
+  }
+
+  /** 兼容旧调用：等价 requestSeek */
   seek(sec: number) {
-    const at = Math.max(0, Math.min(sec, this.getDuration() || sec))
+    this.requestSeek(sec)
+  }
+
+  /** 真正执行一次跳转：缓冲内直接改时间，否则重建一次（失败重试 1 次） */
+  private async runSeek(at: number) {
+    if (this.destroyed) return
+    this.seekInFlight = true
     try {
-      this.video.currentTime = at
-    } catch {}
+      if (this.isBuffered(at)) {
+        try {
+          this.video.currentTime = at
+        } catch {}
+        return
+      }
+      await this.restartAt(at, 1)
+    } catch (e: any) {
+      this.hooks.onError?.(e)
+    } finally {
+      this.seekInFlight = false
+      const next = this.pendingSeek
+      this.pendingSeek = null
+      // 跳转期间又点了别处：等这一轮收尾后只跳最后一次
+      if (next != null && Math.abs(next - this.video.currentTime) > 0.5) {
+        setTimeout(() => {
+          if (!this.destroyed) void this.runSeek(next)
+        }, 150)
+      }
+    }
+  }
+
+  /** 从指定位置重建 MediaSource 并恢复原播放状态 */
+  private async restartAt(at: number, retries: number) {
+    if (this.destroyed) return
+    const payload = this.payload
+    if (!payload) throw new Error('当前没有可用的播放地址')
+    this.restarting = true
+    this.status('正在跳转…')
+    const resume = !this.video.paused || this.wasPlaying
+    try {
+      await this.openDash(payload, at)
+      if (resume) {
+        this.wasPlaying = true
+        await this.ensurePlaying(this.gen, 6)
+      }
+    } catch (e) {
+      if (retries > 0 && !this.destroyed) {
+        await sleep(200)
+        return this.restartAt(at, retries - 1)
+      }
+      throw e
+    } finally {
+      this.restarting = false
+    }
   }
 
   setVolume(v: number) {

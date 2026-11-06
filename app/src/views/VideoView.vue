@@ -1165,10 +1165,116 @@ function togglePlay() {
   else player.pause()
 }
 
+/* ---------------- 画面手势：横滑调进度 / 双击快进快退（0.4.34） ---------------- */
+
+/** 手势浮层（横滑/双击时显示目标时间） */
+const seekHint = ref<{ delta: number; target: number } | null>(null)
+let stageGesture: { id: number; x: number; y: number; startT: number; mode: 'pending' | 'seek' | 'ignore' } | null = null
+let stageTapTimer: any = null
+let stageLastTap = { t: 0, x: 0, y: 0 }
+let suppressStageClick = false
+/** 横滑灵敏度：整个画面宽度对应 ±120 秒 */
+const STAGE_SEEK_SPAN = 120
+
+function onStagePointerDown(e: PointerEvent) {
+  const target = e.target as HTMLElement | null
+  // 控制条/按钮区域不接管，避免抢进度条拖动和按钮点击
+  if (target && target.closest && target.closest('.stage-ui')) return
+  if (e.pointerType === 'mouse' && e.button !== 0) return
+  stageGesture = {
+    id: e.pointerId,
+    x: e.clientX,
+    y: e.clientY,
+    startT: videoEl.value?.currentTime || 0,
+    mode: 'pending',
+  }
+  try {
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  } catch {}
+}
+
+function onStagePointerMove(e: PointerEvent) {
+  const g = stageGesture
+  if (!g || g.id !== e.pointerId) return
+  const dx = e.clientX - g.x
+  const dy = e.clientY - g.y
+  if (g.mode === 'pending') {
+    if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return
+    g.mode = Math.abs(dx) > Math.abs(dy) ? 'seek' : 'ignore'
+    if (g.mode === 'ignore') return
+    ctlVisible.value = false
+  }
+  if (g.mode !== 'seek') return
+  const w = Math.max(240, (e.currentTarget as HTMLElement).getBoundingClientRect().width)
+  const delta = Math.round((dx / w) * STAGE_SEEK_SPAN)
+  const total = duration.value || 0
+  const target = Math.max(0, Math.min(g.startT + delta, total > 1 ? total - 0.4 : g.startT + delta))
+  seekHint.value = { delta, target }
+}
+
+function onStagePointerUp(e: PointerEvent) {
+  const g = stageGesture
+  stageGesture = null
+  if (!g || g.id !== e.pointerId) return
+  if (g.mode === 'seek') {
+    suppressStageClick = true
+    const hint = seekHint.value
+    seekHint.value = null
+    // 只跳一次（播放器内部再做防抖/串行化）
+    if (hint && Math.abs(hint.delta) >= 2 && player) player.requestSeek(hint.target)
+    setTimeout(() => {
+      suppressStageClick = false
+    }, 400)
+    return
+  }
+  if (g.mode === 'ignore') return
+  // 鼠标交给 click / dblclick，触摸在这里判定单击 vs 双击
+  if (e.pointerType === 'mouse') return
+  suppressStageClick = true
+  setTimeout(() => {
+    suppressStageClick = false
+  }, 400)
+  const now = Date.now()
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  if (now - stageLastTap.t < 320 && Math.abs(e.clientX - stageLastTap.x) < 80) {
+    if (stageTapTimer) {
+      clearTimeout(stageTapTimer)
+      stageTapTimer = null
+    }
+    const step = Number(settings.settings.seekStep) || 10
+    const leftHalf = e.clientX < rect.left + rect.width / 2
+    const at = Math.max(0, (videoEl.value?.currentTime || 0) + (leftHalf ? -step : step))
+    if (player) player.requestSeek(at)
+    const total = duration.value || at
+    seekHint.value = { delta: leftHalf ? -step : step, target: Math.min(at, Math.max(0, total - 0.4)) }
+    setTimeout(() => {
+      seekHint.value = null
+    }, 700)
+    stageLastTap = { t: 0, x: 0, y: 0 }
+    return
+  }
+  stageLastTap = { t: now, x: e.clientX, y: e.clientY }
+  if (stageTapTimer) clearTimeout(stageTapTimer)
+  stageTapTimer = setTimeout(() => {
+    stageTapTimer = null
+    togglePlay()
+  }, 240)
+}
+
+function onStagePointerCancel() {
+  stageGesture = null
+  seekHint.value = null
+}
+
+function onVideoClick() {
+  if (suppressStageClick) return
+  togglePlay()
+}
+
 /** 前进/后退 n 秒（键盘 ←/→） */
 function seekBy(n: number) {
   if (!player) return
-  player.seek((videoEl.value?.currentTime || 0) + n)
+  player.requestSeek((videoEl.value?.currentTime || 0) + n)
 }
 
 /** 进度条按下：拖动预览 + 松手 seek */
@@ -1183,7 +1289,7 @@ function onSeekPointerDown(e: PointerEvent) {
   const onUp = (ev: PointerEvent) => {
     const rect = el.getBoundingClientRect()
     const pct = Math.min(1, Math.max(0, (ev.clientX - rect.left) / rect.width))
-    player && player.seek(pct * duration.value)
+    player && player.requestSeek(pct * duration.value)
     window.removeEventListener('pointermove', posAt)
     window.removeEventListener('pointerup', onUp)
   }
@@ -1405,8 +1511,21 @@ onBeforeUnmount(() => {
   <div v-else-if="detail" class="watch">
     <div style="min-width: 0">
       <div ref="wrapEl" class="player-wrap" @mousemove="onMouseMove" @mouseleave="onMouseLeave">
-        <div class="player-stage" @dblclick="toggleFullscreen">
-          <video ref="videoEl" playsinline preload="auto" @click="togglePlay" />
+        <div
+          class="player-stage"
+          @dblclick="toggleFullscreen"
+          @pointerdown="onStagePointerDown"
+          @pointermove="onStagePointerMove"
+          @pointerup="onStagePointerUp"
+          @pointercancel="onStagePointerCancel"
+        >
+          <video ref="videoEl" playsinline preload="auto" @click="onVideoClick" />
+
+          <!-- 横滑/双击时的目标时间浮层 -->
+          <div v-if="seekHint" class="seek-hint">
+            <b>{{ seekHint.delta > 0 ? '+' : '−' }}{{ Math.abs(seekHint.delta) }}s</b>
+            <span>{{ formatClock(seekHint.target) }} / {{ formatClock(duration) }}</span>
+          </div>
 
           <!-- 字幕 -->
           <div v-if="hasSub && cueText" class="cc-line" :style="subStyle">{{ cueText }}</div>
