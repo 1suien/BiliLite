@@ -448,6 +448,17 @@ export function createMockBridge(): WbiBridge {
         await delay(160)
         return { count: 3, comments: mockCommentReplies(root) }
       },
+      async addComment(payload: { aid: number; message: string; root?: number; parent?: number }) {
+        await delay(260)
+        if (!isLoggedIn()) {
+          const err: any = new Error('发表评论需要先登录')
+          err.needLogin = true
+          throw err
+        }
+        const text = String(payload.message || '').trim()
+        if (!text) throw new Error('评论内容不能为空')
+        return { rpid: Date.now(), message: text }
+      },
       async sendDanmaku(payload: any) {
         await delay(200)
         if (!isLoggedIn()) {

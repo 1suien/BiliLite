@@ -76,6 +76,7 @@ const DM_LIST_URL = 'https://api.bilibili.com/x/v1/dm/list.so'
 const DM_COMMENT_BASE = 'https://comment.bilibili.com'
 const DM_POST_URL = 'https://api.bilibili.com/x/v2/dm/post'
 const REPLY_WBI_URL = 'https://api.bilibili.com/x/v2/reply/wbi/main'
+const REPLY_ADD_URL = 'https://api.bilibili.com/x/v2/reply/add'
 const REPLY_REPLY_URL = 'https://api.bilibili.com/x/v2/reply/reply'
 const PLAYER_WBI_URL = 'https://api.bilibili.com/x/player/wbi/v2'
 const PLAYER_URL = 'https://api.bilibili.com/x/player/v2'
@@ -475,6 +476,50 @@ export async function videoComments(
     count: Number(cursor.all_count || (data && data.page && data.page.count) || 0),
     comments: list.map((item: any) => mapComment(item)),
   }
+}
+
+/**
+ * 发表评论 / 回复（0.4.38）
+ *
+ * - 顶层评论：只传 aid + message；
+ * - 回复主评论：root = 主评论 rpid，parent = 主评论 rpid；
+ * - 回复楼中楼：root = 主评论 rpid，parent = 被回复的 rpid。
+ * 需要登录（用 cookie 里的 bili_jct 当 csrf）。
+ */
+export async function addVideoComment(payload: {
+  aid: number
+  message: string
+  root?: number
+  parent?: number
+}): Promise<{ rpid: number; message: string }> {
+  const csrf = state.cookies && state.cookies.bili_jct
+  if (!csrf) throw biliError('发表评论需要先登录', { needLogin: true })
+  const text = String(payload.message || '').trim()
+  if (!text) throw new Error('评论内容不能为空')
+  if (text.length > 1000) throw new Error('评论最多 1000 个字')
+
+  const body = new URLSearchParams({
+    oid: String(payload.aid),
+    type: '1',
+    message: text,
+    plat: '2',
+    csrf: String(csrf),
+  })
+  if (payload.root) body.set('root', String(payload.root))
+  if (payload.parent) body.set('parent', String(payload.parent))
+
+  const res = await request(REPLY_ADD_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+    timeout: 15000,
+  })
+  const data = res.json
+  if (!data) throw new Error(`评论接口返回非 JSON（HTTP ${res.status}）`)
+  if (data.code !== 0) {
+    throw new Error(data.message || `发表失败（${data.code}）`)
+  }
+  return { rpid: Number((data.data && data.data.rpid) || 0), message: text }
 }
 
 /** 楼中楼（0.4.36）：root 为主评论的 rpid */

@@ -70,6 +70,8 @@ export const bili: WbiBridge = {
       impl().video.commentReplies
         ? impl().video.commentReplies!(aid, root, opts)
         : Promise.reject(new Error('当前环境不支持评论回复')),
+    addComment: (payload: { aid: number; message: string; root?: number; parent?: number }) =>
+      impl().video.addComment ? impl().video.addComment!(payload) : Promise.reject(new Error('当前环境不支持发表评论')),
   },
   up: {
     info: (mid: any) => impl().up.info(mid),

@@ -162,6 +162,67 @@ function switchCommentSort(sort: 'hot' | 'new') {
   void loadComments(true)
 }
 
+/** 发表评论 / 回复（0.4.38） */
+const commentInput = ref('')
+const commentSending = ref(false)
+const commentBox = ref<HTMLElement | null>(null)
+const replyTo = ref<{ root: number; parent: number; uname: string } | null>(null)
+
+function startReply(c: ViewComment, parent?: ViewComment) {
+  replyTo.value = {
+    root: c.rpid,
+    parent: parent ? parent.rpid : c.rpid,
+    uname: (parent || c).uname,
+  }
+  commentBox.value?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  const ta = commentBox.value?.querySelector('textarea') as HTMLTextAreaElement | null
+  ta?.focus()
+}
+
+function cancelReply() {
+  replyTo.value = null
+}
+
+async function sendComment() {
+  const d = detail.value
+  if (!d || commentSending.value) return
+  const text = commentInput.value.trim()
+  if (!text) {
+    ui.toast('先写点什么再发表')
+    return
+  }
+  if (!auth.loggedIn) {
+    ui.err('发表评论需要先登录（右上角「扫码登录」）')
+    return
+  }
+  if (text.length > 1000) {
+    ui.err('评论最多 1000 个字')
+    return
+  }
+  commentSending.value = true
+  try {
+    const reply = replyTo.value
+    const payload: { aid: number; message: string; root?: number; parent?: number } = {
+      aid: d.aid,
+      message: reply ? `回复 @${reply.uname} :${text}` : text,
+    }
+    if (reply) {
+      payload.root = reply.root
+      payload.parent = reply.parent
+    }
+    await bili.video.addComment!(payload)
+    ui.toast(reply ? '回复已发表' : '评论已发表')
+    commentInput.value = ''
+    replyTo.value = null
+    commentSort.value = 'new'
+    await loadComments(true)
+  } catch (e: any) {
+    ui.err(e?.message || '发表失败，稍后再试')
+  } finally {
+    commentSending.value = false
+  }
+}
+
 async function loadMoreComments() {
   if (commentLoading.value || !commentHasMore.value) return
   commentPage.value += 1
@@ -1943,6 +2004,33 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-else-if="tab === 'comments'" class="panel">
+        <div ref="commentBox" class="cmt-editor">
+          <div v-if="replyTo" class="cmt-replyto">
+            <span>回复 <b>@{{ replyTo.uname }}</b></span>
+            <span class="cmt-replyto-cancel" @click="cancelReply">取消</span>
+          </div>
+          <textarea
+            v-model="commentInput"
+            class="input cmt-input"
+            rows="2"
+            maxlength="1000"
+            :placeholder="auth.loggedIn ? '说点什么…（Ctrl+Enter 发表，最多 1000 字）' : '登录后才能发表评论（右上角「扫码登录」）'"
+            @keydown.ctrl.enter.prevent="sendComment"
+            @keydown.meta.enter.prevent="sendComment"
+          ></textarea>
+          <div class="cmt-editor-foot">
+            <span class="dim">{{ commentInput.length }}/1000</span>
+            <span class="grow" />
+            <button
+              class="btn sm primary"
+              :disabled="commentSending || !commentInput.trim()"
+              @click="sendComment"
+            >
+              {{ commentSending ? '发表中…' : replyTo ? '发表回复' : '发表' }}
+            </button>
+          </div>
+        </div>
+
         <div class="row cmt-head">
           <b style="font-size: 13px">评论</b>
           <span class="dim">{{ formatCount(commentCount) }} 条</span>
@@ -1989,6 +2077,7 @@ onBeforeUnmount(() => {
                 >
                   {{ c._loading ? '加载中…' : (c.replies.length ? '展开回复 ' : '查看 ' + c.rcount + ' 条回复') }}
                 </span>
+                <span class="cmt-reply-btn" @click="startReply(c)">回复</span>
               </div>
 
               <div v-if="c.replies.length" class="cmt-replies">
@@ -2000,6 +2089,9 @@ onBeforeUnmount(() => {
                       <span class="dim">{{ timeAgo(r.ctime) }}</span>
                     </div>
                     <div class="cmt-text">{{ r.message }}</div>
+                    <div class="cmt-actions">
+                      <span class="cmt-reply-btn" @click="startReply(c, r)">回复</span>
+                    </div>
                   </div>
                 </div>
                 <button

@@ -45,6 +45,7 @@ import {
   videoSubtitle,
   videoComments,
   videoCommentReplies,
+  addVideoComment,
   viewVideo,
 } from './api'
 import type { WbiBridge } from './types'
@@ -368,13 +369,12 @@ const handlers: Record<string, Handler> = {
   'video:subtitle': async ({ bvid, cid }: any) => videoSubtitle(bvid, cid),
   /** 发弹幕（payload 直接用，含 bvid/cid/msg/progress/mode/color/fontsize） */
   'video:sendDanmaku': async (payload: any) => sendDanmaku(payload),
-  /** 评论列表（0.4.36）：sort=hot|new */
-  'video:comments': async ({ aid, pn, ps, sort }: any) =>
-    videoComments(aid, { pn, ps, sort: sort === 'new' ? 'new' : 'hot' }),
+  /** 评论列表（0.4.36） */
+  'video:comments': async ({ aid, pn, ps, sort }: any) => videoComments(aid, { pn, ps, sort }),
   /** 楼中楼（0.4.36） */
-  'video:commentReplies': async ({ aid, root, pn, ps }: any) =>
-    videoCommentReplies(aid, root, { pn, ps }),
-
+  'video:commentReplies': async ({ aid, root, pn, ps }: any) => videoCommentReplies(aid, root, { pn, ps }),
+  /** 发表评论 / 回复（0.4.38） */
+  'video:addComment': async (payload: any) => addVideoComment(payload),
   /** UP 名片 */
   'up:info': async ({ mid }: any) => upInfo(mid),
   /** UP 投稿列表 */
@@ -610,6 +610,8 @@ const bridge: WbiBridge & { invoke: typeof invoke; call: typeof call } = {
       call('video:comments', { aid, ...opts }),
     commentReplies: (aid: number, root: number, opts: { pn?: number; ps?: number } = {}) =>
       call('video:commentReplies', { aid, root, ...opts }),
+    addComment: (payload: { aid: number; message: string; root?: number; parent?: number }) =>
+      call('video:addComment', payload),
   },
 
   up: {

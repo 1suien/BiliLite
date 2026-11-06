@@ -1572,3 +1572,42 @@ body.has-reminder .page-float {
   justify-content: center;
   padding: 10px 0 2px;
 }
+
+/* ---------- 发表评论 / 回复（0.4.38） ---------- */
+.cmt-editor {
+  margin-bottom: 10px;
+}
+.cmt-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 54px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.cmt-editor-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 11.5px;
+}
+.cmt-replyto {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding: 5px 9px;
+  border-radius: 7px;
+  background: var(--bg2);
+  font-size: 12px;
+  color: var(--t2);
+}
+.cmt-replyto b {
+  color: var(--t1);
+}
+.cmt-replyto-cancel {
+  margin-left: auto;
+  color: var(--brand);
+  cursor: pointer;
+  font-size: 11.5px;
+}

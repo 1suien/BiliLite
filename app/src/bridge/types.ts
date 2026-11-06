@@ -134,6 +134,8 @@ export interface WbiBridge {
     comments?(aid: number, opts?: { pn?: number; ps?: number; sort?: 'hot' | 'new' }): Promise<CommentsResult>
     /** 楼中楼（0.4.36） */
     commentReplies?(aid: number, root: number, opts?: { pn?: number; ps?: number }): Promise<CommentsResult>
+    /** 发表评论 / 回复（0.4.38） */
+    addComment?(payload: { aid: number; message: string; root?: number; parent?: number }): Promise<{ rpid: number; message: string }>
   }
   up: {
     info(mid: any): Promise<UpCardInfo>
