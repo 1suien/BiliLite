@@ -105,6 +105,9 @@ let addrStart = 0
 let addrMs = 0
 let firstFrameMs = 0
 let slowHintTimer: any = null
+/** 线路失败自动换线路（重试）计时与次数（本机 0.4.33） */
+let retryTimer: any = null
+let cdnRetries = 0
 
 /** 安卓端才显示那行性能信息 */
 const isAndroid =
@@ -803,7 +806,35 @@ function startTime() {
 }
 
 /** 拉播放地址 + 起播 */
-async function loadPlayurl() {
+/** 是不是「线路拿不到数据」这类可自动重试的错误 */
+function isCdnError(text: string) {
+  return /Failed to fetch|NetworkError|TypeError|拉流失败|net::ERR|加载失败|fetch 失败/i.test(text)
+}
+
+/** 播放出错统一入口：CDN 抖动先自动换线路重试（最多 2 次），仍失败才把错误卡片给用户 */
+function handlePlayError(e: any) {
+  const msg = String((e && e.message) || e || '播放失败')
+  if (isCdnError(msg) && cdnRetries < 2) {
+    cdnRetries++
+    errorText.value = ''
+    status.value = `这条线路暂时拿不到数据，正在自动换线路（第 ${cdnRetries} 次重试）…`
+    if (retryTimer) clearTimeout(retryTimer)
+    retryTimer = window.setTimeout(() => {
+      retryTimer = null
+      loadPlayurl().catch(() => {})
+    }, 900)
+    return
+  }
+  errorText.value = msg
+  status.value = ''
+}
+
+async function loadPlayurl(manual?: any) {
+  if (manual) cdnRetries = 0
+  if (slowHintTimer) {
+    clearTimeout(slowHintTimer)
+    slowHintTimer = null
+  }
   const qn = Number(settings.settings.defaultQuality) || 80
   status.value = '正在获取播放地址…'
   errorText.value = ''
@@ -887,8 +918,7 @@ async function loadPlayurl() {
         trackQuality.value = Number(t && t.video && t.video.id) || 0
       },
       onError: (e) => {
-        errorText.value = e.message
-        status.value = ''
+        handlePlayError(e)
       },
     })
     player.setDurationHint?.(duration.value)
@@ -904,6 +934,7 @@ async function loadPlayurl() {
       autoplay: true,
       durationHint: duration.value,
     })
+    cdnRetries = 0
     startTimers()
     updatePerf()
     // 起播慢时给个人话提示（数据其实早到了，多半是没播起来）
@@ -919,8 +950,7 @@ async function loadPlayurl() {
     refreshLocalSubs().catch(() => {})
     if (settings.settings.subAuto) loadOnlineSubs().catch(() => {})
   } catch (e: any) {
-    errorText.value = e.message || '播放失败'
-    status.value = ''
+    handlePlayError(e)
   }
 }
 
