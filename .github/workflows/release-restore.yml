@@ -1,24 +1,12 @@
 name: Create Release (restore APK)
 
-# 由 CI 用 GITHUB_TOKEN 建 Release 并上传 APK 资产（本地无 GitHub 写权限时使用）
-# 支持的还原版本：
-#   v0.4.3-restore* → BiliLite-0.4.3-debug.apk（历史产物）
-#   v0.4.4-restore* → BiliLite-0.4.4-debug.apk（官方 0.4.4 同源产物）
-#   v0.4.7-restore* → BiliLite-0.4.7-debug.apk（笔记行按钮 + 小窗圆形气泡）
-#   v0.4.8-restore* → BiliLite-0.4.8-debug.apk（离开播放页自动缩成暂停小圆）
-#   v0.4.9-restore* → BiliLite-0.4.9-debug.apk（删除首页）
-#   v0.4.10-restore* → BiliLite-0.4.10-debug.apk（删掉自带的四个专注目标）
-#   v0.4.11-restore* → BiliLite-0.4.11-debug.apk（退出播放页后再次播放接着上次进度，当前产物 / 手动 dispatch 默认值）
+# 由 CI 用 GITHUB_TOKEN 建 Release 并上传 APK 资产（本地没有 GitHub 写权限时用这个口子）
+# 任何 v<版本>-restore* 标签都会触发：附件取 BiliLite-<版本>-debug.apk，
+# 说明优先用 docs/RELEASE-<tag>.md，没有就自动生成一段（带大小与 sha256）。
 on:
   push:
     tags:
-      - 'v0.4.3-restore*'
-      - 'v0.4.4-restore*'
-      - 'v0.4.7-restore*'
-      - 'v0.4.8-restore*'
-      - 'v0.4.9-restore*'
-      - 'v0.4.10-restore*'
-      - 'v0.4.11-restore*'
+      - 'v*-restore*'
   workflow_dispatch:
 
 permissions:
@@ -37,50 +25,30 @@ jobs:
         id: pick
         run: |
           set -euo pipefail
-          case "${GITHUB_REF_NAME:-}" in
-            v0.4.3-restore*)
-              echo "tag=v0.4.3-restore"                   >> "$GITHUB_OUTPUT"
-              echo "apk=BiliLite-0.4.3-debug.apk"         >> "$GITHUB_OUTPUT"
-              echo "notes=docs/RELEASE-v0.4.3-restore.md" >> "$GITHUB_OUTPUT"
-              echo "title=BiliLite 0.4.3 安卓端 —— 源码还原工程 + 可安装 APK" >> "$GITHUB_OUTPUT"
-              ;;
-            v0.4.4-restore*)
-              echo "tag=v0.4.4-restore"                   >> "$GITHUB_OUTPUT"
-              echo "apk=BiliLite-0.4.4-debug.apk"         >> "$GITHUB_OUTPUT"
-              echo "notes=docs/RELEASE-v0.4.4-restore.md" >> "$GITHUB_OUTPUT"
-              echo "title=BiliLite 0.4.4 安卓端 —— 源码还原工程 + 可安装 APK" >> "$GITHUB_OUTPUT"
-              ;;
-            v0.4.7-restore*)
-              echo "tag=v0.4.7-restore"                                    >> "$GITHUB_OUTPUT"
-              echo "apk=BiliLite-0.4.7-debug.apk"                          >> "$GITHUB_OUTPUT"
-              echo "notes=docs/RELEASE-v0.4.7-restore.md"                  >> "$GITHUB_OUTPUT"
-              echo "title=BiliLite 0.4.7（本机构建）—— 还原工程 + 可安装 APK" >> "$GITHUB_OUTPUT"
-              ;;
-            v0.4.8-restore*)
-              echo "tag=v0.4.8-restore"                                    >> "$GITHUB_OUTPUT"
-              echo "apk=BiliLite-0.4.8-debug.apk"                          >> "$GITHUB_OUTPUT"
-              echo "notes=docs/RELEASE-v0.4.8-restore.md"                  >> "$GITHUB_OUTPUT"
-              echo "title=BiliLite 0.4.8（本机构建）—— 还原工程 + 可安装 APK" >> "$GITHUB_OUTPUT"
-              ;;
-            v0.4.9-restore*)
-              echo "tag=v0.4.9-restore"                                    >> "$GITHUB_OUTPUT"
-              echo "apk=BiliLite-0.4.9-debug.apk"                          >> "$GITHUB_OUTPUT"
-              echo "notes=docs/RELEASE-v0.4.9-restore.md"                  >> "$GITHUB_OUTPUT"
-              echo "title=BiliLite 0.4.9（本机构建）—— 还原工程 + 可安装 APK" >> "$GITHUB_OUTPUT"
-              ;;
-            v0.4.10-restore*)
-              echo "tag=v0.4.10-restore"                                   >> "$GITHUB_OUTPUT"
-              echo "apk=BiliLite-0.4.10-debug.apk"                         >> "$GITHUB_OUTPUT"
-              echo "notes=docs/RELEASE-v0.4.10-restore.md"                 >> "$GITHUB_OUTPUT"
-              echo "title=BiliLite 0.4.10（本机构建）—— 还原工程 + 可安装 APK" >> "$GITHUB_OUTPUT"
-              ;;
-            *)
-              echo "tag=v0.4.11-restore"                                   >> "$GITHUB_OUTPUT"
-              echo "apk=BiliLite-0.4.11-debug.apk"                         >> "$GITHUB_OUTPUT"
-              echo "notes=docs/RELEASE-v0.4.11-restore.md"                 >> "$GITHUB_OUTPUT"
-              echo "title=BiliLite 0.4.11（本机构建）—— 还原工程 + 可安装 APK" >> "$GITHUB_OUTPUT"
-              ;;
-          esac
+          TAG="${GITHUB_REF_NAME}"
+          VER="${TAG#v}"; VER="${VER%%-*}"
+          APK="BiliLite-${VER}-debug.apk"
+          NOTES="docs/RELEASE-${TAG}.md"
+          TITLE="BiliLite ${VER}（本机构建）—— 还原工程 + 可安装 APK"
+          if [ ! -f "$APK" ]; then
+            echo "::error::找不到 $APK"
+            ls -1 BiliLite-*.apk | tail -5 || true
+            exit 1
+          fi
+          if [ ! -f "$NOTES" ]; then
+            SHA=$(sha256sum "$APK" | awk '{print $1}')
+            SIZE=$(stat -c%s "$APK")
+            cat > /tmp/notes.md <<EOF
+          本机构建 ${VER}（debug 签名，可直接覆盖安装，数据保留）。
+
+          - 产物：${APK}（${SIZE} B，sha256 ${SHA}）
+          - 源码：分支 restore/android-0.4.3，提交 ${GITHUB_SHA:0:7}
+
+          安装：下载 APK → 允许「安装未知应用」→ 点开安装。
+          EOF
+            NOTES=/tmp/notes.md
+          fi
+          { echo "tag=$TAG"; echo "apk=$APK"; echo "notes=$NOTES"; echo "title=$TITLE"; } >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
       - name: Create or update release with APK asset
@@ -96,14 +64,11 @@ jobs:
           ls -l "$APK"
           sha256sum "$APK"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "release $TAG exists -> 覆盖资产与说明（重新发布用）"
-            gh release upload "$TAG" "./$APK" \
-              --repo "$GITHUB_REPOSITORY" --clobber
-            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" \
-              --notes-file "$NOTES"
+            echo "release $TAG 已存在 -> 覆盖资产与说明"
+            gh release upload "$TAG" "./$APK" --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file "$NOTES"
           else
-            gh release create "$TAG" \
-              "./$APK" \
+            gh release create "$TAG" "./$APK" \
               --repo "$GITHUB_REPOSITORY" \
               --title "$TITLE" \
               --notes-file "$NOTES"
