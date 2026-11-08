@@ -168,6 +168,61 @@ function logout() {
   ui.toast('已退出登录')
 }
 
+/* ---------- 0.4.40 头像快捷菜单 ---------- */
+const USER_MENU_PATHS = ['/local', '/ups', '/fav', '/settings']
+const userMenuOpen = ref(false)
+const userMenuPos = ref({ left: 0, bottom: 0 })
+const userMenuEl = ref<HTMLElement | null>(null)
+const sideUserEl = ref<HTMLElement | null>(null)
+const setSideUserRef = (el: any) => {
+  if (el) sideUserEl.value = el as HTMLElement
+}
+/** 快捷菜单项：按侧栏显示顺序（主区在前、更多区在后），跟随拖拽自定义顺序 */
+const userMenuItems = computed(() =>
+  [...mainNav.value, ...moreNav.value].filter((n) => USER_MENU_PATHS.includes(n.to)),
+)
+
+function placeUserMenu() {
+  const el = sideUserEl.value
+  if (!el) return
+  const r = el.getBoundingClientRect()
+  const width = 208
+  let left = r.left + 2
+  if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - width - 8)
+  userMenuPos.value = { left, bottom: window.innerHeight - r.top + 6 }
+}
+function toggleUserMenu() {
+  if (userMenuOpen.value) {
+    userMenuOpen.value = false
+    return
+  }
+  placeUserMenu()
+  userMenuOpen.value = true
+}
+function closeUserMenu() {
+  userMenuOpen.value = false
+}
+function onUserMenuDocDown(e: PointerEvent) {
+  if (!userMenuOpen.value) return
+  const t = e.target as Node
+  if (userMenuEl.value?.contains(t) || sideUserEl.value?.contains(t)) return
+  closeUserMenu()
+}
+function onUserMenuEsc(e: KeyboardEvent) {
+  if (e.key === 'Escape') closeUserMenu()
+}
+function onUserMenuResize() {
+  if (userMenuOpen.value) placeUserMenu()
+}
+function menuLogout() {
+  closeUserMenu()
+  logout()
+}
+function menuLogin() {
+  closeUserMenu()
+  ui.loginOpen = true
+}
+
 // 键盘快捷键
 let keyHandler: ((e: KeyboardEvent) => void) | null = null
 /** 0.4.13：数据变化后延迟重排系统通知 */
@@ -289,6 +344,9 @@ onMounted(async () => {
 
   keyHandler = onKeydown
   window.addEventListener('keydown', keyHandler)
+  document.addEventListener('pointerdown', onUserMenuDocDown)
+  document.addEventListener('keydown', onUserMenuEsc)
+  window.addEventListener('resize', onUserMenuResize)
 })
 
 onUnmounted(() => {
@@ -297,6 +355,9 @@ onUnmounted(() => {
   document.removeEventListener('visibilitychange', onVisibilityForShare)
   if (keyHandler) window.removeEventListener('keydown', keyHandler)
   keyHandler = null
+  document.removeEventListener('pointerdown', onUserMenuDocDown)
+  document.removeEventListener('keydown', onUserMenuEsc)
+  window.removeEventListener('resize', onUserMenuResize)
   if (nativeSyncTimer) clearTimeout(nativeSyncTimer)
   nativeSyncTimer = null
   remind.stop()
@@ -373,7 +434,19 @@ onUnmounted(() => {
 
         <div class="side-account">
           <template v-if="auth.loggedIn">
-            <div class="side-user">
+            <div
+              :ref="setSideUserRef"
+              class="side-user"
+              :class="{ active: userMenuOpen }"
+              role="button"
+              tabindex="0"
+              aria-haspopup="menu"
+              :aria-expanded="userMenuOpen"
+              title="点击打开快捷菜单"
+              @click="toggleUserMenu"
+              @keydown.enter.prevent="toggleUserMenu"
+              @keydown.space.prevent="toggleUserMenu"
+            >
               <BiliImage :src="auth.avatar" :alt="auth.user?.uname || ''" />
               <div class="who">
                 <b>{{ auth.user?.uname }}</b>
@@ -385,7 +458,19 @@ onUnmounted(() => {
             </button>
           </template>
           <template v-else>
-            <div class="side-user">
+            <div
+              :ref="setSideUserRef"
+              class="side-user"
+              :class="{ active: userMenuOpen }"
+              role="button"
+              tabindex="0"
+              aria-haspopup="menu"
+              :aria-expanded="userMenuOpen"
+              title="点击打开快捷菜单"
+              @click="toggleUserMenu"
+              @keydown.enter.prevent="toggleUserMenu"
+              @keydown.space.prevent="toggleUserMenu"
+            >
               <div class="avatar-fallback"></div>
               <div class="who">
                 <b>未登录</b>
@@ -398,6 +483,44 @@ onUnmounted(() => {
           </template>
         </div>
       </div>
+
+      <Teleport to="body">
+        <div
+          v-if="userMenuOpen"
+          ref="userMenuEl"
+          class="user-menu"
+          role="menu"
+          aria-label="快捷菜单"
+          :style="{ left: userMenuPos.left + 'px', bottom: userMenuPos.bottom + 'px' }"
+        >
+          <RouterLink
+            v-for="item in userMenuItems"
+            :key="item.to"
+            :to="item.to"
+            class="user-menu-item"
+            :class="{ active: activePath === item.to }"
+            role="menuitem"
+            @click="closeUserMenu"
+          >
+            <Icon :name="item.icon" :size="16" />
+            <span>{{ item.label }}</span>
+          </RouterLink>
+          <div class="user-menu-sep"></div>
+          <button
+            v-if="auth.loggedIn"
+            class="user-menu-item danger"
+            role="menuitem"
+            @click="menuLogout"
+          >
+            <Icon name="logout" :size="16" />
+            <span>退出登录</span>
+          </button>
+          <button v-else class="user-menu-item" role="menuitem" @click="menuLogin">
+            <Icon name="user" :size="16" />
+            <span>扫码登录</span>
+          </button>
+        </div>
+      </Teleport>
     </aside>
 
     <main class="main">
