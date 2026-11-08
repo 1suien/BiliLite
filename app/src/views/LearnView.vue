@@ -12,6 +12,7 @@ import Icon from '@/components/Icon.vue'
 import BiliImage from '@/components/BiliImage.vue'
 import EmptyBlock from '@/components/EmptyBlock.vue'
 import FocusPanel from '@/components/FocusPanel.vue'
+import FocusRecords from '@/components/FocusRecords.vue'
 import { usePomodoroStore } from '@/stores/pomodoro'
 import { useLearnStore } from '@/stores/learn'
 import { useUiStore } from '@/stores/ui'
@@ -66,7 +67,9 @@ onMounted(async () => {
   <div>
     <FocusPanel />
 
-    <div class="tabs">
+    <div class="learn-lower">
+      <div class="learn-main">
+        <div class="tabs">
       <button :class="['tab', { on: tab === 'recent' }]" @click="tab = 'recent'">
         学习进度（{{ recent.length }}）
       </button>
@@ -142,9 +145,34 @@ onMounted(async () => {
       </template>
     </template>
 
-    <div v-else class="panel row" style="gap: 10px">
-      <span class="spinner" />
-      <span class="dim">读取本地数据…</span>
+        <div v-else class="panel row" style="gap: 10px">
+          <span class="spinner" />
+          <span class="dim">读取本地数据…</span>
+        </div>
+      </div>
+      <aside class="learn-side">
+        <FocusRecords />
+      </aside>
     </div>
   </div>
 </template>
+
+<style scoped>
+.learn-lower {
+  display: grid;
+  grid-template-columns: minmax(0, 1.62fr) minmax(300px, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.learn-main { min-width: 0; }
+.learn-side { min-width: 0; }
+.learn-side :deep(.rec) {
+  max-height: 560px;
+  display: flex;
+  flex-direction: column;
+}
+.learn-side :deep(.rec-scroll) { overflow: auto; }
+@media (max-width: 900px) {
+  .learn-lower { grid-template-columns: minmax(0, 1fr); }
+}
+</style>

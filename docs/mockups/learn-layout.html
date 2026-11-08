@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>学习页布局方案 A</title>
+<style>
+  :root{
+    --bg:#0a0a0b; --card:#141416; --card-hover:#191a1d; --soft:#1c1d21;
+    --line:#26272c; --line-strong:#34353b; --t1:#f3f3f4; --t2:#9b9ba4; --t3:#6a6a73;
+    --brand:#4aa8ff; --brand-soft:rgba(74,168,255,.16); --brand-line:rgba(74,168,255,.38);
+    --ok:#56d364; --danger:#ff6b6b;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--t1);font:13px/1.5 -apple-system,"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif;height:900px;overflow:hidden;display:flex}
+  /* 侧栏 */
+  aside{width:190px;flex:none;border-right:1px solid var(--line);padding:14px 10px;display:flex;flex-direction:column;gap:2px}
+  .brand{display:flex;align-items:center;gap:8px;padding:6px 8px 16px}
+  .logo{width:26px;height:26px;border-radius:8px;background:var(--brand-soft);border:1px solid var(--brand-line);display:grid;place-items:center;color:var(--brand);font-weight:700}
+  .brand b{font-size:14px}
+  .brand span{display:block;font-size:10px;color:var(--t3)}
+  .nav{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:9px;color:var(--t1);font-size:13.5px}
+  .nav.on{background:var(--brand-soft);color:var(--brand);font-weight:600}
+  .nav .badge{margin-left:auto;font-size:10.5px;color:var(--t3)}
+  .spacer{flex:1}
+  .user{display:flex;align-items:center;gap:9px;padding:8px 6px;border-top:1px solid var(--line);margin-top:8px}
+  .ava{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#f2a06b,#c9502e);flex:none}
+  .user b{font-size:12.5px;display:block}
+  .user span{font-size:11px;color:var(--t3)}
+  /* 主区 */
+  main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .top{height:52px;flex:none;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:0 16px}
+  .chip{border:1px solid var(--line);border-radius:9px;padding:6px 10px;color:var(--t3);font-size:12px}
+  .content{padding:12px 16px;overflow:auto}
+  .hero{display:grid;grid-template-columns:minmax(320px,384px) minmax(0,1fr);gap:16px;align-items:stretch}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+  .ptitle{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--t2);margin-bottom:10px}
+  .ptitle b{color:var(--t1);font-size:14px}
+  .right{margin-left:auto;color:var(--t3);font-size:12px}
+  .chips{display:flex;gap:8px;margin-bottom:12px}
+  .c{border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:12px;color:var(--t2)}
+  .c.on{background:var(--brand-soft);border-color:var(--brand-line);color:var(--brand);font-weight:600}
+  .task{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:10px;margin-bottom:4px}
+  .task.on{background:var(--brand-soft);box-shadow:inset 2px 0 0 var(--brand)}
+  .dot{width:22px;height:22px;border-radius:50%;flex:none;display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff}
+  .task .nm{flex:1;font-size:13.5px}
+  .task .tm{color:var(--t3);font-size:12px}
+  .ico{width:26px;height:26px;border-radius:8px;border:1px solid var(--line);display:grid;place-items:center;color:var(--t2);flex:none}
+  .playbar{margin-top:10px;border-top:1px solid var(--line);padding-top:12px}
+  .pbrow{display:flex;align-items:center;gap:10px}
+  .pbtn{width:34px;height:34px;border-radius:50%;background:var(--brand);color:#06121f;display:grid;place-items:center;flex:none;font-size:13px}
+  .pbtxt{flex:1;min-width:0}
+  .pbtxt b{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pbtxt span{font-size:11.5px;color:var(--t3)}
+  .clock{font-size:22px;font-weight:700;letter-spacing:.5px}
+  .bar{height:5px;border-radius:999px;background:var(--soft);margin-top:10px;overflow:hidden}
+  .bar i{display:block;height:100%;width:62%;background:var(--brand);border-radius:999px}
+  .ov{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+  .num{background:var(--card-hover);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+  .num span{display:block;font-size:11.5px;color:var(--t3);margin-bottom:2px}
+  .num b{font-size:19px;font-weight:700}
+  .num i{font-style:normal;font-size:11px;color:var(--t3);margin-left:2px}
+  /* 记录 */
+  .rec-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .rec-body{max-height:300px;overflow:auto;padding-right:4px}
+  .day{font-size:12px;color:var(--t3);margin:10px 0 6px;display:flex}
+  .day span{margin-left:auto}
+  .rec{display:flex;gap:8px;padding:6px 0;border-left:1px solid var(--line);margin-left:5px;padding-left:14px;position:relative}
+  .rec:before{content:"";position:absolute;left:-4px;top:12px;width:7px;height:7px;border-radius:50%;background:var(--line-strong)}
+  .rec.ok:before{background:var(--ok)}
+  .rec .r1{flex:1;font-size:12.5px}
+  .rec .r2{color:var(--t3);font-size:11.5px}
+  .rec .mins{color:var(--t2);font-size:12px}
+  /* tabs */
+  .tabs{display:flex;gap:8px;margin:16px 0 10px}
+  .tab{border:1px solid var(--line);border-radius:9px;padding:7px 14px;font-size:13px;color:var(--t2);background:transparent}
+  .tab.on{border-color:var(--brand-line);color:var(--brand);font-weight:600;background:var(--brand-soft)}
+  .rowitem{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px}
+  .cover{width:92px;height:56px;border-radius:9px;flex:none;background:linear-gradient(135deg,#2a3b52,#46628a);display:grid;place-items:center;color:#8ec7ff;font-size:11px}
+  .rowitem .info{flex:1;min-width:0}
+  .rowitem .t{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rowitem .d{font-size:11.5px;color:var(--t3);margin-top:2px}
+  .prog{height:4px;border-radius:999px;background:var(--soft);margin-top:6px;overflow:hidden;width:70%}
+  .prog i{display:block;height:100%;background:var(--brand)}
+  .pct{color:var(--t2);font-size:12px;flex:none}
+  .hint{color:var(--t3);font-size:12px;padding:12px 4px}
+</style>
+</head>
+<body>
+  <aside>
+    <div class="brand">
+      <div class="logo">学</div>
+      <div><b>BiliLite</b><span>专注模式 · 黑白极简</span></div>
+    </div>
+    <div class="nav on">学习<span class="badge">0.28h</span></div>
+    <div class="nav">习惯</div>
+    <div class="nav">课表</div>
+    <div class="spacer"></div>
+    <div class="user">
+      <div class="ava"></div>
+      <div><b>风迹水滴凡</b><span>Lv6 · 已登录</span></div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="top">
+      <div class="chip">剧场模式</div>
+      <div class="chip">←</div>
+    </div>
+    <div class="content">
+      <div class="hero">
+        <!-- 左列：专注面板 + 今日概览 -->
+        <div>
+          <div class="panel">
+            <div class="ptitle">◎ 专注目标 <b>今日 1 轮 · 17:17</b><span class="right">＋</span></div>
+            <div class="chips"><span class="c on">坚持中 4</span><span class="c">已归档 0</span></div>
+            <div class="task"><span class="dot" style="background:#2f6fe4">英</span><span class="nm">英语学习</span><span class="tm">今日 –</span><span class="ico">▷</span></div>
+            <div class="task"><span class="dot" style="background:#2f8f5b">钢</span><span class="nm">钢琴</span><span class="tm">今日 –</span><span class="ico">▷</span></div>
+            <div class="task"><span class="dot" style="background:#7a4fd1">三</span><span class="nm">新三</span><span class="tm">今日 17:17</span><span class="ico">▷</span></div>
+            <div class="task on"><span class="dot" style="background:#c07030">英</span><span class="nm">英语阅读</span><span class="tm">今日 –</span><span class="ico" style="background:var(--brand);color:#06121f;border:0">▮▮</span></div>
+            <div class="playbar">
+              <div class="pbrow">
+                <span class="pbtn">▮▮</span>
+                <div class="pbtxt"><b>按计划 · 英语阅读 · 到 20:00 结束</b><span>今日已专注 17 分</span></div>
+                <span class="clock">50:20</span>
+              </div>
+              <div class="bar"><i></i></div>
+            </div>
+            <div class="ov">
+              <div class="num"><span>今日番茄</span><b>1</b><i>轮</i></div>
+              <div class="num"><span>今日专注</span><b>17</b><i>m</i></div>
+              <div class="num"><span>总番茄</span><b>8</b><i>轮</i></div>
+              <div class="num"><span>总专注时长</span><b>2</b><i>h 6m</i></div>
+            </div>
+          </div>
+        </div>
+        <!-- 右列：专注记录 -->
+        <div class="panel">
+          <div class="rec-head">
+            <div class="ptitle" style="margin:0">◎ 专注记录 <b>共 8 条</b></div>
+            <span class="right">🗑　＋</span>
+          </div>
+          <div class="hint" style="padding-top:2px">只记录已完成的专注；鼠标悬停可改名</div>
+          <div class="rec-body">
+            <div class="day">今天 <span>17m</span></div>
+            <div class="rec"><div class="r1">16:10 – 16:27</div><div class="mins">17m</div></div>
+            <div class="rec" style="border-left:0;padding-left:26px"><div class="r1" style="color:var(--t3);font-size:12px">新三</div></div>
+            <div class="day">11月6日 <span>33m</span></div>
+            <div class="rec ok"><div class="r1">16:43 – 16:44</div><div class="mins">1m</div></div>
+            <div class="rec" style="border-left:0;padding-left:26px"><div class="r1" style="color:var(--t3);font-size:12px">新三</div></div>
+            <div class="rec ok"><div class="r1">14:32 – 14:45</div><div class="mins">13m</div></div>
+            <div class="rec" style="border-left:0;padding-left:26px"><div class="r1" style="color:var(--t3);font-size:12px">新三</div></div>
+            <div class="rec ok"><div class="r1">10:02 – 10:19</div><div class="mins">17m</div></div>
+            <div class="rec" style="border-left:0;padding-left:26px"><div class="r1" style="color:var(--t3);font-size:12px">新三</div></div>
+            <div class="day">11月5日 <span>1h 20m</span></div>
+            <div class="rec ok"><div class="r1">20:10 – 21:30</div><div class="mins">1h 20m</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <span class="tab on">学习进度（4）</span>
+        <span class="tab">学习清单（0）</span>
+      </div>
+      <div class="rowitem">
+        <div class="cover">新概念 第三册</div>
+        <div class="info">
+          <div class="t">P28 L008 单词</div>
+          <div class="d">胶学 · 已看 0:00 / 18:30 · 45 分钟前</div>
+          <div class="prog"><i style="width:0%"></i></div>
+        </div>
+        <span class="pct">0%</span>
+        <span class="ico">🗑</span>
+      </div>
+      <div class="rowitem">
+        <div class="cover" style="background:linear-gradient(135deg,#5a4a2a,#8a6b3a)">雅思托福课</div>
+        <div class="info">
+          <div class="t">P5【第0周，直播】开班+答疑</div>
+          <div class="d">刘羽Leo · 已看 0:03 / 2:39:06 · 45 分钟前</div>
+          <div class="prog"><i style="width:0%"></i></div>
+        </div>
+        <span class="pct">0%</span>
+        <span class="ico">🗑</span>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

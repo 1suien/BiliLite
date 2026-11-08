@@ -8,6 +8,8 @@ import { computed } from 'vue'
 import Icon from '@/components/Icon.vue'
 import { usePomodoroStore } from '@/stores/pomodoro'
 
+const props = withDefaults(defineProps<{ compact?: boolean }>(), { compact: false })
+
 const pomo = usePomodoroStore()
 
 /** 秒 -> { 数字, 单位 }，拆开是为了让数字大、单位小 */
@@ -30,7 +32,7 @@ const cards = computed(() => [
 </script>
 
 <template>
-  <div class="panel ov">
+  <div class="panel ov" :class="{ 'ov-row': props.compact }">
     <div class="ov-head">
       <Icon name="chart" :size="15" />
       <b>概览</b>
@@ -53,6 +55,23 @@ const cards = computed(() => [
 .ov {
   margin-bottom: 18px;
   padding: 14px 16px 16px;
+}
+.ov-row {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+}
+.ov-row .ov-head {
+  display: none;
+}
+.ov-row .ov-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.ov-row .ov-card {
+  padding: 10px 12px;
+}
+.ov-row .ov-v {
+  font-size: 20px;
 }
 .ov-head {
   display: flex;

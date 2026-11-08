@@ -4,7 +4,6 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import Icon from '@/components/Icon.vue'
 import FocusTargets from '@/components/FocusTargets.vue'
 import FocusOverview from '@/components/FocusOverview.vue'
-import FocusRecords from '@/components/FocusRecords.vue'
 import { useSettingsStore, makeFocusTarget } from '@/stores/settings'
 import { usePomodoroStore } from '@/stores/pomodoro'
 import { useLearnStore } from '@/stores/learn'
@@ -232,86 +231,80 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="rootEl" class="focus" :data-elapsed="pomo.elapsedSeconds">
+    <FocusOverview compact />
     <div class="focus-layout">
       <div class="panel ft">
-        <FocusTargets />
-        <div class="ft-sep" />
-        <div class="focus-bar" :class="{ rest: pomo.mode === 'break', on: pomo.running }">
-          <button class="fb-play" :title="pomo.primaryLabel" @click="pomo.primaryAction()">
-            <Icon :name="pomo.running ? 'pause' : 'play'" :size="16" />
-            <span class="sr-only">{{ pomo.primaryLabel }}</span>
-          </button>
-          <div class="fb-main">
-            <div class="fb-top">
-              <span class="fb-name">{{ statusText }}</span>
-              <button v-if="!pomo.running" class="fb-bind" title="更换专注目标" @click="openBind">
-                <Icon name="target" :size="14" />
-                <span class="sr-only">{{ pomo.task ? '更换' : '绑定任务' }}</span>
+        <div class="fh">
+          <div class="fh-left">
+            <FocusTargets />
+          </div>
+          <div class="fh-right">
+            <div class="fh-ring" :class="{ rest: pomo.mode === 'break' }" :style="{ '--p': percent }">
+              <div class="fh-in">
+                <div class="fh-clock focus-clock mono">{{ clockText }}</div>
+                <div class="fh-sub">{{ pomo.running ? '进行中' : '待开始' }} · 已过 {{ percent }}%</div>
+              </div>
+            </div>
+            <div class="fh-status">{{ statusText }}</div>
+            <div class="fh-actions">
+              <button class="btn primary" @click="pomo.primaryAction()">{{ pomo.primaryLabel }}</button>
+              <button class="btn ghost" :disabled="pomo.running" @click="pomo.reset()">重置</button>
+              <button
+                v-if="!pomo.plan"
+                class="btn sm ghost"
+                :title="showSettings ? '收起时长设置' : '设置时长'"
+                aria-label="时长设置"
+                @click="toggleSettings"
+              >
+                <Icon name="settings" :size="14" />
               </button>
-              <span class="fb-clock focus-clock mono">{{ clockText }}</span>
+              <button
+                class="btn sm ghost"
+                title="全屏专注（大圆环）"
+                aria-label="全屏专注"
+                @click="toggleFull"
+              >
+                <Icon name="expand" :size="14" />
+              </button>
             </div>
-            <div class="fb-track">
-              <i :style="{ width: percent + '%' }" />
+            <div v-if="showSettings && !pomo.plan" class="focus-settings">
+              <div class="row" style="gap: 8px">
+                <label class="fs-lab">专注时长</label>
+                <input
+                  :value="focusDraft"
+                  class="input mono"
+                  type="number"
+                  :min="MIN_MINUTES"
+                  :max="MAX_MINUTES"
+                  style="width: 76px"
+                  @input="onDurationInput('focus', $event)"
+                  @change="onDurationInput('focus', $event)"
+                />
+                <span class="muted" style="font-size: 12px">分钟</span>
+              </div>
+              <div class="row" style="gap: 8px">
+                <label class="fs-lab">休息时长</label>
+                <input
+                  :value="breakDraft"
+                  class="input mono"
+                  type="number"
+                  :min="MIN_MINUTES"
+                  :max="MAX_MINUTES"
+                  style="width: 76px"
+                  @input="onDurationInput('break', $event)"
+                  @change="onDurationInput('break', $event)"
+                />
+                <span class="muted" style="font-size: 12px">分钟</span>
+                <button class="btn sm ghost" style="margin-left: auto" @click="reset4520">
+                  恢复 45 / 20
+                </button>
+              </div>
+              <p class="muted" style="font-size: 11.5px; margin: 0">
+                范围 {{ MIN_MINUTES }} ~ {{ MAX_MINUTES }} 分钟。计时进行中不能改，先结束或重置。
+              </p>
             </div>
           </div>
-          <button
-            v-if="!pomo.plan"
-            class="btn sm ghost"
-            :title="showSettings ? '收起时长设置' : '设置时长'"
-            aria-label="时长设置"
-            @click="toggleSettings"
-          >
-            <Icon name="settings" :size="14" />
-          </button>
-          <button
-            class="btn sm ghost"
-            title="全屏专注（大圆环）"
-            aria-label="全屏专注"
-            @click="toggleFull"
-          >
-            <Icon name="expand" :size="14" />
-          </button>
         </div>
-        <div v-if="showSettings && !pomo.plan" class="focus-settings">
-          <div class="row" style="gap: 8px">
-            <label class="fs-lab">专注时长</label>
-            <input
-              :value="focusDraft"
-              class="input mono"
-              type="number"
-              :min="MIN_MINUTES"
-              :max="MAX_MINUTES"
-              style="width: 76px"
-              @input="onDurationInput('focus', $event)"
-              @change="onDurationInput('focus', $event)"
-            />
-            <span class="muted" style="font-size: 12px">分钟</span>
-          </div>
-          <div class="row" style="gap: 8px">
-            <label class="fs-lab">休息时长</label>
-            <input
-              :value="breakDraft"
-              class="input mono"
-              type="number"
-              :min="MIN_MINUTES"
-              :max="MAX_MINUTES"
-              style="width: 76px"
-              @input="onDurationInput('break', $event)"
-              @change="onDurationInput('break', $event)"
-            />
-            <span class="muted" style="font-size: 12px">分钟</span>
-            <button class="btn sm ghost" style="margin-left: auto" @click="reset4520">
-              恢复 45 / 20
-            </button>
-          </div>
-          <p class="muted" style="font-size: 11.5px; margin: 0">
-            范围 {{ MIN_MINUTES }} ~ {{ MAX_MINUTES }} 分钟。计时进行中不能改，先结束或重置。
-          </p>
-        </div>
-      </div>
-      <div class="focus-right">
-        <FocusOverview />
-        <FocusRecords />
       </div>
     </div>
 
@@ -415,9 +408,49 @@ onBeforeUnmount(() => {
 
 <style scoped>
 /* 来源: LearnView-DSahkCnj.css  scope: data-v-8e66c095 */
+.fh {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(300px, 0.92fr);
+  gap: 24px;
+  align-items: center;
+}
+.fh-left { min-width: 0; }
+.fh-right {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.fh-ring {
+  --p: 0;
+  width: 152px;
+  height: 152px;
+  border-radius: 50%;
+  padding: 9px;
+  background: conic-gradient(var(--brand) calc(var(--p) * 1%), var(--line-strong) 0);
+  transition: background 0.3s linear;
+}
+.fh-ring.rest { background: conic-gradient(var(--ok) calc(var(--p) * 1%), var(--line-strong) 0); }
+.fh-in {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: var(--bg-elev);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  text-align: center;
+}
+.fh-clock { font-size: 26px; font-weight: 700; }
+.fh-sub { font-size: 11px; color: var(--t3); }
+.fh-status { font-size: 13px; color: var(--t2); }
+.fh-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; }
 .focus-layout {
   display: grid;
-  grid-template-columns: minmax(320px, 384px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   align-items: start;
 }
@@ -638,5 +671,12 @@ onBeforeUnmount(() => {
 @media (max-width: 900px) {
   .focus-layout {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .fh {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .fh-ring {
+    width: 132px;
+    height: 132px;
   }}
 </style>
