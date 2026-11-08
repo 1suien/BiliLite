@@ -93,6 +93,8 @@ export interface DashStat {
   tCanPlay: number
   /** 首次真正播放（playing 事件） */
   tPlay: number
+  /** 线路空闲超时换线的次数 */
+  retries: number
   /** append 次数 / append 总耗时（定位 MSE 慢） */
   appends: number
   appendMs: number
@@ -136,6 +138,9 @@ const AUDIO_CHUNK = 128 * 1024
 const FLUSH_MS = 300
 /** 首包超时（毫秒）：超时就取消这条线路换下一条 */
 const FIRST_CHUNK_TIMEOUT = 8000
+/** 连上后多久没有新字节就判定这条线路挂了（B 站部分 CDN 会发完 init 段就不动） */
+const IDLE_TIMEOUT = 6000
+const IDLE_TICK = 800
 /** 每次 fetch 的超时（毫秒） */
 const FETCH_TIMEOUT = 8000
 /** 等 sourceopen / updateend 的超时 */
@@ -524,6 +529,7 @@ class DashKernel implements DashPlayer {
     tReady: 0,
     tCanPlay: 0,
     tPlay: 0,
+    retries: 0,
     appends: 0,
     appendMs: 0,
     host: '',
@@ -655,6 +661,7 @@ class DashKernel implements DashPlayer {
       tReady: 0,
       tCanPlay: 0,
       tPlay: 0,
+      retries: 0,
       appends: 0,
       appendMs: 0,
       host: '',
@@ -1135,6 +1142,9 @@ class DashKernel implements DashPlayer {
       const abort = new AbortController()
       this.aborts.add(abort)
       let firstTimer: any = null
+      let idleTimer: any = null
+      let lastDataAt = Date.now()
+      let idleAborted = false
       try {
         const res = await fetch(url, {
           method: 'GET',
@@ -1147,6 +1157,9 @@ class DashKernel implements DashPlayer {
             this.stat.host = new URL(url).host
           } catch {}
         }
+        try {
+          this.stat.host = new URL(url).host
+        } catch {}
         log('streamFrom', kind, 'offset=' + offset, 'status=' + res.status, 'url=' + url.slice(0, 90))
 
         // 服务端不认 Range（返回 200 整段）时换下一条线路，否则会从头播
@@ -1189,6 +1202,17 @@ class DashKernel implements DashPlayer {
           } catch {}
         }, FIRST_CHUNK_TIMEOUT)
 
+        // 空闲超时：连上之后「发完 init 段就不动」的线路也要能判死（0.4.44）
+        idleTimer = setInterval(() => {
+          if (Date.now() - lastDataAt <= IDLE_TIMEOUT) return
+          if (idleAborted) return
+          idleAborted = true
+          log('streamFrom 空闲超时，换线路', kind, 'idle=' + (Date.now() - lastDataAt) + 'ms')
+          try {
+            abort.abort()
+          } catch {}
+        }, IDLE_TICK)
+
         for (;;) {
           if (gen !== this.gen || this.destroyed) {
             try {
@@ -1196,16 +1220,19 @@ class DashKernel implements DashPlayer {
             } catch {}
             return appended
           }
-          // 背压：缓冲够超前就等一会儿再读
+          // 背压：缓冲够超前就等一会儿再读（这段时间不算「线路空闲」，否则会被看门狗误杀）
           while (this.ahead(kind) > BUFFER_AHEAD && gen === this.gen && !this.destroyed) {
+            lastDataAt = Date.now()
             if (!(await flush())) return appended
             await sleep(220)
+            lastDataAt = Date.now()
           }
 
           const { done, value } = await reader.read()
           if (done) break
           if (!value || !value.byteLength) continue
 
+          lastDataAt = Date.now()
           if (firstTimer) {
             clearTimeout(firstTimer)
             firstTimer = null
@@ -1218,6 +1245,7 @@ class DashKernel implements DashPlayer {
           // 攒够一批 / 首批 / 超过 300ms 就 append
           if (reads === 1 || pendingBytes >= chunkLimit || Date.now() - pendingSince >= FLUSH_MS) {
             if (!(await flush())) return appended
+            lastDataAt = Date.now()
           }
 
           // 顺序拉的兜底模式：给用户一个「已加载 X MB」的进度提示
@@ -1244,10 +1272,34 @@ class DashKernel implements DashPlayer {
           clearTimeout(firstTimer)
           firstTimer = null
         }
+        if (idleTimer) {
+          clearInterval(idleTimer)
+          idleTimer = null
+        }
+        let host = ''
+        try {
+          host = new URL(url).host
+        } catch {}
+        if (host) this.stat.host = host
+        if (idleAborted) {
+          // 不是网络报错，而是「连上了但不给数据」：计数并提示正在换线路
+          this.stat.retries += 1
+          lastError = new Error(`线路 ${host || 'cdn'} 6 秒没有新数据`)
+          lastUrl = url
+          this.status('这条线路拉不动，正在换线路…')
+          log('streamFrom 空闲换线', kind, 'host=' + host)
+          if (gen !== this.gen || this.destroyed) return appended
+          continue
+        }
         lastError = e
         lastUrl = url
         if (gen !== this.gen || this.destroyed) return appended
         // 换下一条线路继续
+      } finally {
+        if (idleTimer) {
+          clearInterval(idleTimer)
+          idleTimer = null
+        }
       }
     }
 

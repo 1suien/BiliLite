@@ -276,6 +276,7 @@ function updatePerf() {
   if (st && st.tCanPlay) parts.push(`可播 ${(st.tCanPlay / 1000).toFixed(1)}s`)
   if (st && st.tPlay) parts.push(`播放 ${(st.tPlay / 1000).toFixed(1)}s`)
   if (firstFrameMs) parts.push(`首帧 ${(firstFrameMs / 1000).toFixed(1)}s`)
+  if (st && st.retries) parts.push(`换线 ${st.retries}次`)
   if (st && st.appends) parts.push(`append ${st.appends}次/${(st.appendMs / 1000).toFixed(1)}s`)
   if (st && st.host) {
     parts.push(
@@ -962,9 +963,25 @@ function isCdnError(text: string) {
   return /Failed to fetch|NetworkError|TypeError|拉流失败|net::ERR|加载失败|fetch 失败/i.test(text)
 }
 
+/** 拉流线路「连上但不给数据」（空闲超时换线）的报错 */
+function isStallError(text: string) {
+  return /没有新数据|线路.*没有数据/i.test(text)
+}
+
 /** 播放出错统一入口：CDN 抖动先自动换线路重试（最多 2 次），仍失败才把错误卡片给用户 */
 function handlePlayError(e: any) {
   const msg = String((e && e.message) || e || '播放失败')
+  if (isStallError(msg) && stallRetries < 1) {
+    stallRetries++
+    errorText.value = ''
+    status.value = '拉流线路无响应，正在重新获取播放地址…'
+    if (retryTimer) clearTimeout(retryTimer)
+    retryTimer = window.setTimeout(() => {
+      retryTimer = null
+      loadPlayurl().catch(() => {})
+    }, 700)
+    return
+  }
   if (isCdnError(msg) && cdnRetries < 2) {
     cdnRetries++
     errorText.value = ''
@@ -980,8 +997,22 @@ function handlePlayError(e: any) {
   status.value = ''
 }
 
+let stallRetries = 0
+
+/** 高清线路都拉不动时，降到 720P 再取一次地址 */
+async function retryLowerQuality() {
+  settings.patch({ defaultQuality: 64 })
+  stallRetries = 0
+  cdnRetries = 0
+  status.value = '正在按 720P 重新获取地址…'
+  await loadPlayurl(true)
+}
+
 async function loadPlayurl(manual?: any) {
-  if (manual) cdnRetries = 0
+  if (manual) {
+    cdnRetries = 0
+    stallRetries = 0
+  }
   if (slowHintTimer) {
     clearTimeout(slowHintTimer)
     slowHintTimer = null
@@ -1869,6 +1900,13 @@ onBeforeUnmount(() => {
         <div v-if="diagLine" class="err-why" style="margin-top: 4px">{{ diagLine }}</div>
         <div class="row" style="margin-top: 8px">
           <button class="btn sm primary" @click="loadPlayurl">重新获取播放地址</button>
+          <button
+            v-if="Number(settings.settings.defaultQuality) > 64"
+            class="btn sm ghost"
+            @click="retryLowerQuality"
+          >
+            换 720P 试试
+          </button>
           <button class="btn sm ghost" @click="openExternal">在浏览器打开</button>
           <button v-if="!auth.loggedIn" class="btn sm" @click="ui.loginOpen = true">扫码登录</button>
         </div>
