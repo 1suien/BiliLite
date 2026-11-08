@@ -48,8 +48,6 @@ const slots = useSlotsStore()
 const ups = useUpsStore()
 const ui = useUiStore()
 
-const keyword = ref('')
-const searchEl = ref<HTMLInputElement | null>(null)
 const scrollEl = ref<HTMLElement | null>(null)
 /** 剧场模式：收起侧栏与顶栏（原实现用 ref 存在 setup 里，不落盘） */
 const theater = ref(false)
@@ -161,12 +159,6 @@ const todayHours = computed(() => toHours(learn.todaySeconds))
 /** 当前路径：用于侧栏高亮（原实现用 route.path 精确匹配，不用 router-link 的前缀匹配） */
 const activePath = computed(() => route.path)
 
-function onSearch() {
-  const q = keyword.value.trim()
-  if (!q) return
-  router.push({ name: 'search', query: { q } })
-}
-
 function logout() {
   auth.logout()
   ui.toast('已退出登录')
@@ -238,11 +230,6 @@ function onKeydown(e: KeyboardEvent) {
   const el = document.activeElement as HTMLElement | null
   // 正在输入框/可编辑区域里打字时不抢快捷键
   const editing = !!el && (/^(INPUT|TEXTAREA)$/.test(el.tagName) || el.isContentEditable)
-  if (e.key === '/' && !editing) {
-    e.preventDefault()
-    if (searchEl.value) searchEl.value.focus()
-    return
-  }
   if (editing || e.ctrlKey || e.metaKey || e.altKey) return
   if (e.key === 'f' || e.key === 'F') {
     e.preventDefault()
@@ -503,23 +490,7 @@ onUnmounted(() => {
 
     <main class="main">
       <header class="top">
-        <div class="top-search">
-          <input
-            ref="searchEl"
-            v-model="keyword"
-            class="input"
-            type="search"
-            placeholder="搜索视频 / 知识点，回车确认（按 / 快速聚焦）"
-            @keyup.enter="onSearch"
-          />
-          <button class="btn" @click="onSearch">
-            <Icon name="search" :size="16" />
-          </button>
-        </div>
         <span class="grow"></span>
-        <span class="chip plain" title="今天累计学习时长">
-          <Icon name="clock" :size="13" /> 今日 {{ todayHours }}h
-        </span>
         <button
           :class="['btn ghost sm', { on: theater }]"
           title="剧场模式：收起侧栏与顶栏，专注看这一段（快捷键 F，Esc 退出）"

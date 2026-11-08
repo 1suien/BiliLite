@@ -405,10 +405,6 @@ onUnmounted(() => {
   <div class="schedule-page">
     <div class="page-head">
       <h1>课表</h1>
-      <span class="muted sc-sub">
-        {{ WEEKDAY_LABELS[todayWd - 1] }} · 今日 {{ todayList.length }} 项
-        <template v-if="stat.studyCount"> · 学习 {{ fmtDur(stat.plan) }}</template>
-      </span>
       <span class="grow" />
       <div class="seg sc-seg">
         <button :class="{ on: tab === 'today' }" @click="tab = 'today'">今日</button>
@@ -531,7 +527,6 @@ onUnmounted(() => {
             <div class="sc-card">
               <div class="sc-card-h">今日进度</div>
               <div class="stat-row">
-                <div class="stat"><b>{{ stat.done }} / {{ stat.total }}</b><span>已完成</span></div>
                 <div class="stat" title="今日专注记录合计（开始专注与手动补记都计入）"><b>{{ fmtDur(focusMinutes) }}</b><span>已学习</span></div>
                 <div class="stat"><b>{{ fmtDur(stat.plan) }}</b><span>计划</span></div>
               </div>
@@ -550,13 +545,6 @@ onUnmounted(() => {
                   {{ s.name }}
                   <em>{{ s.kind === 'break' ? '休息' : '学习' }} {{ fmtDur(durOf(s)) }}</em>
                 </div>
-              </div>
-            </div>
-
-            <div class="sc-card">
-              <div class="sc-card-h">提醒</div>
-              <div class="tip">
-                每个时段开始前 5 分钟弹右下角卡片（每条可单独改）；开始时刻可选系统通知。都走设置里的提醒开关。
               </div>
             </div>
 

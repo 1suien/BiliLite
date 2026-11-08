@@ -11,7 +11,6 @@ import { useRouter } from 'vue-router'
 import Icon from '@/components/Icon.vue'
 import BiliImage from '@/components/BiliImage.vue'
 import EmptyBlock from '@/components/EmptyBlock.vue'
-import HabitHome from '@/components/HabitHome.vue'
 import FocusPanel from '@/components/FocusPanel.vue'
 import { usePomodoroStore } from '@/stores/pomodoro'
 import { useLearnStore } from '@/stores/learn'
@@ -65,7 +64,6 @@ onMounted(async () => {
 
 <template>
   <div>
-    <HabitHome />
     <FocusPanel />
 
     <div class="tabs">
