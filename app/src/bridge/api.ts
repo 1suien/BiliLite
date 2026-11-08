@@ -637,7 +637,8 @@ export async function videoPlayurl(bvid: string, cid: any, qn = 80): Promise<Pla
     })),
     dash: dash
       ? {
-          duration: dash.duration,
+          // 数据桥/内核约定 dash.duration 是毫秒；B 站接口给的是秒，这里统一乘 1000
+          duration: Number(dash.duration || 0) * 1000,
           video: pickStreams(dash.video, (v: any) => {
             const url = fixImageUrl(v.baseUrl || v.base_url)
             const backup = (v.backupUrl || v.backup_url || []).map(fixImageUrl)
@@ -693,7 +694,10 @@ export async function videoPlayurl(bvid: string, cid: any, qn = 80): Promise<Pla
   // —— 兼容别名（渲染层 types.ts 的 PlayUrl 用 videos/audios/duration）——
   result.videos = result.dash ? result.dash.video : []
   result.audios = result.dash ? result.dash.audio : []
-  result.duration = result.dash ? result.dash.duration : result.durl[0] && result.durl[0].length
+  // 类型声明里 duration 是秒（dash.duration 内部已按毫秒存，这里换回秒）
+  result.duration = result.dash
+    ? Math.round((result.dash.duration || 0) / 1000)
+    : result.durl[0] && result.durl[0].length
   result.url = result.durl[0] && result.durl[0].url
   return result as PlayUrl
 }

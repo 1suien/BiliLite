@@ -611,7 +611,12 @@ class DashKernel implements DashPlayer {
   /** 有效总时长：元素报不出来就退回 playurl 里的 duration */
   getDuration(): number {
     const d = this.video.duration
-    return Number.isFinite(d) && d > 0 ? d : this.duration || 0
+    if (Number.isFinite(d) && d > 0) {
+      // 元素时长明显小于已知总时长（MSE 只 append 了一小段时）→ 用已知值
+      if (this.saneSeconds(this.durationHint) && d * 2 < this.durationHint) return this.durationHint
+      return d
+    }
+    return this.duration || 0
   }
 
   /** 已知时长（秒）：MediaSource 时长未知时先写死）
@@ -982,11 +987,8 @@ class DashKernel implements DashPlayer {
     this.status(this.restarting ? '正在跳转…' : '缓冲中…')
 
     // 时长：已知就写死，未知先设 Infinity，等缓冲够了再收尾
-    const dur = this.saneSeconds(this.duration)
-      ? this.duration
-      : this.saneSeconds(this.durationHint)
-        ? this.durationHint
-        : Infinity
+    const candidates = [this.duration, this.durationHint].filter((v) => this.saneSeconds(v))
+    const dur = candidates.length ? Math.max(...candidates) : Infinity
     try {
       this.mediaSource.duration = dur
       log('ms.duration =', dur === Infinity ? 'Infinity(待收尾修正)' : dur)

@@ -1045,7 +1045,8 @@ async function loadPlayurl(manual?: any) {
       },
       onTime: (cur, dur) => {
         current.value = cur
-        if (dur) duration.value = dur
+        // 已知时长（分P / dash.duration）更可信：元素上报更小的值时不覆盖
+        if (dur && (!duration.value || dur > duration.value)) duration.value = dur
         updateBuffered()
         if (isAndroid && addrStart) {
           if (performance.now() - addrStart > 30000) {
@@ -1056,7 +1057,7 @@ async function loadPlayurl(manual?: any) {
         }
       },
       onDuration: (d) => {
-        if (d) duration.value = d
+        if (d && (!duration.value || d > duration.value)) duration.value = d
       },
       onState: (s, message) => {
         playing.value = s === 'playing'
