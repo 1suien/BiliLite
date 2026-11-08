@@ -75,6 +75,8 @@ watch(
 
 /** 归到「更多」区域的三个入口（原实现 b 数组） */
 const MORE_PATHS = ['/fav', '/ups', '/settings']
+/** 0.4.41：这些入口从侧栏隐藏（功能保留，统一走头像快捷菜单） */
+const SIDEBAR_HIDDEN = ['/local', '/ups', '/fav', '/settings']
 
 const NAV_ITEMS: NavItem[] = [
   { to: '/ups', icon: 'users', label: 'UP 管理' },
@@ -95,10 +97,12 @@ const orderedNav = computed<NavItem[]>(() => {
   return [...custom, ...rest]
 })
 
-/** 主区域导航（不含「更多」） */
-const mainNav = computed(() => orderedNav.value.filter((n) => !MORE_PATHS.includes(n.to)))
-/** 「更多」区域导航 */
-const moreNav = computed(() => orderedNav.value.filter((n) => MORE_PATHS.includes(n.to)))
+/** 主区域导航：0.4.41 起只留「学习/习惯/课表」，本地/UP/收藏/设置在头像菜单里 */
+const mainNav = computed(() =>
+  orderedNav.value.filter((n) => !SIDEBAR_HIDDEN.includes(n.to)),
+)
+/** 「更多」区域导航：0.4.41 起侧栏不再展示（入口在头像菜单） */
+const moreNav = computed<NavItem[]>(() => [])
 
 // ---- 拖动排序（HTML5 drag & drop）----
 const dragFrom = ref('')
@@ -177,9 +181,11 @@ const sideUserEl = ref<HTMLElement | null>(null)
 const setSideUserRef = (el: any) => {
   if (el) sideUserEl.value = el as HTMLElement
 }
-/** 快捷菜单项：按侧栏显示顺序（主区在前、更多区在后），跟随拖拽自定义顺序 */
+/** 快捷菜单项：固定顺序「本地 / UP 管理 / 收藏 / 设置」（侧栏已隐藏这些入口） */
 const userMenuItems = computed(() =>
-  [...mainNav.value, ...moreNav.value].filter((n) => USER_MENU_PATHS.includes(n.to)),
+  USER_MENU_PATHS.map(
+    (to) => orderedNav.value.find((n) => n.to === to) || NAV_ITEMS.find((n) => n.to === to),
+  ).filter((n): n is NavItem => !!n),
 )
 
 function placeUserMenu() {
@@ -404,34 +410,6 @@ onUnmounted(() => {
       </nav>
 
       <div class="side-foot">
-        <nav class="side-nav side-more" aria-label="更多">
-          <RouterLink
-            v-for="item in moreNav"
-            :key="item.to"
-            :to="item.to"
-            :class="[
-              'nav-item',
-              {
-                'router-link-active': activePath === item.to,
-                dragging: dragFrom === item.to,
-                'drop-target': dropTo === item.to && dragFrom !== item.to,
-              },
-            ]"
-            draggable="true"
-            :title="`${item.label}（按住拖动可调整顺序）`"
-            @dragstart="onDragStart(item, $event)"
-            @dragover="onDragOver(item, $event)"
-            @drop="onDrop(item, $event)"
-            @dragend="cancelDrag"
-          >
-            <Icon :name="item.icon" :size="17" />
-            <span>{{ item.label }}</span>
-            <span v-if="item.to === '/learn' && learn.todaySeconds > 0" class="badge">
-              {{ todayHours }}h
-            </span>
-          </RouterLink>
-        </nav>
-
         <div class="side-account">
           <template v-if="auth.loggedIn">
             <div
