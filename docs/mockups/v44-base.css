@@ -119,3 +119,15 @@ html, body { margin: 0; height: 100%; background: #0a0a0b; color: #f3f3f4;
 .play-mask .pm-btn{display:flex;align-items:center;gap:10px;background:#fff;color:#111;border-radius:999px;padding:14px 26px;font-size:17px;font-weight:700;box-shadow:0 10px 30px rgba(0,0,0,.45)}
 .play-mask .pm-tri{width:0;height:0;border-left:14px solid #111;border-top:9px solid transparent;border-bottom:9px solid transparent}
 .play-mask .pm-tip{color:#d9d9dd;font-size:12.5px;background:rgba(0,0,0,.45);padding:4px 10px;border-radius:8px}
+
+.pb-wrap { position: relative; display: inline-flex; }
+.parts-pop-mock.side {
+  position: absolute;
+  right: calc(100% + 10px);
+  left: auto;
+  top: 50%;
+  transform: translateY(-50%);
+  margin: 0;
+  width: 400px;
+  max-height: min(58vh, 460px);
+}

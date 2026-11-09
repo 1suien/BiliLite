@@ -1709,13 +1709,14 @@ body.has-reminder .page-float {
 }
 .parts-pop {
   position: absolute;
-  right: 0;
+  right: calc(100% + 10px);
   left: auto;
-  top: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
   z-index: 30;
   width: 400px;
   max-width: calc(100vw - 32px);
-  max-height: min(60vh, 480px);
+  max-height: min(58vh, 460px);
   overflow: auto;
   background: var(--card);
   border: 1px solid var(--line-strong);
@@ -1731,6 +1732,7 @@ body.has-reminder .page-float {
     right: 8px;
     bottom: 8px;
     top: auto;
+    transform: none;
     width: auto;
     max-height: 70vh;
     border-radius: 16px;
