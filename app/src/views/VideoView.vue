@@ -1950,13 +1950,34 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <!-- 标题 + 操作 -->
-      <div style="margin-top: 14px; display: flex; gap: 10px; align-items: flex-start">
+      <!-- 标题 + 操作（0.4.46：按效果图改成「标题 → meta → 操作」三段，操作单独一行） -->
+      <div style="margin-top: 14px">
         <div class="grow" style="min-width: 0">
           <h1 style="font-size: 17px; margin: 0 0 6px; line-height: 1.45">{{ video.title }}</h1>
           <div v-if="partLabel" class="dim" style="font-size: 12.5px">正在播放：{{ partLabel }}</div>
         </div>
-        <div class="row" style="flex: none">
+        
+      </div>
+
+      <!-- UP / BV / 发布时间 -->
+      <div class="row muted" style="flex-wrap: wrap; margin-top: 10px; font-size: 12.5px">
+        <span class="chip link" @click="router.push({ name: 'up', params: { mid: String(upMid) } })">
+          <Icon name="user" :size="13" /> {{ upName }}
+        </span>
+        <button
+          v-if="bvid"
+          class="chip link bv-chip mono"
+          title="点击复制 BV 号"
+          aria-label="复制 BV 号"
+          @click="copyBvid"
+        >
+          <Icon name="copy" :size="12" /> {{ bvid }}
+        </button>
+        <span class="chip plain">{{ formatDateTime(video.pubdate || 0) }}</span>
+      </div>
+
+      <div class="row" style="margin-top: 12px; flex-wrap: wrap">
+
           <button class="btn sm" @click="collectOpen = true">
             <Icon :name="collectCount ? 'check' : 'star'" :size="14" />
             {{ collectCount ? `已收藏 ${collectCount > 1 ? collectCount + ' 处' : ''}` : '收藏' }}
@@ -1994,24 +2015,6 @@ onBeforeUnmount(() => {
             <Icon name="pip" :size="16" />
           </button>
         </div>
-      </div>
-
-      <!-- UP / BV / 发布时间 -->
-      <div class="row muted" style="flex-wrap: wrap; margin-top: 10px; font-size: 12.5px">
-        <span class="chip link" @click="router.push({ name: 'up', params: { mid: String(upMid) } })">
-          <Icon name="user" :size="13" /> {{ upName }}
-        </span>
-        <button
-          v-if="bvid"
-          class="chip link bv-chip mono"
-          title="点击复制 BV 号"
-          aria-label="复制 BV 号"
-          @click="copyBvid"
-        >
-          <Icon name="copy" :size="12" /> {{ bvid }}
-        </button>
-        <span class="chip plain">{{ formatDateTime(video.pubdate || 0) }}</span>
-      </div>
 
       <!-- Tab -->
       <div class="tabs" style="margin-top: 18px">
