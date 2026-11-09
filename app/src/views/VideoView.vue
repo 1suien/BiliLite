@@ -70,6 +70,10 @@ const videoEl = ref<HTMLVideoElement | null>(null)
 const wrapEl = ref<HTMLElement | null>(null)
 /** DASH 内核实例（非响应式，手动管理生命周期） */
 let player: DashPlayer | null = null
+
+/** 本机 0.4.62：无索引线路 → 切到单文件流（durl）按时间直接定位 */
+const directMode = ref(false)
+const directLoading = ref(false)
 /** 学习时长心跳 / 进度落库定时器 */
 let secondsTimer: any = null
 let saveTimer: any = null
@@ -1051,6 +1055,14 @@ async function retryLowerQuality() {
 }
 
 async function loadPlayurl(manual?: any) {
+  if (directMode.value) {
+    directMode.value = false
+    stopTimers()
+    try {
+      videoEl.value?.removeAttribute('src')
+      videoEl.value?.load()
+    } catch {}
+  }
   if (manual) {
     cdnRetries = 0
     stallRetries = 0
@@ -1142,6 +1154,10 @@ async function loadPlayurl(manual?: any) {
       onTracks: (t) => {
         trackQuality.value = Number(t && t.video && t.video.id) || 0
       },
+      onSlowSeek: (sec) => {
+        // 顺拉到超时还没到目标：切到可定位流（单文件 mp4，支持 Range 随机跳）
+        void switchToDirect(sec)
+      },
       onError: (e) => {
         handlePlayError(e)
       },
@@ -1182,6 +1198,13 @@ async function loadPlayurl(manual?: any) {
 /** 销毁播放器并清理状态 */
 function destroyPlayer() {
   player && (player.destroy(), (player = null))
+  directMode.value = false
+  if (videoEl.value) {
+    try {
+      videoEl.value.removeAttribute('src')
+      videoEl.value.load()
+    } catch {}
+  }
   stopTimers()
   playing.value = false
   current.value = 0
@@ -1385,9 +1408,97 @@ function onEnded() {
 /* ------------------------------- 播放控制 ------------------------------- */
 
 function togglePlay() {
+  const el = videoEl.value
+  if (directMode.value) {
+    if (!el) return
+    if (el.paused) el.play().catch(() => {})
+    else el.pause()
+    return
+  }
   if (!player) return
-  if (videoEl.value?.paused) player.play()
+  if (el?.paused) player.play()
   else player.pause()
+}
+
+/** 统一跳转入口：普通模式交给播放器，单文件模式直接改 currentTime */
+function requestSeekTo(sec: number) {
+  const at = Math.max(0, sec)
+  if (directMode.value) {
+    const el = videoEl.value
+    if (!el) return
+    try {
+      el.currentTime = at
+    } catch {}
+    current.value = at
+    return
+  }
+  player?.requestSeek(at)
+}
+
+/** 单文件流的时间/时长同步 */
+function onDirectTime() {
+  const el = videoEl.value
+  if (!el) return
+  current.value = el.currentTime || 0
+  const d = el.duration
+  if (d && isFinite(d) && d > 0) duration.value = d
+  updateBuffered()
+}
+
+/**
+ * 切到单文件流（playurl 的 fnval=1 / durl）：该流支持 HTTP Range，跳哪都快。
+ * 只在「线路没有索引、顺拉超时」时触发（见 DashPlayerHooks.onSlowSeek）。
+ */
+async function switchToDirect(sec: number) {
+  if (directMode.value || directLoading.value) return
+  if (!bili.video.downloadUrl) return
+  directLoading.value = true
+  status.value = '这条线路不支持定位，正在切到可定位流…'
+  try {
+    const info: any = await bili.video.downloadUrl(bvid.value, cid.value as any, 0)
+    const url = info && info.url
+    if (!url) throw new Error('没有可用的单文件地址')
+    destroyPlayer()
+    directMode.value = true
+    await nextTick()
+    const el = videoEl.value
+    if (!el) throw new Error('播放器未就绪')
+    el.src = url
+    el.load()
+    await new Promise<void>((resolve) => {
+      let done = false
+      const finish = () => {
+        if (done) return
+        done = true
+        el.removeEventListener('loadedmetadata', finish)
+        resolve()
+      }
+      el.addEventListener('loadedmetadata', finish)
+      setTimeout(finish, 5000)
+    })
+    el.addEventListener('timeupdate', onDirectTime)
+    el.addEventListener('play', () => {
+      playing.value = true
+    })
+    el.addEventListener('pause', () => {
+      playing.value = false
+    })
+    try {
+      const total = el.duration && isFinite(el.duration) ? el.duration : sec
+      el.currentTime = Math.min(sec, Math.max(0, total - 0.2))
+    } catch {}
+    el.play().catch(() => {})
+    current.value = el.currentTime || sec
+    status.value = ''
+    ui.toast('这条线路不支持精准定位，已切到可定位流', 'info', 3200)
+    startTimers()
+    updatePerf()
+  } catch (e: any) {
+    status.value = ''
+    ui.toast('切换可定位流失败：' + (e.message || '未知原因'), 'err', 4200)
+  } finally {
+    directLoading.value = false
+  }
 }
 
 /* ---------------- 画面手势：横滑调进度 / 双击快进快退（0.4.34） ---------------- */
@@ -1446,7 +1557,7 @@ function onStagePointerUp(e: PointerEvent) {
     const hint = seekHint.value
     seekHint.value = null
     // 只跳一次（播放器内部再做防抖/串行化）
-    if (hint && Math.abs(hint.delta) >= 2 && player) player.requestSeek(hint.target)
+    if (hint && Math.abs(hint.delta) >= 2) requestSeekTo(hint.target)
     setTimeout(() => {
       suppressStageClick = false
     }, 400)
@@ -1469,7 +1580,7 @@ function onStagePointerUp(e: PointerEvent) {
     const step = Number(settings.settings.seekStep) || 10
     const leftHalf = e.clientX < rect.left + rect.width / 2
     const at = Math.max(0, (videoEl.value?.currentTime || 0) + (leftHalf ? -step : step))
-    if (player) player.requestSeek(at)
+    requestSeekTo(at)
     const total = duration.value || at
     seekHint.value = { delta: leftHalf ? -step : step, target: Math.min(at, Math.max(0, total - 0.4)) }
     setTimeout(() => {
@@ -1498,8 +1609,8 @@ function onVideoClick() {
 
 /** 前进/后退 n 秒（键盘 ←/→） */
 function seekBy(n: number) {
-  if (!player) return
-  player.requestSeek((videoEl.value?.currentTime || 0) + n)
+  if (!player && !directMode.value) return
+  requestSeekTo((videoEl.value?.currentTime || 0) + n)
 }
 
 /** 进度条按下：拖动预览 + 松手 seek */
@@ -1514,7 +1625,7 @@ function onSeekPointerDown(e: PointerEvent) {
   const onUp = (ev: PointerEvent) => {
     const rect = el.getBoundingClientRect()
     const pct = Math.min(1, Math.max(0, (ev.clientX - rect.left) / rect.width))
-    player && player.requestSeek(pct * duration.value)
+    requestSeekTo(pct * duration.value)
     window.removeEventListener('pointermove', posAt)
     window.removeEventListener('pointerup', onUp)
   }

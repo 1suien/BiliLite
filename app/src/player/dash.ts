@@ -29,6 +29,8 @@ import type { PlayUrl } from '@/types'
 /* ------------------------------- 对外类型 ------------------------------- */
 
 export interface DashPlayerHooks {
+  /** 缓冲退化为顺序拉、等到超时仍未到目标时回调（本机 0.4.62：让上层切到可定位流） */
+  onSlowSeek?: (sec: number) => void
   /** 播放进度（秒）：timeupdate 触发，duration 为 0 时表示未知 */
   onTime?: (current: number, duration: number) => void
   /** 播放状态；waiting 时 message 里带缓冲文案，error 时带错误文案 */
@@ -511,6 +513,8 @@ class DashKernel implements DashPlayer {
   private aborts = new Set<AbortController>()
   /** 是否退化成「从 0 顺序拉」 */
   private usedFallbackFromZero = false
+  /** 状态行刷新节流计数（本机 0.4.62） */
+  private statusTick = 0
   private bufferingMsg = false
   private statusAt = 0
   /** 「用户是想播的」标记：load(autoplay) 时置位，MiniPlayer 也会直接写它 */
@@ -1441,23 +1445,40 @@ class DashKernel implements DashPlayer {
   /** 等目标时间点进缓冲后再跳（顺序拉兜底模式用） */
   private async jumpWhenBuffered(sec: number, gen: number) {
     const label = clockLabel(sec)
-    for (let i = 0; i < 160; i++) {
+    const total = this.getDuration()
+    const totalText = this.saneSeconds(total) ? clockLabel(total) : ''
+    const deadline = Date.now() + 6500
+    while (Date.now() < deadline) {
       if (gen !== this.gen || this.destroyed) return
-      if (this.isBuffered(sec)) {
+      const end = this.bufferedEnd()
+      // 本机 0.4.62：差 1.5 秒以内就当作可跳（追加粒度常停在目标前一点点，原来会永远等不到）
+      if (end >= sec - 1.5) {
         try {
-          this.video.currentTime = sec
+          this.video.currentTime = Math.min(sec, Math.max(0, end - 0.05))
         } catch {}
         this.status('')
         return
       }
-      if (i % 10 === 0) {
-        // 线路不支持按位置拉流时只能顺序缓冲，这里把「已经缓存到哪」写出来
-        const end = this.bufferedEnd()
-        this.status('这条线路不支持定位，正在缓冲到 ' + label + (end > 0 ? '（已缓存 ' + clockLabel(end) + '）' : ''))
+      if (this.statusTick++ % 8 === 0) {
+        const pct = total && this.saneSeconds(total) ? Math.min(99, Math.floor((end / total) * 100)) : 0
+        this.status(
+          '这条线路不支持精准定位，正在顺拉' +
+            (totalText ? ' ' + label + ' / ' + totalText : ' ' + label) +
+            (pct ? '（已缓存 ' + pct + '%）' : ''),
+        )
       }
-      await sleep(120)
+      await sleep(150)
     }
+    // 超时：先让用户能看，再从上层决定要不要换可定位流
+    const end = this.bufferedEnd()
     this.status('')
+    if (end > 0.5) {
+      try {
+        this.video.currentTime = Math.max(0, end - 1)
+      } catch {}
+    }
+    this.kickPlay()
+    this.hooks.onSlowSeek?.(sec)
   }
 
   /** 当前缓冲终点（秒） */
