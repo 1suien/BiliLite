@@ -319,6 +319,14 @@ function toggleHead() {
   } catch {}
 }
 
+/** 视频内分P弹层（0.4.49） */
+const partsMenu = ref(false)
+/** 从视频内分P列表切分P */
+async function pickPart(index: number) {
+  partsMenu.value = false
+  await selectPage(index)
+}
+
 const tab = ref('intro')
 /** 笔记输入 */
 const noteText = ref('')
@@ -1738,15 +1746,6 @@ onBeforeUnmount(() => {
           </div>
           <div v-else-if="perfText" class="perf-line perf-corner">{{ perfText }}</div>
 
-          <!-- 小窗占位 -->
-          <div
-            class="q-badge"
-            :title="'清晰度：' + qualityName(currentQuality) + '（点这里可切换）'"
-            @click.stop="qualityMenu = !qualityMenu"
-          >
-            {{ qualityName(currentQuality) }} ▾
-          </div>
-
           <div v-if="miniHere" class="player-msg player-msg-col">
             <Icon name="pip" :size="28" />
             <div>视频正在小窗播放</div>
@@ -1822,6 +1821,24 @@ onBeforeUnmount(() => {
                     <span v-if="isLocked(q)" class="k">登录</span>
                     <span v-else-if="q === currentQuality" class="k">当前</span>
                   </div>
+                </div>
+              </div>
+
+              <!-- 分P（0.4.49：从下面 tab 搬进视频内） -->
+              <div class="ctl-menu-wrap">
+                <button
+                  class="btn ghost sm"
+                  :title="'分P：共 ' + pages.length + ' 个'"
+                  @click.stop="partsMenu = !partsMenu"
+                >
+                  分P{{ pages.length > 1 ? ' ' + pages.length : '' }}
+                </button>
+                <div v-if="partsMenu" class="ctl-menu parts-menu">
+                  <div class="mhead">
+                    分P（{{ pages.length }}）
+                    <span class="dim" style="font-weight: 400">· 点了就切</span>
+                  </div>
+                  <PartList compact :parts="pages" :index="pageIndex" @select="pickPart" />
                 </div>
               </div>
 
@@ -1973,11 +1990,20 @@ onBeforeUnmount(() => {
 
       <!-- 标题 + 操作（0.4.46：按效果图改成「标题 → meta → 操作」三段，操作单独一行） -->
       <div v-show="!headCollapsed" style="margin-top: 14px">
+        <div class="row" style="align-items: flex-start; gap: 10px">
         <div class="grow" style="min-width: 0">
-          <h1 style="font-size: 17px; margin: 0 0 6px; line-height: 1.45">{{ video.title }}</h1>
+          <h1
+            class="head-title"
+            style="font-size: 17px; margin: 0 0 6px; line-height: 1.45"
+            title="点击收起"
+            @click="toggleHead"
+          >
+            {{ video.title }}
+          </h1>
           <div v-if="partLabel" class="dim" style="font-size: 12.5px">正在播放：{{ partLabel }}</div>
         </div>
-        
+        <span class="head-collapse" title="收起标题区" @click="toggleHead">收起 ⌃</span>
+        </div>
       </div>
 
       <!-- UP / BV / 发布时间 -->
@@ -2040,9 +2066,6 @@ onBeforeUnmount(() => {
       <!-- Tab -->
       <div class="tabs" style="margin-top: 18px">
         <div :class="['tab', { on: tab === 'intro' }]" @click="tab = 'intro'">简介</div>
-        <div :class="['tab', { on: tab === 'parts' }]" @click="tab = 'parts'">
-          分P<span class="dim">（{{ pages.length }}）</span>
-        </div>
         <div :class="['tab', { on: tab === 'notes' }]" @click="tab = 'notes'">
           笔记（{{ notes.length }}）
         </div>
@@ -2058,10 +2081,6 @@ onBeforeUnmount(() => {
         style="white-space: pre-wrap; font-size: 13px; color: var(--t2)"
       >
         {{ video.desc || '这个视频没有填写简介。' }}
-      </div>
-
-      <div v-else-if="tab === 'parts'" class="panel" style="padding: 14px">
-        <PartList :parts="pages" :index="pageIndex" @select="selectPage" />
       </div>
 
       <div v-else-if="tab === 'notes'" class="panel">

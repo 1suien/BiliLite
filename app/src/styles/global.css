@@ -1669,26 +1669,6 @@ body.has-reminder .page-float {
 }
 
 /* 清晰度进播放器（0.4.45） */
-.player-stage .q-badge {
-  position: absolute;
-  right: 12px;
-  top: 12px;
-  z-index: 6;
-  padding: 3px 9px;
-  border-radius: 6px;
-  font-size: 12px;
-  color: #fff;
-  background: rgba(0, 0, 0, 0.55);
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  backdrop-filter: blur(6px);
-  cursor: pointer;
-  opacity: 1;
-  font-weight: 600;
-  letter-spacing: 0.2px;
-}
-.player-stage .q-badge:hover {
-  opacity: 1;
-}
 .q-ctl {
   min-width: 62px;
   font-size: 12px;
@@ -1734,4 +1714,31 @@ body.has-reminder .page-float {
   color: var(--brand);
   font-size: 12.5px;
   white-space: nowrap;
+}
+
+/* 视频内分P弹层（0.4.49） */
+.parts-menu {
+  right: 8px;
+  bottom: 52px;
+  width: 340px;
+  max-height: 62vh;
+  overflow: auto;
+  padding: 8px;
+}
+.parts-menu .mhead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* 展开态标题行「收起」 */
+.head-collapse {
+  flex: none;
+  font-size: 12.5px;
+  color: var(--brand);
+  cursor: pointer;
+  padding: 2px 4px;
+  user-select: none;
+}
+.head-title {
+  cursor: pointer;
 }
