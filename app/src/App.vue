@@ -489,19 +489,7 @@ onUnmounted(() => {
     </aside>
 
     <main class="main">
-      <header class="top">
-        <span class="grow"></span>
-        <button
-          :class="['btn ghost sm', { on: theater }]"
-          title="剧场模式：收起侧栏与顶栏，专注看这一段（快捷键 F，Esc 退出）"
-          @click="toggleTheater"
-        >
-          <Icon name="monitor" :size="14" /> 剧场模式 <span class="kbd">F</span>
-        </button>
-        <button class="btn ghost sm" title="返回" @click="router.back()">
-          <Icon name="left" :size="15" />
-        </button>
-      </header>
+
 
       <div ref="scrollEl" class="scroll">
         <RouterView v-slot="{ Component }">

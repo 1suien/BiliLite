@@ -360,6 +360,19 @@ const cid = computed(() => {
   return p ? p.cid : detail.value && detail.value.cid
 })
 /** 清晰度候选（playurl.accept_quality 排序后） */
+/** 标题区折叠状态（本机 0.4.55：默认折叠成一行，点开再点收起） */
+const headCollapsed = ref(localStorage.getItem('study-bili-video-head-collapsed') !== '0')
+function toggleHead() {
+  headCollapsed.value = !headCollapsed.value
+  localStorage.setItem('study-bili-video-head-collapsed', headCollapsed.value ? '1' : '0')
+}
+/** 分P 下拉弹层 */
+const partsOpen = ref(false)
+function pickPart(i: number) {
+  partsOpen.value = false
+  selectPage(i)
+}
+
 const qualityList = computed(() => {
   const data = playurl.value
   if (!data) return []
@@ -1915,13 +1928,50 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <!-- 标题 + 操作 -->
-      <div style="margin-top: 14px; display: flex; gap: 10px; align-items: flex-start">
-        <div class="grow" style="min-width: 0">
-          <h1 style="font-size: 17px; margin: 0 0 6px; line-height: 1.45">{{ video.title }}</h1>
-          <div v-if="partLabel" class="dim" style="font-size: 12.5px">正在播放：{{ partLabel }}</div>
+      <!-- 常驻媒体工具栏：清晰度 + 分P（播放时也一直可点） -->
+      <div class="media-toolbar">
+        <span class="mt-label">清晰度</span>
+        <div class="row" style="flex-wrap: wrap; gap: 6px">
+          <span
+            v-for="q in qualityList"
+            :key="q"
+            :class="['chip', { on: q === currentQuality, cur: q === currentQuality, lock: isLocked(q) }]"
+            :title="isLocked(q) ? '未登录时选不了这一档，点「扫码登录」解锁' : qualityName(q)"
+            @click="selectQuality(q)"
+          >
+            {{ qualityName(q) }}
+          </span>
+          <span v-if="playurl && playurl.mode === 'durl'" class="muted" style="font-size: 11.5px">
+            该视频只提供整段流，档位受限
+          </span>
         </div>
-        <div class="row" style="flex: none">
+        <span class="grow" />
+        <span class="mt-label">分P</span>
+        <div class="parts-select">
+          <button class="parts-btn" :disabled="pages.length <= 1" @click="partsOpen = !partsOpen">
+            共 {{ pages.length }}P · 当前 {{ partLabel || 'P1' }} <span class="par">▾</span>
+          </button>
+          <div v-if="partsOpen" class="parts-pop">
+            <PartList :parts="pages" :index="pageIndex" @select="pickPart" />
+          </div>
+        </div>
+      </div>
+
+      <!-- 标题 + 操作（默认折叠一行，点开再点收起） -->
+      <div v-if="headCollapsed" class="head-collapsed" @click="toggleHead">
+        <span class="arw">▸</span>
+        <span class="ttl">{{ video.title }}</span>
+        <span class="more">展开 ⌄</span>
+      </div>
+      <div v-else class="head-open">
+        <div class="ho-row">
+          <h1 class="ho-title">{{ video.title }}</h1>
+          <button class="btn sm ghost" @click="toggleHead">收起 ⌃</button>
+        </div>
+        <div v-if="partLabel" class="dim" style="font-size: 12.5px; margin-top: 6px">
+          正在播放：{{ partLabel }}
+        </div>
+        <div class="row" style="flex-wrap: wrap; margin-top: 10px">
           <button class="btn sm" @click="collectOpen = true">
             <Icon :name="collectCount ? 'check' : 'star'" :size="14" />
             {{ collectCount ? `已收藏 ${collectCount > 1 ? collectCount + ' 处' : ''}` : '收藏' }}
@@ -1941,7 +1991,6 @@ onBeforeUnmount(() => {
           <RouterLink to="/learn" class="btn sm ghost">
             <Icon name="book" :size="14" /> 学习面板
           </RouterLink>
-          <!-- 小窗播放入口：圆形图标按钮（本机定制；点一下把视频缩成右下角的小圆圈） -->
           <button
             v-if="miniHere"
             class="btn sm primary mini-entry"
@@ -1959,23 +2008,21 @@ onBeforeUnmount(() => {
             <Icon name="pip" :size="16" />
           </button>
         </div>
-      </div>
-
-      <!-- UP / BV / 发布时间 -->
-      <div class="row muted" style="flex-wrap: wrap; margin-top: 10px; font-size: 12.5px">
-        <span class="chip link" @click="router.push({ name: 'up', params: { mid: String(upMid) } })">
-          <Icon name="user" :size="13" /> {{ upName }}
-        </span>
-        <button
-          v-if="bvid"
-          class="chip link bv-chip mono"
-          title="点击复制 BV 号"
-          aria-label="复制 BV 号"
-          @click="copyBvid"
-        >
-          <Icon name="copy" :size="12" /> {{ bvid }}
-        </button>
-        <span class="chip plain">{{ formatDateTime(video.pubdate || 0) }}</span>
+        <div class="row muted" style="flex-wrap: wrap; margin-top: 10px; font-size: 12.5px">
+          <span class="chip link" @click="router.push({ name: 'up', params: { mid: String(upMid) } })">
+            <Icon name="user" :size="13" /> {{ upName }}
+          </span>
+          <button
+            v-if="bvid"
+            class="chip link bv-chip mono"
+            title="点击复制 BV 号"
+            aria-label="复制 BV 号"
+            @click="copyBvid"
+          >
+            <Icon name="copy" :size="12" /> {{ bvid }}
+          </button>
+          <span class="chip plain">{{ formatDateTime(video.pubdate || 0) }}</span>
+        </div>
       </div>
 
       <!-- Tab -->
@@ -2160,36 +2207,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <aside style="display: flex; flex-direction: column; gap: 14px; min-width: 0">
-      <!-- 清晰度 -->
-      <div class="panel" style="padding: 13px">
-        <div class="row" style="margin-bottom: 9px">
-          <Icon name="monitor" :size="15" />
-          <b style="font-size: 13px">清晰度</b>
-          <span class="grow" />
-          <span class="muted" style="font-size: 11.5px">当前 {{ qualityName(currentQuality) }}</span>
-        </div>
-        <div class="row" style="flex-wrap: wrap">
-          <span
-            v-for="q in qualityList"
-            :key="q"
-            :class="['chip', { on: q === currentQuality, cur: q === currentQuality, lock: isLocked(q) }]"
-            :title="isLocked(q) ? '未登录时选不了这一档，点「扫码登录」解锁' : qualityName(q)"
-            @click="selectQuality(q)"
-          >
-            {{ qualityName(q) }}
-          </span>
-        </div>
-        <div v-if="playurl && playurl.mode === 'durl'" class="muted" style="font-size: 11.5px; margin-top: 8px">
-          该视频只提供整段流（durl），清晰度档位受限。
-        </div>
-      </div>
 
-      <!-- 分 P -->
-      <div class="panel" style="padding: 13px">
-        <PartList :parts="pages" :index="pageIndex" @select="selectPage" />
-      </div>
-    </aside>
 
     <CollectModal :open="collectOpen" :video="collectVideo" @close="collectOpen = false" />
   </div>

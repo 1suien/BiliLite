@@ -883,7 +883,7 @@ input[type="range"] {
 }
 .watch {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 322px;
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
   align-items: start;
 }
@@ -1666,4 +1666,110 @@ body.has-reminder .page-float {
   height: 1px;
   margin: 4px 6px;
   background: var(--line);
+}
+
+/* 常驻媒体工具栏（清晰度 + 分P）——本机 0.4.55 */
+.media-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding: 9px 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.media-toolbar .mt-label {
+  color: var(--t3);
+  font-size: 12.5px;
+}
+.media-toolbar .grow {
+  flex: 1;
+}
+.parts-select {
+  position: relative;
+}
+.parts-btn {
+  background: var(--soft);
+  border: 1px solid var(--line-strong);
+  color: var(--t1);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 12.5px;
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.parts-btn .par {
+  color: var(--t3);
+  margin-left: 4px;
+}
+.parts-pop {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 30;
+  width: 420px;
+  max-height: 380px;
+  overflow: auto;
+  background: var(--card);
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+}
+
+/* 标题区折叠 / 展开 */
+.head-collapsed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  min-height: 44px;
+  padding: 0 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.head-collapsed .arw {
+  color: var(--t2);
+  font-size: 12px;
+}
+.head-collapsed .ttl {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.head-collapsed .more {
+  color: var(--brand);
+  font-size: 12.5px;
+  flex: none;
+}
+.head-open {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.head-open .ho-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.head-open .ho-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.35;
+  margin: 0;
 }
