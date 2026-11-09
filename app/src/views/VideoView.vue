@@ -259,6 +259,9 @@ const playurl = ref<any>(null)
 let addrStart = 0
 let addrMs = 0
 let firstFrameMs = 0
+/** 起播被自动播放策略拦住的遮罩（本机 0.4.63） */
+const showPlayMask = ref(false)
+let playMaskTimer: any = null
 let slowHintTimer: any = null
 /** 线路失败自动换线路（重试）计时与次数（本机 0.4.33） */
 let retryTimer: any = null
@@ -279,6 +282,7 @@ function updatePerf() {
   if (st && st.tReady) parts.push(`就绪 ${(st.tReady / 1000).toFixed(1)}s`)
   if (st && st.tCanPlay) parts.push(`可播 ${(st.tCanPlay / 1000).toFixed(1)}s`)
   if (st && st.tPlay) parts.push(`播放 ${(st.tPlay / 1000).toFixed(1)}s`)
+  if (st && st.playError) parts.push(`播放错误 ${st.playError}`)
   if (firstFrameMs) parts.push(`首帧 ${(firstFrameMs / 1000).toFixed(1)}s`)
   if (st && st.retries) parts.push(`换线 ${st.retries}次`)
   if (st && st.appends) parts.push(`append ${st.appends}次/${(st.appendMs / 1000).toFixed(1)}s`)
@@ -1179,13 +1183,23 @@ async function loadPlayurl(manual?: any) {
     startTimers()
     updatePerf()
     // 起播慢时给个人话提示（数据其实早到了，多半是没播起来）
+    // 起播 2.5 秒还没动、但数据已经可播 → 直接盖大按钮（比小字显眼）
+    if (playMaskTimer) clearTimeout(playMaskTimer)
+    playMaskTimer = setTimeout(() => {
+      playMaskTimer = null
+      const el = videoEl.value
+      if (firstFrameMs || !el || !el.paused || errorText.value) return
+      if (el.readyState < 2) return
+      showPlayMask.value = true
+    }, 2500)
+
     if (slowHintTimer) clearTimeout(slowHintTimer)
     slowHintTimer = setTimeout(() => {
       slowHintTimer = null
       const el = videoEl.value
-      if (!firstFrameMs && el && el.paused && !errorText.value) {
-        status.value = '起播较慢：点一下画面开始播放'
-      }
+      if (firstFrameMs || !el || !el.paused || errorText.value) return
+      status.value = '线路在但没播起来：点一下画面（或等自动静音重试）'
+      showPlayMask.value = true
     }, 6000)
     applyRate()
     refreshLocalSubs().catch(() => {})
@@ -1406,6 +1420,23 @@ function onEnded() {
 }
 
 /* ------------------------------- 播放控制 ------------------------------- */
+
+/** 起播遮罩：点一下 → 恢复声音并立刻播（本机 0.4.63） */
+function startFromMask() {
+  showPlayMask.value = false
+  const el = videoEl.value
+  if (el) el.muted = false
+  if (directMode.value) {
+    el?.play().catch(() => {})
+    return
+  }
+  if (player) player.play()
+  else el?.play().catch(() => {})
+  if (slowHintTimer) {
+    clearTimeout(slowHintTimer)
+    slowHintTimer = null
+  }
+}
 
 function togglePlay() {
   const el = videoEl.value
@@ -1787,6 +1818,7 @@ watch(
 // 开播时记录首帧时间，并开始自动隐藏控制条
 watch(playing, (val) => {
   if (val) {
+    if (showPlayMask.value) showPlayMask.value = false
     if (isAndroid && addrStart && !firstFrameMs) {
       firstFrameMs = performance.now() - addrStart
       updatePerf()
@@ -1865,6 +1897,12 @@ onBeforeUnmount(() => {
 
           <!-- 字幕 -->
           <div v-if="hasSub && cueText" class="cc-line" :style="subStyle">{{ cueText }}</div>
+
+          <!-- 起播被自动播放策略拦住：大按钮兜底（本机 0.4.63） -->
+          <div v-if="showPlayMask && !playing" class="play-mask" @click.stop="startFromMask">
+            <div class="pm-btn"><span class="pm-tri" />点一下开始播放</div>
+            <div class="pm-tip">线路被自动播放策略拦住了，点一下就好</div>
+          </div>
 
           <!-- 状态遮罩（缓冲/获取地址时） -->
           <div v-if="status && !playing" class="player-msg">

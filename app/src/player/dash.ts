@@ -93,6 +93,8 @@ export interface DashStat {
   tReady: number
   /** 元素拿到 canplay（解码器就绪） */
   tCanPlay: number
+  /** 起播被拒的错误名（NotAllowedError 等，本机 0.4.63） */
+  playError: string
   /** 首次真正播放（playing 事件） */
   tPlay: number
   /** 线路空闲超时换线的次数 */
@@ -532,6 +534,7 @@ class DashKernel implements DashPlayer {
     tFirst: 0,
     tReady: 0,
     tCanPlay: 0,
+    playError: '',
     tPlay: 0,
     retries: 0,
     appends: 0,
@@ -664,6 +667,7 @@ class DashKernel implements DashPlayer {
       tFirst: 0,
       tReady: 0,
       tCanPlay: 0,
+      playError: '',
       tPlay: 0,
       retries: 0,
       appends: 0,
@@ -927,7 +931,7 @@ class DashKernel implements DashPlayer {
     }
   }
 
-  /** 自动播放兜底：偶发 NotAllowedError 时重试几次 */
+  /** 自动播放兜底：偶发 NotAllowedError 时先重试；仍被拦就「静音试播」再恢复声音（0.4.63） */
   private async ensurePlaying(gen: number, tries = 6) {
     for (let i = 0; i < tries; i++) {
       if (gen !== this.gen || this.destroyed || (this.video && !this.video.paused)) return
@@ -936,7 +940,27 @@ class DashKernel implements DashPlayer {
         log('ensurePlaying ok', 'try=' + i)
         return
       } catch (e: any) {
-        log('ensurePlaying retry', 'try=' + i, e && e.message)
+        const name = String((e && (e.name || e.message)) || 'error')
+        if (this.stat) this.stat.playError = name
+        log('ensurePlaying retry', 'try=' + i, name)
+        // 安卓 WebView 允许“静音自动播放”：先静音起播，2 秒后恢复声音
+        if (i === 0 && this.video && !this.video.muted) {
+          try {
+            this.video.muted = true
+            await this.video.play()
+            if (this.stat) this.stat.playError = ''
+            log('ensurePlaying muted ok')
+            setTimeout(() => {
+              try {
+                if (this.video && !this.destroyed) this.video.muted = false
+              } catch {}
+            }, 2000)
+            return
+          } catch (e2: any) {
+            if (this.stat) this.stat.playError = String((e2 && (e2.name || e2.message)) || 'error')
+            log('ensurePlaying muted fail', String((e2 && e2.message) || ''))
+          }
+        }
         await sleep(400)
       }
     }
