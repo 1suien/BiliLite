@@ -319,19 +319,6 @@ function toggleHead() {
   } catch {}
 }
 
-/** 笔记栏展开状态（0.4.51）：默认收起，大视频；记住上次 */
-const NOTES_KEY = 'study-bili-notes-open'
-const notesOpen = ref(false)
-try {
-  if (localStorage.getItem(NOTES_KEY) === '1') notesOpen.value = true
-} catch {}
-function toggleNotes() {
-  notesOpen.value = !notesOpen.value
-  try {
-    localStorage.setItem(NOTES_KEY, notesOpen.value ? '1' : '0')
-  } catch {}
-}
-
 /** 视频内分P弹层（0.4.49） */
 const partsMenu = ref(false)
 /** 从视频内分P列表切分P */
@@ -1647,14 +1634,6 @@ async function copyBvid() {
 
 /** 键盘快捷键：空格播放/暂停、←→ 快退快进、↑↓ 音量、F 全屏 */
 function onKeydown(e: KeyboardEvent) {
-  // N：开关笔记栏（0.4.51，输入框内不触发）
-  const el0 = e.target as HTMLElement | null
-  const typing0 = el0 && (el0.tagName === 'INPUT' || el0.tagName === 'TEXTAREA' || el0.isContentEditable)
-  if (!typing0 && (e.key === 'n' || e.key === 'N') && !e.ctrlKey && !e.metaKey && !e.altKey) {
-    e.preventDefault()
-    toggleNotes()
-    return
-  }
   const tag = document.activeElement && document.activeElement.tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA') return
   if (e.code === 'Space') {
@@ -1745,7 +1724,7 @@ onBeforeUnmount(() => {
     <span class="dim">正在加载视频…</span>
   </div>
 
-  <div v-else-if="detail" :class="['watch', { 'notes-closed': !notesOpen }]">
+  <div v-else-if="detail" class="watch">
     <div style="min-width: 0">
       <div ref="wrapEl" class="player-wrap" @mousemove="onMouseMove" @mouseleave="onMouseLeave">
         <div
@@ -2098,6 +2077,9 @@ onBeforeUnmount(() => {
       <!-- Tab -->
       <div class="tabs" style="margin-top: 18px">
         <div :class="['tab', { on: tab === 'intro' }]" @click="tab = 'intro'">简介</div>
+        <div :class="['tab', { on: tab === 'notes' }]" @click="openTab('notes')">
+          笔记<span class="dim">（{{ notes.length }}）</span>
+        </div>
         <div :class="['tab', { on: tab === 'related' }]" @click="tab = 'related'">相关推荐</div>
         <div :class="['tab', { on: tab === 'comments' }]" @click="openTab('comments')">
           评论<span v-if="commentCount" class="dim">（{{ formatCount(commentCount) }}）</span>
@@ -2110,6 +2092,34 @@ onBeforeUnmount(() => {
         style="white-space: pre-wrap; font-size: 13px; color: var(--t2)"
       >
         {{ video.desc || '这个视频没有填写简介。' }}
+      </div>
+
+      <div v-else-if="tab === 'notes'" class="panel">
+        <div class="row" style="margin-bottom: 10px; align-items: flex-end">
+          <textarea
+            v-model="noteText"
+            class="input note-input"
+            rows="2"
+            :placeholder="`记录当前分P（${formatClock(current)}）的想法；回车换行，Ctrl+Enter 或点「保存」存到本地`"
+            @keydown.ctrl.enter.prevent="saveNote"
+            @keydown.meta.enter.prevent="saveNote"
+          ></textarea>
+          <button class="btn primary" :disabled="!noteText.trim()" @click="saveNote">
+            <Icon name="plus" :size="14" /> 保存
+          </button>
+        </div>
+        <div v-if="!notes.length" class="muted" style="font-size: 12.5px">
+          还没有笔记。笔记按分P独立保存：「回车」换行，点「保存」把「时间点 + 想法」存到本地。
+        </div>
+        <div v-for="n in notes" :key="n.id" class="field note-row">
+          <button class="note-at mono" :title="'跳到 ' + formatClock(n.sec)" @click="jumpNote(n.sec)">
+            {{ formatClock(n.sec) }}
+          </button>
+          <div class="ctrl" style="white-space: pre-wrap; flex: 1; min-width: 0">{{ n.text }}</div>
+          <button class="btn sm danger note-del" title="删除这条笔记" @click="removeNote(n.id)">
+            <Icon name="trash" :size="13" />
+          </button>
+        </div>
       </div>
 
       <div v-else-if="tab === 'related'" style="display: flex; flex-direction: column; gap: 4px">
@@ -2247,46 +2257,6 @@ onBeforeUnmount(() => {
         </template>
       </div>
     </div>
-
-    <!-- 笔记栏收起时的竖条（0.4.51） -->
-    <button v-if="!notesOpen" class="note-strip" title="展开笔记（N）" @click="toggleNotes">
-      <span class="ns-badge" v-if="notes.length">{{ notes.length }}</span>
-      <span class="ns-icon">✎</span>
-      <span class="ns-label">笔记</span>
-    </button>
-
-    <!-- 笔记栏（0.4.50：视频右侧常驻，边看边记；0.4.51：可收起） -->
-    <aside v-if="notesOpen" class="note-side">
-      <div class="ns-head">
-        <b>笔记</b>
-        <span class="dim">{{ notes.length ? notes.length + ' 条' : '' }}</span>
-        <span class="grow" />
-        <span class="ns-at mono">{{ formatClock(current) }}</span>
-        <button class="ns-fold" title="收起笔记栏（N）" @click="toggleNotes">收起 ⌃</button>
-      </div>
-      <textarea
-        v-model="noteText"
-        class="input ns-input"
-        rows="2"
-        :placeholder="`记下这一刻（${formatClock(current)}）的想法，Ctrl+Enter 保存`"
-        @keydown.ctrl.enter.prevent="saveNote"
-        @keydown.meta.enter.prevent="saveNote"
-      ></textarea>
-      <div class="row" style="margin-top: 6px">
-        <span class="grow" />
-        <button class="btn sm primary" :disabled="!noteText.trim()" @click="saveNote">保存</button>
-      </div>
-      <div class="ns-list">
-        <div v-for="n in notes" :key="n.id" class="ns-item">
-          <button class="ns-time mono" :title="'跳到 ' + formatClock(n.sec)" @click="jumpNote(n.sec)">
-            {{ formatClock(n.sec) }}
-          </button>
-          <div class="ns-text">{{ n.text }}</div>
-          <button class="ns-del" title="删除这条笔记" @click="removeNote(n.id)">✕</button>
-        </div>
-        <div v-if="!notes.length" class="dim ns-empty">这个分P还没有笔记</div>
-      </div>
-    </aside>
 
     <CollectModal :open="collectOpen" :video="collectVideo" @close="collectOpen = false" />
   </div>
