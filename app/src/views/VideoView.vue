@@ -926,6 +926,14 @@ async function loadRelated() {
   }
 }
 
+/** 点笔记时间戳跳到对应位置（0.4.50） */
+function jumpNote(sec: number) {
+  if (!player) return
+  const total = duration.value || 0
+  const at = Math.max(0, Math.min(Number(sec) || 0, total > 1 ? total - 0.4 : Number(sec) || 0))
+  player.requestSeek(at)
+}
+
 /** 本机笔记：按「视频 + 分P」独立，切分P/切视频都只看到自己那一份 */
 async function loadNotes() {
   try {
@@ -1752,6 +1760,18 @@ onBeforeUnmount(() => {
             <button class="btn sm" @click="fromMini">收回本页播放</button>
           </div>
 
+          <!-- 视频内分P浮层（0.4.50） -->
+          <div v-if="partsMenu" class="parts-pop" @click.stop>
+            <div class="pp-head">
+              <Icon name="list" :size="15" />
+              <b>分P（{{ pages.length }}）</b>
+              <span class="dim">· 点了就切</span>
+              <span class="grow" />
+              <button class="pp-x" title="关闭" @click="partsMenu = false">✕</button>
+            </div>
+            <PartList compact :parts="pages" :index="pageIndex" @select="pickPart" />
+          </div>
+
           <!-- 控制条 -->
           <div :class="['stage-ui', { hide: !ctlVisible }]">
             <div class="player-ctl">
@@ -1824,23 +1844,14 @@ onBeforeUnmount(() => {
                 </div>
               </div>
 
-              <!-- 分P（0.4.49：从下面 tab 搬进视频内） -->
-              <div class="ctl-menu-wrap">
-                <button
-                  class="btn ghost sm"
-                  :title="'分P：共 ' + pages.length + ' 个'"
-                  @click.stop="partsMenu = !partsMenu"
-                >
-                  分P{{ pages.length > 1 ? ' ' + pages.length : '' }}
-                </button>
-                <div v-if="partsMenu" class="ctl-menu parts-menu">
-                  <div class="mhead">
-                    分P（{{ pages.length }}）
-                    <span class="dim" style="font-weight: 400">· 点了就切</span>
-                  </div>
-                  <PartList compact :parts="pages" :index="pageIndex" @select="pickPart" />
-                </div>
-              </div>
+              <!-- 分P（0.4.50：视频内独立浮层，避免被控制条菜单挤压） -->
+              <button
+                class="btn ghost sm"
+                :title="'分P：共 ' + pages.length + ' 个'"
+                @click.stop="partsMenu = !partsMenu"
+              >
+                分P{{ pages.length > 1 ? ' ' + pages.length : '' }}
+              </button>
 
               <!-- 字幕 -->
               <div class="ctl-menu-wrap">
@@ -2066,9 +2077,6 @@ onBeforeUnmount(() => {
       <!-- Tab -->
       <div class="tabs" style="margin-top: 18px">
         <div :class="['tab', { on: tab === 'intro' }]" @click="tab = 'intro'">简介</div>
-        <div :class="['tab', { on: tab === 'notes' }]" @click="tab = 'notes'">
-          笔记（{{ notes.length }}）
-        </div>
         <div :class="['tab', { on: tab === 'related' }]" @click="tab = 'related'">相关推荐</div>
         <div :class="['tab', { on: tab === 'comments' }]" @click="openTab('comments')">
           评论<span v-if="commentCount" class="dim">（{{ formatCount(commentCount) }}）</span>
@@ -2081,32 +2089,6 @@ onBeforeUnmount(() => {
         style="white-space: pre-wrap; font-size: 13px; color: var(--t2)"
       >
         {{ video.desc || '这个视频没有填写简介。' }}
-      </div>
-
-      <div v-else-if="tab === 'notes'" class="panel">
-        <div class="row" style="margin-bottom: 10px; align-items: flex-end">
-          <textarea
-            v-model="noteText"
-            class="input note-input"
-            rows="2"
-            :placeholder="`记录当前分P（${formatClock(current)}）的想法；回车换行，Ctrl+Enter 或点「保存」存到本地`"
-            @keydown.ctrl.enter.prevent="saveNote"
-            @keydown.meta.enter.prevent="saveNote"
-          ></textarea>
-          <button class="btn primary" @click="saveNote">
-            <Icon name="plus" :size="14" /> 保存
-          </button>
-        </div>
-        <div v-if="!notes.length" class="muted" style="font-size: 12.5px">
-          还没有笔记。笔记按分P独立保存：「回车」换行，点「保存」把「时间点 + 想法」存到本地。
-        </div>
-        <div v-for="n in notes" :key="n.id" class="field note-row">
-          <label class="mono" style="width: 62px">{{ formatClock(n.sec) }}</label>
-          <div class="ctrl" style="white-space: pre-wrap">{{ n.text }}</div>
-          <button class="btn sm danger note-del" title="删除这条笔记" @click="removeNote(n.id)">
-            <Icon name="trash" :size="13" />
-          </button>
-        </div>
       </div>
 
       <div v-else-if="tab === 'related'" style="display: flex; flex-direction: column; gap: 4px">
@@ -2245,7 +2227,37 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-
+    <!-- 笔记栏（0.4.50：视频右侧常驻，边看边记） -->
+    <aside class="note-side">
+      <div class="ns-head">
+        <b>笔记</b>
+        <span class="dim">{{ notes.length ? notes.length + ' 条' : '' }}</span>
+        <span class="grow" />
+        <span class="ns-at mono">{{ formatClock(current) }}</span>
+      </div>
+      <textarea
+        v-model="noteText"
+        class="input ns-input"
+        rows="2"
+        :placeholder="`记下这一刻（${formatClock(current)}）的想法，Ctrl+Enter 保存`"
+        @keydown.ctrl.enter.prevent="saveNote"
+        @keydown.meta.enter.prevent="saveNote"
+      ></textarea>
+      <div class="row" style="margin-top: 6px">
+        <span class="grow" />
+        <button class="btn sm primary" :disabled="!noteText.trim()" @click="saveNote">保存</button>
+      </div>
+      <div class="ns-list">
+        <div v-for="n in notes" :key="n.id" class="ns-item">
+          <button class="ns-time mono" :title="'跳到 ' + formatClock(n.sec)" @click="jumpNote(n.sec)">
+            {{ formatClock(n.sec) }}
+          </button>
+          <div class="ns-text">{{ n.text }}</div>
+          <button class="ns-del" title="删除这条笔记" @click="removeNote(n.id)">✕</button>
+        </div>
+        <div v-if="!notes.length" class="dim ns-empty">这个分P还没有笔记</div>
+      </div>
+    </aside>
 
     <CollectModal :open="collectOpen" :video="collectVideo" @close="collectOpen = false" />
   </div>
