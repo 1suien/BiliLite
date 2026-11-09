@@ -925,15 +925,14 @@ const latestNoteText = computed(() => {
   return `${formatClock(n.sec)} · ${t.length > 40 ? t.slice(0, 40) + '…' : t}`
 })
 
-/** 打开/收起笔记条输入框；展开时把焦点给输入框 */
-function toggleNoteBar() {
-  noteBarOpen.value = !noteBarOpen.value
-  if (noteBarOpen.value) {
-    nextTick(() => {
-      const el = document.querySelector<HTMLTextAreaElement>('.nb-ta')
-      el?.focus()
-    })
-  }
+/** 点笔记条即展开输入框（已展开时不再收起，避免打断输入） */
+function openNoteBar() {
+  if (noteBarOpen.value) return
+  noteBarOpen.value = true
+  nextTick(() => {
+    const el = document.querySelector<HTMLTextAreaElement>('.nb-ta')
+    el?.focus()
+  })
 }
 
 async function loadNotes() {
@@ -1952,16 +1951,20 @@ onBeforeUnmount(() => {
 
       <!-- 常驻媒体工具栏：清晰度 + 分P（播放时也一直可点） -->
       <!-- 常驻笔记条（本机 0.4.56） -->
-      <div class="note-bar">
+      <div class="note-bar" @click="openNoteBar">
         <div class="nb-row">
           <Icon name="edit" :size="14" style="color: var(--brand)" />
           <b style="font-size: 13px">笔记</b>
           <span class="muted" style="font-size: 12px">{{ notes.length }} 条</span>
           <span class="nb-last">{{ latestNoteText }}</span>
           <span class="grow" />
-          <span class="nb-link" @click="tab = 'notes'">查看全部</span>
-          <button class="btn sm primary" @click="toggleNoteBar">
-            <Icon name="plus" :size="13" /> 记笔记
+          <button
+            class="btn sm primary"
+            :disabled="!noteText.trim()"
+            title="把当前写的内容保存到当前时间点"
+            @click.stop="saveNote"
+          >
+            保存
           </button>
         </div>
         <div v-if="noteBarOpen" class="nb-input">
@@ -1977,8 +1980,7 @@ onBeforeUnmount(() => {
           <div class="nb-foot">
             <span class="nb-time mono">@ {{ formatClock(current) }}</span>
             <span class="grow" />
-            <button class="btn sm ghost" @click="noteBarOpen = false">取消</button>
-            <button class="btn sm primary" @click="saveNote">保存</button>
+            <span class="nb-tip">Ctrl+Enter 保存 · Esc 收起</span>
           </div>
         </div>
       </div>

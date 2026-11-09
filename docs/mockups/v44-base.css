@@ -90,3 +90,6 @@ html, body { margin: 0; height: 100%; background: #0a0a0b; color: #f3f3f4;
 .nb-foot { display: flex; align-items: center; gap: 8px; }
 .nb-time { color: #4aa8ff; font-family: monospace; font-size: 12px; }
 .nb-save { background: #4aa8ff; color: #06121f; border-radius: 6px; padding: 3px 10px; font-size: 12px; font-weight: 600; }
+
+.nb-hint { color: #4aa8ff; font-size: 12px; }
+.note-bar { cursor: pointer; }

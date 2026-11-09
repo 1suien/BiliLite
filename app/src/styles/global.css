@@ -1796,10 +1796,10 @@ body.has-reminder .page-float {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.note-bar .nb-link {
-  color: var(--brand);
+.note-bar {
   cursor: pointer;
 }
+.note-bar .nb-tip { color: var(--t3); font-size: 11.5px; }
 .note-bar .nb-input {
   margin-top: 9px;
   background: var(--bg-elev);
