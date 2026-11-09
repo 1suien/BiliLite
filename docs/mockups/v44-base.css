@@ -76,3 +76,17 @@ html, body { margin: 0; height: 100%; background: #0a0a0b; color: #f3f3f4;
 .pbar-row .qs b.on { background: #4aa8ff; border-color: #4aa8ff; color: #06121f; }
 .pbar-row .pb-drop { border: 1px solid #34353b; border-radius: 7px; padding: 4px 10px; font-size: 12.5px; color: #e7e7ea; background: #1c1d21; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 380px; }
 .pbar-row .pb-ar { color: #9b9ba4; margin-left: 4px; }
+
+.note-bar { margin-top: 12px; background: #141416; border: 1px solid #26272c; border-radius: 10px; padding: 10px 12px; }
+.nb-row { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: #c9c9d1; }
+.nb-ico { color: #4aa8ff; }
+.nb-count { color: #6a6a73; }
+.nb-last { color: #9b9ba4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 360px; }
+.nb-gap { flex: 1; }
+.nb-link { color: #4aa8ff; cursor: pointer; }
+.nb-add { background: #4aa8ff; border: 1px solid #4aa8ff; color: #06121f; font-weight: 600; border-radius: 7px; padding: 5px 10px; font-size: 12.5px; }
+.nb-input { margin-top: 10px; background: #101114; border: 1px solid #34353b; border-radius: 8px; padding: 8px; }
+.nb-input textarea { width: 100%; background: transparent; border: 0; color: #e7e7ea; font-size: 12.5px; resize: none; outline: none; height: 46px; }
+.nb-foot { display: flex; align-items: center; gap: 8px; }
+.nb-time { color: #4aa8ff; font-family: monospace; font-size: 12px; }
+.nb-save { background: #4aa8ff; color: #06121f; border-radius: 6px; padding: 3px 10px; font-size: 12px; font-weight: 600; }

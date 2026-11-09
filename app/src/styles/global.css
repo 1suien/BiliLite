@@ -1773,3 +1773,50 @@ body.has-reminder .page-float {
   line-height: 1.35;
   margin: 0;
 }
+
+/* 常驻笔记条（本机 0.4.56） */
+.note-bar {
+  margin-top: 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 9px 12px;
+}
+.note-bar .nb-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12.5px;
+  color: var(--t2);
+}
+.note-bar .nb-last {
+  color: var(--t3);
+  max-width: 46%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.note-bar .nb-link {
+  color: var(--brand);
+  cursor: pointer;
+}
+.note-bar .nb-input {
+  margin-top: 9px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  padding: 8px;
+}
+.note-bar .nb-ta {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  outline: none;
+  resize: none;
+  color: var(--t1);
+  font-size: 13px;
+  line-height: 1.55;
+  min-height: 52px;
+}
+.note-bar .nb-foot { display: flex; align-items: center; gap: 8px; }
+.note-bar .nb-time { color: var(--brand); font-size: 12px; }

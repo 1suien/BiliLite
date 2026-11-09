@@ -308,6 +308,8 @@ const muted = ref(false)
 const tab = ref('intro')
 /** 笔记输入 */
 const noteText = ref('')
+/** 笔记条输入框是否展开（本机 0.4.56） */
+const noteBarOpen = ref(false)
 /** 笔记列表 */
 const notes = ref<any[]>([])
 /** 收藏弹窗 */
@@ -915,6 +917,25 @@ async function loadRelated() {
 }
 
 /** 本机笔记：按「视频 + 分P」独立，切分P/切视频都只看到自己那一份 */
+/** 最近一条笔记的预览（时间 + 前 40 字） */
+const latestNoteText = computed(() => {
+  const n = notes.value[0]
+  if (!n) return '还没有笔记，点「记笔记」记第一条'
+  const t = String(n.text || '').replace(/\s+/g, ' ')
+  return `${formatClock(n.sec)} · ${t.length > 40 ? t.slice(0, 40) + '…' : t}`
+})
+
+/** 打开/收起笔记条输入框；展开时把焦点给输入框 */
+function toggleNoteBar() {
+  noteBarOpen.value = !noteBarOpen.value
+  if (noteBarOpen.value) {
+    nextTick(() => {
+      const el = document.querySelector<HTMLTextAreaElement>('.nb-ta')
+      el?.focus()
+    })
+  }
+}
+
 async function loadNotes() {
   try {
     const rows = await db.notes.where('bvid').equals(bvid.value).toArray()
@@ -1586,6 +1607,7 @@ async function saveNote() {
   const sec = videoEl.value ? Math.floor(videoEl.value.currentTime || 0) : 0
   await db.notes.add({ bvid: bvid.value, cid: cid.value as any, sec, text, at: Date.now() } as any)
   noteText.value = ''
+  noteBarOpen.value = false
   await loadNotes()
   ui.ok('笔记已保存')
 }
@@ -1929,6 +1951,38 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- 常驻媒体工具栏：清晰度 + 分P（播放时也一直可点） -->
+      <!-- 常驻笔记条（本机 0.4.56） -->
+      <div class="note-bar">
+        <div class="nb-row">
+          <Icon name="edit" :size="14" style="color: var(--brand)" />
+          <b style="font-size: 13px">笔记</b>
+          <span class="muted" style="font-size: 12px">{{ notes.length }} 条</span>
+          <span class="nb-last">{{ latestNoteText }}</span>
+          <span class="grow" />
+          <span class="nb-link" @click="tab = 'notes'">查看全部</span>
+          <button class="btn sm primary" @click="toggleNoteBar">
+            <Icon name="plus" :size="13" /> 记笔记
+          </button>
+        </div>
+        <div v-if="noteBarOpen" class="nb-input">
+          <textarea
+            v-model="noteText"
+            class="nb-ta"
+            rows="2"
+            :placeholder="`记下这一刻（${formatClock(current)}）的想法，Ctrl+Enter 保存`"
+            @keydown.ctrl.enter.prevent="saveNote"
+            @keydown.meta.enter.prevent="saveNote"
+            @keydown.esc.prevent="noteBarOpen = false"
+          ></textarea>
+          <div class="nb-foot">
+            <span class="nb-time mono">@ {{ formatClock(current) }}</span>
+            <span class="grow" />
+            <button class="btn sm ghost" @click="noteBarOpen = false">取消</button>
+            <button class="btn sm primary" @click="saveNote">保存</button>
+          </div>
+        </div>
+      </div>
+
       <div class="media-toolbar">
         <span class="mt-label">清晰度</span>
         <div class="row" style="flex-wrap: wrap; gap: 6px">
