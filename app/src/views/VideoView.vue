@@ -320,6 +320,8 @@ const rate = ref(1)
 const rateMenu = ref(false)
 /** 字幕菜单 */
 const subMenu = ref(false)
+/** 清晰度菜单（0.4.45：从右栏搬进播放器） */
+const qualityMenu = ref(false)
 /** 在线字幕轨道 */
 const onlineSubs = ref<SubtitleTrack[]>([])
 /** 当前在线字幕语言 */
@@ -419,7 +421,7 @@ const upFollowed = computed(
   () => !!upMid.value && ups.items.some((u) => String(u.mid) === String(upMid.value)),
 )
 /** 是否有菜单打开（打开时控制条不自动隐藏） */
-const menuOpen = computed(() => rateMenu.value || subMenu.value)
+const menuOpen = computed(() => rateMenu.value || subMenu.value || qualityMenu.value)
 
 /* ------------------------------- 字幕 ------------------------------- */
 
@@ -789,6 +791,7 @@ function onGlobalPointerDown(e: any) {
   if (target && target.closest && target.closest('.ctl-menu-wrap')) return
   rateMenu.value = false
   subMenu.value = false
+  qualityMenu.value = false
 }
 
 /* ------------------------------- 数据 ------------------------------- */
@@ -1361,8 +1364,8 @@ const STAGE_SEEK_SPAN = 120
 
 function onStagePointerDown(e: PointerEvent) {
   const target = e.target as HTMLElement | null
-  // 控制条/按钮区域不接管，避免抢进度条拖动和按钮点击
-  if (target && target.closest && target.closest('.stage-ui')) return
+  // 控制条/按钮区域不接管，避免抢进度条拖动和按钮点击（清晰度标签同理）
+  if (target && target.closest && target.closest('.stage-ui, .q-badge')) return
   if (e.pointerType === 'mouse' && e.button !== 0) return
   stageGesture = {
     id: e.pointerId,
@@ -1722,6 +1725,14 @@ onBeforeUnmount(() => {
           <div v-else-if="perfText" class="perf-line perf-corner">{{ perfText }}</div>
 
           <!-- 小窗占位 -->
+          <div
+            class="q-badge"
+            :title="'清晰度：' + qualityName(currentQuality) + '（点这里可切换）'"
+            @click.stop="qualityMenu = !qualityMenu"
+          >
+            {{ qualityName(currentQuality) }} ▾
+          </div>
+
           <div v-if="miniHere" class="player-msg player-msg-col">
             <Icon name="pip" :size="28" />
             <div>视频正在小窗播放</div>
@@ -1772,6 +1783,30 @@ onBeforeUnmount(() => {
                     @click="setRate(r)"
                   >
                     <span>{{ r === 1 ? '1.0x 正常' : r + 'x' }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 清晰度（0.4.45：从右栏搬进控制条） -->
+              <div class="ctl-menu-wrap">
+                <button
+                  class="btn ghost sm q-ctl"
+                  :title="'清晰度：' + qualityName(currentQuality)"
+                  @click.stop="qualityMenu = !qualityMenu"
+                >
+                  {{ qualityName(currentQuality) }}
+                </button>
+                <div v-if="qualityMenu" class="ctl-menu q-menu">
+                  <div class="mhead">清晰度</div>
+                  <div
+                    v-for="q in qualityList"
+                    :key="q"
+                    :class="['mi', { on: q === currentQuality, lock: isLocked(q) }]"
+                    @click="selectQuality(q)"
+                  >
+                    <span>{{ qualityName(q) }}</span>
+                    <span v-if="isLocked(q)" class="k">登录</span>
+                    <span v-else-if="q === currentQuality" class="k">当前</span>
                   </div>
                 </div>
               </div>
@@ -1981,6 +2016,9 @@ onBeforeUnmount(() => {
       <!-- Tab -->
       <div class="tabs" style="margin-top: 18px">
         <div :class="['tab', { on: tab === 'intro' }]" @click="tab = 'intro'">简介</div>
+        <div :class="['tab', { on: tab === 'parts' }]" @click="tab = 'parts'">
+          分P<span class="dim">（{{ pages.length }}）</span>
+        </div>
         <div :class="['tab', { on: tab === 'notes' }]" @click="tab = 'notes'">
           笔记（{{ notes.length }}）
         </div>
@@ -1996,6 +2034,10 @@ onBeforeUnmount(() => {
         style="white-space: pre-wrap; font-size: 13px; color: var(--t2)"
       >
         {{ video.desc || '这个视频没有填写简介。' }}
+      </div>
+
+      <div v-else-if="tab === 'parts'" class="panel" style="padding: 14px">
+        <PartList :parts="pages" :index="pageIndex" @select="selectPage" />
       </div>
 
       <div v-else-if="tab === 'notes'" class="panel">
@@ -2160,36 +2202,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <aside style="display: flex; flex-direction: column; gap: 14px; min-width: 0">
-      <!-- 清晰度 -->
-      <div class="panel" style="padding: 13px">
-        <div class="row" style="margin-bottom: 9px">
-          <Icon name="monitor" :size="15" />
-          <b style="font-size: 13px">清晰度</b>
-          <span class="grow" />
-          <span class="muted" style="font-size: 11.5px">当前 {{ qualityName(currentQuality) }}</span>
-        </div>
-        <div class="row" style="flex-wrap: wrap">
-          <span
-            v-for="q in qualityList"
-            :key="q"
-            :class="['chip', { on: q === currentQuality, cur: q === currentQuality, lock: isLocked(q) }]"
-            :title="isLocked(q) ? '未登录时选不了这一档，点「扫码登录」解锁' : qualityName(q)"
-            @click="selectQuality(q)"
-          >
-            {{ qualityName(q) }}
-          </span>
-        </div>
-        <div v-if="playurl && playurl.mode === 'durl'" class="muted" style="font-size: 11.5px; margin-top: 8px">
-          该视频只提供整段流（durl），清晰度档位受限。
-        </div>
-      </div>
 
-      <!-- 分 P -->
-      <div class="panel" style="padding: 13px">
-        <PartList :parts="pages" :index="pageIndex" @select="selectPage" />
-      </div>
-    </aside>
 
     <CollectModal :open="collectOpen" :video="collectVideo" @close="collectOpen = false" />
   </div>
