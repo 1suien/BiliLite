@@ -319,6 +319,19 @@ function toggleHead() {
   } catch {}
 }
 
+/** 笔记栏展开状态（0.4.51）：默认收起，大视频；记住上次 */
+const NOTES_KEY = 'study-bili-notes-open'
+const notesOpen = ref(false)
+try {
+  if (localStorage.getItem(NOTES_KEY) === '1') notesOpen.value = true
+} catch {}
+function toggleNotes() {
+  notesOpen.value = !notesOpen.value
+  try {
+    localStorage.setItem(NOTES_KEY, notesOpen.value ? '1' : '0')
+  } catch {}
+}
+
 /** 视频内分P弹层（0.4.49） */
 const partsMenu = ref(false)
 /** 从视频内分P列表切分P */
@@ -1634,6 +1647,14 @@ async function copyBvid() {
 
 /** 键盘快捷键：空格播放/暂停、←→ 快退快进、↑↓ 音量、F 全屏 */
 function onKeydown(e: KeyboardEvent) {
+  // N：开关笔记栏（0.4.51，输入框内不触发）
+  const el0 = e.target as HTMLElement | null
+  const typing0 = el0 && (el0.tagName === 'INPUT' || el0.tagName === 'TEXTAREA' || el0.isContentEditable)
+  if (!typing0 && (e.key === 'n' || e.key === 'N') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    e.preventDefault()
+    toggleNotes()
+    return
+  }
   const tag = document.activeElement && document.activeElement.tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA') return
   if (e.code === 'Space') {
@@ -1724,7 +1745,7 @@ onBeforeUnmount(() => {
     <span class="dim">正在加载视频…</span>
   </div>
 
-  <div v-else-if="detail" class="watch">
+  <div v-else-if="detail" :class="['watch', { 'notes-closed': !notesOpen }]">
     <div style="min-width: 0">
       <div ref="wrapEl" class="player-wrap" @mousemove="onMouseMove" @mouseleave="onMouseLeave">
         <div
@@ -2227,13 +2248,21 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- 笔记栏（0.4.50：视频右侧常驻，边看边记） -->
-    <aside class="note-side">
+    <!-- 笔记栏收起时的竖条（0.4.51） -->
+    <button v-if="!notesOpen" class="note-strip" title="展开笔记（N）" @click="toggleNotes">
+      <span class="ns-badge" v-if="notes.length">{{ notes.length }}</span>
+      <span class="ns-icon">✎</span>
+      <span class="ns-label">笔记</span>
+    </button>
+
+    <!-- 笔记栏（0.4.50：视频右侧常驻，边看边记；0.4.51：可收起） -->
+    <aside v-if="notesOpen" class="note-side">
       <div class="ns-head">
         <b>笔记</b>
         <span class="dim">{{ notes.length ? notes.length + ' 条' : '' }}</span>
         <span class="grow" />
         <span class="ns-at mono">{{ formatClock(current) }}</span>
+        <button class="ns-fold" title="收起笔记栏（N）" @click="toggleNotes">收起 ⌃</button>
       </div>
       <textarea
         v-model="noteText"

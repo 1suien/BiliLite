@@ -1,0 +1,47 @@
+<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>video + notes collapsed</title>
+<style>
+:root{--bg:#0a0a0b;--bg-elev:#101012;--card:#141416;--soft:#1c1d21;--line:#26272c;--line-strong:#34353b;--t1:#f3f3f4;--t2:#9b9ba4;--t3:#6a6a73;--brand:#4aa8ff;--brand-soft:rgba(74,168,255,.16)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--t1);font:14px/1.5 system-ui,-apple-system,"PingFang SC","Noto Sans CJK SC",sans-serif}
+.app{display:flex;min-height:100vh}
+.side{width:220px;flex:none;background:var(--bg-elev);border-right:1px solid var(--line);padding:14px 0}
+.brand{display:flex;align-items:center;gap:8px;padding:0 16px 14px;font-weight:700}
+.logo{width:26px;height:26px;border-radius:8px;background:#ff5c8a;display:grid;place-items:center;font-size:13px}
+.nav a{display:block;padding:9px 18px;color:var(--t2);text-decoration:none;font-size:14px}
+.nav a.on{color:var(--t1);background:var(--soft);box-shadow:inset 2px 0 0 var(--brand)}
+.main{flex:1;min-width:0;padding:14px 16px 24px;display:flex;flex-direction:column;gap:12px}
+.watch{display:grid;grid-template-columns:minmax(0,1fr) 40px;gap:10px;align-items:start}
+.video{position:relative;aspect-ratio:16/9;background:#050506;border-radius:10px;overflow:hidden;border:1px solid #000;display:grid;place-items:center}
+.video .big{font-size:44px;color:#2a2a30;font-weight:800;letter-spacing:2px}
+.ctrl{position:absolute;left:0;right:0;bottom:0;height:44px;background:linear-gradient(180deg,rgba(0,0,0,0),rgba(0,0,0,.65));display:flex;align-items:center;gap:10px;padding:0 12px;font-size:12px;color:#eee}
+.ctrl .bar{flex:1;height:3px;background:rgba(255,255,255,.25);border-radius:2px;position:relative}
+.ctrl .bar i{position:absolute;left:0;top:0;bottom:0;width:22%;background:var(--brand);border-radius:2px}
+.ctrl .chip{padding:3px 8px;border:1px solid var(--line-strong);border-radius:6px;font-size:12px}
+.strip{border:1px solid var(--line);background:var(--card);border-radius:10px;padding:10px 0;display:flex;flex-direction:column;align-items:center;gap:10px;cursor:pointer}
+.strip .badge{width:20px;height:20px;border-radius:50%;background:var(--brand);color:#06121f;font-size:11px;font-weight:700;display:grid;place-items:center}
+.strip .icon{font-size:15px;color:var(--brand)}
+.strip .label{writing-mode:vertical-rl;letter-spacing:2px;font-size:12px;color:var(--t2)}
+.hcollapse{display:flex;align-items:center;gap:8px;height:44px;padding:0 12px;border:1px solid var(--line);background:var(--card);border-radius:8px;font-size:15px;font-weight:600}
+.hcollapse .grow{flex:1}
+.hcollapse .more{color:var(--brand);font-size:12.5px;font-weight:400}
+.tabs{display:flex;gap:22px;font-size:14px;color:var(--t2);border-bottom:1px solid var(--line);padding:0 4px}
+.tabs .tab{padding:9px 2px;position:relative}
+.tabs .tab.on{color:var(--t1);font-weight:600}
+.tabs .tab.on:after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--brand)}
+.note{position:fixed;right:14px;bottom:44px;background:var(--soft);border:1px dashed var(--line-strong);color:var(--t2);font-size:12px;border-radius:8px;padding:6px 10px}
+</style></head><body>
+<div class="app">
+  <aside class="side"><div class="brand"><span class="logo">学</span>BiliLite</div><nav class="nav"><a class="on">学习</a><a>习惯</a><a>课表</a></nav></aside>
+  <div class="main">
+    <div class="watch">
+      <div class="video"><div class="big">16 : 9 视频（满宽）</div>
+        <div class="ctrl"><span>▶</span><span>1x</span><span class="chip">1080P+</span><span class="chip">分P 155</span><div class="bar"><i></i></div><span>00:12 / 39:27</span><span>⛶</span></div>
+      </div>
+      <div class="strip" title="展开笔记"><span class="badge">3</span><span class="icon">✎</span><span class="label">笔记</span></div>
+    </div>
+    <div class="hcollapse"><span>▸</span><span class="grow">新概念英语 第三册 更新至47课 | 胶学 x 刘羽Leo</span><span class="more">展开 ⌄</span></div>
+    <div class="tabs"><span class="tab on">简介</span><span class="tab">相关推荐</span><span class="tab">评论</span></div>
+  </div>
+</div>
+<div class="note">笔记栏收起时 = 右侧 40px 竖条：笔记按钮 + 条数</div>
+</body></html>
