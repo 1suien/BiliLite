@@ -309,7 +309,7 @@ const tab = ref('intro')
 /** 笔记输入 */
 const noteText = ref('')
 /** 笔记条输入框（本机 0.4.59：常驻一行，点条即聚焦） */
-const noteInputEl = ref<HTMLInputElement | null>(null)
+const noteInputEl = ref<HTMLTextAreaElement | null>(null)
 /** 笔记列表 */
 const notes = ref<any[]>([])
 /** 收藏弹窗 */
@@ -928,6 +928,14 @@ const latestNoteText = computed(() => {
 /** 点笔记条任意位置 → 光标进输入框 */
 function focusNoteInput() {
   noteInputEl.value?.focus()
+}
+
+/** 输入框随内容自动长高（单行起步，最多约 5 行） */
+function autoGrowNote() {
+  const el = noteInputEl.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = Math.min(el.scrollHeight, 96) + 'px'
 }
 
 /** Esc：清空并失焦 */
@@ -1956,15 +1964,17 @@ onBeforeUnmount(() => {
           <Icon name="edit" :size="14" style="color: var(--brand)" />
           <b style="font-size: 13px">笔记</b>
           <span class="muted" style="font-size: 12px">{{ notes.length }} 条</span>
-          <input
+          <textarea
             ref="noteInputEl"
             v-model="noteText"
             class="nb-field"
-            type="text"
-            :placeholder="`记下这一刻（${formatClock(current)}）的想法，回车保存`"
-            @keydown.enter.prevent="saveNote"
+            rows="1"
+            :placeholder="`记下这一刻（${formatClock(current)}）的想法，Enter 换行、Ctrl+Enter 保存`"
+            @input="autoGrowNote"
+            @keydown.ctrl.enter.prevent="saveNote"
+            @keydown.meta.enter.prevent="saveNote"
             @keydown.esc.prevent="clearNoteInput"
-          />
+          ></textarea>
           <button class="btn sm primary" :disabled="!noteText.trim()" @click.stop="saveNote">保存</button>
         </div>
         <div class="nb-sub" @click.stop="tab = 'notes'">{{ latestNoteText }}</div>

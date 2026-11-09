@@ -1793,6 +1793,9 @@ body.has-reminder .page-float {
 .note-bar .nb-field {
   flex: 1;
   min-width: 0;
+  resize: none;
+  overflow: hidden;
+  line-height: 1.5;
   background: var(--bg-elev);
   border: 1px solid var(--line);
   border-radius: 8px;
