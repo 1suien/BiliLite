@@ -15,6 +15,7 @@ import { nativeNotifySupported, openReminderChannelSettings, testReminderNotific
 import { useAuthStore } from '@/stores/auth'
 import { useLearnStore } from '@/stores/learn'
 import { useUiStore } from '@/stores/ui'
+import { applyBackup, applyBackupPrefs, collectBackup, describeBackup, normalizePayload } from '@/utils/backup'
 
 /**
  * 清晰度映射（还原自 quality-gN7BsY4u.js）。
@@ -48,6 +49,44 @@ const conf = computed(() => settings.settings)
 
 /** 正在写备份 */
 const busy = ref(false)
+
+/** 本机构建版本（写进备份文件，方便以后辨认） */
+const DATA_VERSION = '0.4.61'
+
+/** 数据概览：各表条数与总条数（进页面时刷新） */
+const overview = ref<{ rows: { label: string; count: number }[]; total: number } | null>(null)
+
+async function loadOverview() {
+  try {
+    const payload = await collectBackup({ version: DATA_VERSION })
+    const rows = Object.entries(payload.meta.counts)
+      .filter(([, n]) => n > 0)
+      .map(([name, count]) => ({
+        label:
+          (
+            {
+              progress: '进度',
+              daily: '每日时长',
+              notes: '笔记',
+              shelf: '清单',
+              focus: '专注',
+              habits: '习惯',
+              habitLogs: '习惯记录',
+              slots: '课表',
+              collect: '收藏',
+              books: '书籍',
+              marks: '标记',
+              locals: '本地视频',
+            } as Record<string, string>
+          )[name] || name,
+        count,
+      }))
+    const total = rows.reduce((sum, r) => sum + r.count, 0)
+    overview.value = { rows, total }
+  } catch {
+    overview.value = null
+  }
+}
 /** 桥上报的版本号 */
 const version = ref('')
 
@@ -129,22 +168,12 @@ async function exportBackup() {
   }
   busy.value = true
   try {
-    const [progress, daily, notes, shelf] = await Promise.all([
-      db.progress.toArray(),
-      db.daily.toArray(),
-      db.notes.toArray(),
-      db.shelf.toArray(),
-    ])
-    const payload = {
-      app: 'study-bili',
-      version: '0.1.0',
-      exportedAt: new Date().toISOString(),
+    // 本机 0.4.61：全量备份（全部表 + 设置 + 番茄 + 课表状态，不含登录态）
+    const payload = await collectBackup({
+      version: DATA_VERSION,
+      settings: conf.value as any,
       user: auth.loggedIn ? { mid: auth.user.mid, uname: auth.user.uname } : null,
-      progress,
-      daily,
-      notes,
-      shelf,
-    }
+    })
     // 文件名里的时间：2026-10-25T12-00-00
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
     const path = await bili.backup.write(
@@ -269,26 +298,57 @@ async function onImportFile(e: Event) {
   if (!payload || payload.app !== 'study-bili') {
     return ui.err('这不是 BiliLite 的学习数据备份（缺少 app 标记）')
   }
-  const p = Array.isArray(payload.progress) ? payload.progress.length : 0
-  const d = Array.isArray(payload.daily) ? payload.daily.length : 0
-  const n = Array.isArray(payload.notes) ? payload.notes.length : 0
-  const s = Array.isArray(payload.shelf) ? payload.shelf.length : 0
-  if (!p && !d && !n && !s) return ui.err('备份文件里没有可恢复的数据')
+  const desc = describeBackup(payload)
+  if (!desc.hasData) return ui.err('备份文件里没有可恢复的数据')
 
+  const tableInfo = desc.rows
+    .map((r) => `${r.label} ${r.count} 条`)
+    .join(' · ')
+  const prefInfo = desc.prefs.length ? `\n偏好：${desc.prefs.join(' / ')}` : ''
   const yes = await ui.confirm(
-    '打开这份备份？',
-    `${file.name}\n进度 ${p} 条 · 每日时长 ${d} 条 · 笔记 ${n} 条 · 清单 ${s} 条。\n与现有数据合并：同一条取较新/较大值，不会删除现有记录。`,
+    '导入这份备份？',
+    `${file.name}\n${tableInfo}${prefInfo}\n\n与现有数据合并：同一条取较新/较大值，不删除现有记录；设置只补缺失项。`,
   )
   if (!yes) return
 
   importing.value = true
   try {
-    const added = await mergeBackup(payload)
-    // force=true：学习页 store 可能已缓存旧数据，这里必须重读
+    const res = await applyBackup(payload, 'merge')
+    const prefsRes = applyBackupPrefs(payload, 'merge')
+    // 设置只补缺失项（合并模式）
+    const cur: any = conf.value || {}
+    const patch: Record<string, any> = {}
+    for (const [k, v] of Object.entries(prefsRes.settingsPatch)) {
+      if (cur[k] === undefined) patch[k] = v
+    }
+    if (Object.keys(patch).length) await settings.patch(patch).catch(() => {})
+
+    const parts = Object.entries(res.added).map(([name, n]) => {
+      const label =
+        (
+          {
+            progress: '进度',
+            daily: '每日时长',
+            notes: '笔记',
+            shelf: '清单',
+            focus: '专注',
+            habits: '习惯',
+            habitLogs: '习惯记录',
+            slots: '课表',
+            collect: '收藏',
+            books: '书籍',
+          } as Record<string, string>
+        )[name] || name
+      return `${label} +${n}`
+    })
+    // 强制重读缓存，再刷新页面让课表/专注/习惯都按新数据重画
     await learn.init(true).catch(() => {})
     ui.ok(
-      `已恢复：进度 +${added.progress} · 每日时长 +${added.daily} · 笔记 +${added.notes} · 清单 +${added.shelf}`,
+      parts.length
+        ? `已恢复：${parts.join(' · ')}`
+        : `已导入：没有新增记录（${desc.total} 条已在本地）`,
     )
+    if (res.total > 0) setTimeout(() => location.reload(), 900)
   } catch (err: any) {
     ui.err(err.message || '恢复失败')
   } finally {
@@ -342,6 +402,7 @@ function resetSettings() {
 }
 
 onMounted(() => {
+  void loadOverview()
   settings.init()
   learn.init().catch(() => {})
   // 版本号来自数据桥
@@ -493,30 +554,33 @@ onMounted(() => {
       <div v-else class="field">
         <label>备份位置</label>
         <p class="hint">
-          安卓上不用先选目录：点「写入 JSON 备份」后由系统「保存到」面板决定存哪（文档 / 网盘 / 微信都行）。
+          安卓上不用先选目录：点「导出全部数据」后由系统「保存到」面板决定存哪（文档 / 网盘 / 微信都行）。
         </p>
       </div>
       <div class="field">
-        <label>导出学习数据</label>
+        <div v-if="overview" class="hint" style="margin-bottom: 8px">
+          本地数据：{{ overview.rows.map((r) => r.label + ' ' + r.count).join(' · ') || '（暂无）'
+          }}（共 {{ overview.total }} 条）
+        </div>
+        <label>导出全部数据</label>
         <div class="row" style="gap: 8px">
           <button class="btn primary" :disabled="busy" @click="exportBackup">
             <span v-if="busy" class="spinner" />
-            <Icon v-else name="down" :size="14" /> 写入 JSON 备份
+            <Icon v-else name="down" :size="14" /> 导出全部数据
           </button>
           <span class="hint">
-            内容：进度 {{ learn.totalVideos }} 条 · 清单 {{ learn.shelf.length }} 条 · 累计
-            {{ (learn.totalSeconds / 3600).toFixed(2) }} h
+            内容：全部表（进度 / 笔记 / 专注 / 习惯 / 课表 / 收藏 …）+ 设置 + 番茄 + 课表状态，不含登录态
           </span>
         </div>
       </div>
       <div class="field">
-        <label>恢复学习数据</label>
+        <label>导入全部数据</label>
         <div class="row" style="gap: 8px">
           <button class="btn" :disabled="importing" @click="pickImportFile">
             <span v-if="importing" class="spinner" />
-            <Icon v-else name="folder" :size="14" /> 打开 JSON 备份…
+            <Icon v-else name="folder" :size="14" /> 导入全部数据…
           </button>
-          <span class="hint">选一份导出的 .json，与现有数据合并恢复（进度 / 笔记 / 清单都在）。</span>
+          <span class="hint">选一份导出的 .json：先预览每类条数，再合并导入；旧版备份也能导。</span>
         </div>
         <input
           ref="importEl"
