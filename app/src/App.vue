@@ -3,7 +3,7 @@
  * 应用外壳
  * 还原自 main-CoY7YGNA.js 里的 App 组件（原 __name: "App"）
  *
- * 结构：左侧固定导航（可拖动排序，顺序存 settings.navOrder）；顶栏已在 0.4.48 全局删除（剧场模式仍可用快捷键 F）
+ * 结构：左侧固定导航（可拖动排序，顺序存 settings.navOrder）+ 顶栏（搜索/今日时长/剧场模式/返回）
  *      + .scroll 里的 <RouterView>。没有 keep-alive：原实现用
  *      `:key="route.fullPath + '#' + ui.refreshSeq"` 强制换页/刷新时重建组件。
  */
@@ -489,6 +489,19 @@ onUnmounted(() => {
     </aside>
 
     <main class="main">
+      <header class="top">
+        <span class="grow"></span>
+        <button
+          :class="['btn ghost sm', { on: theater }]"
+          title="剧场模式：收起侧栏与顶栏，专注看这一段（快捷键 F，Esc 退出）"
+          @click="toggleTheater"
+        >
+          <Icon name="monitor" :size="14" /> 剧场模式 <span class="kbd">F</span>
+        </button>
+        <button class="btn ghost sm" title="返回" @click="router.back()">
+          <Icon name="left" :size="15" />
+        </button>
+      </header>
 
       <div ref="scrollEl" class="scroll">
         <RouterView v-slot="{ Component }">

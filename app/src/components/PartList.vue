@@ -16,10 +16,8 @@ const props = withDefaults(
     parts?: any[]
     index?: number
     title?: string
-    /** 紧凑模式（0.4.49：放进视频内弹层时隐藏自带标题栏） */
-    compact?: boolean
   }>(),
-  { parts: () => [], index: 0, title: '分P列表', compact: false },
+  { parts: () => [], index: 0, title: '分P列表' },
 )
 
 const emit = defineEmits<{ (e: 'select', index: number): void }>()
@@ -83,7 +81,7 @@ watch(keyword, scrollToCurrent, { flush: 'post' })
 
 <template>
   <div class="pages">
-    <div v-if="!compact" class="row pages-head">
+    <div class="row pages-head">
       <Icon name="list" :size="15" />
       <b style="font-size: 13px">{{ title }}</b>
       <span class="grow" />

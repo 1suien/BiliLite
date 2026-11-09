@@ -278,7 +278,6 @@ function updatePerf() {
   if (firstFrameMs) parts.push(`首帧 ${(firstFrameMs / 1000).toFixed(1)}s`)
   if (st && st.retries) parts.push(`换线 ${st.retries}次`)
   if (st && st.appends) parts.push(`append ${st.appends}次/${(st.appendMs / 1000).toFixed(1)}s`)
-  if (st && (st.appends || st.aheadSec)) parts.push(`缓冲 ${st.aheadSec || 0}s`)
   if (st && st.host) {
     parts.push(
       String(st.host)
@@ -306,28 +305,6 @@ const volume = ref(0.8)
 /** 静音 */
 const muted = ref(false)
 /** 当前 tab：intro | notes | related */
-/** 标题区是否折叠（0.4.47）：默认折叠，记住上次选择 */
-const HEAD_KEY = 'study-bili-video-head-collapsed'
-const headCollapsed = ref(true)
-try {
-  const saved = localStorage.getItem(HEAD_KEY)
-  if (saved === '0') headCollapsed.value = false
-} catch {}
-function toggleHead() {
-  headCollapsed.value = !headCollapsed.value
-  try {
-    localStorage.setItem(HEAD_KEY, headCollapsed.value ? '1' : '0')
-  } catch {}
-}
-
-/** 视频内分P弹层（0.4.49） */
-const partsMenu = ref(false)
-/** 从视频内分P列表切分P */
-async function pickPart(index: number) {
-  partsMenu.value = false
-  await selectPage(index)
-}
-
 const tab = ref('intro')
 /** 笔记输入 */
 const noteText = ref('')
@@ -343,8 +320,6 @@ const rate = ref(1)
 const rateMenu = ref(false)
 /** 字幕菜单 */
 const subMenu = ref(false)
-/** 清晰度菜单（0.4.45：从右栏搬进播放器） */
-const qualityMenu = ref(false)
 /** 在线字幕轨道 */
 const onlineSubs = ref<SubtitleTrack[]>([])
 /** 当前在线字幕语言 */
@@ -444,7 +419,7 @@ const upFollowed = computed(
   () => !!upMid.value && ups.items.some((u) => String(u.mid) === String(upMid.value)),
 )
 /** 是否有菜单打开（打开时控制条不自动隐藏） */
-const menuOpen = computed(() => rateMenu.value || subMenu.value || qualityMenu.value)
+const menuOpen = computed(() => rateMenu.value || subMenu.value)
 
 /* ------------------------------- 字幕 ------------------------------- */
 
@@ -814,7 +789,6 @@ function onGlobalPointerDown(e: any) {
   if (target && target.closest && target.closest('.ctl-menu-wrap')) return
   rateMenu.value = false
   subMenu.value = false
-  qualityMenu.value = false
 }
 
 /* ------------------------------- 数据 ------------------------------- */
@@ -927,14 +901,6 @@ async function loadRelated() {
   }
 }
 
-/** 点笔记时间戳跳到对应位置（0.4.50） */
-function jumpNote(sec: number) {
-  if (!player) return
-  const total = duration.value || 0
-  const at = Math.max(0, Math.min(Number(sec) || 0, total > 1 ? total - 0.4 : Number(sec) || 0))
-  player.requestSeek(at)
-}
-
 /** 本机笔记：按「视频 + 分P」独立，切分P/切视频都只看到自己那一份 */
 async function loadNotes() {
   try {
@@ -1000,42 +966,6 @@ function isCdnError(text: string) {
 /** 拉流线路「连上但不给数据」（空闲超时换线）的报错 */
 function isStallError(text: string) {
   return /没有新数据|线路.*没有数据/i.test(text)
-}
-
-/** 首帧超时兜底（0.4.53）：8 秒还没出画面就自动重载一次；仍不行在画面上给「重新加载」按钮 */
-const slowHint = ref(false)
-let slowTimer: any = null
-let slowRetried = false
-function clearSlowTimer() {
-  if (slowTimer) {
-    clearTimeout(slowTimer)
-    slowTimer = null
-  }
-  slowHint.value = false
-}
-function armSlowTimer() {
-  clearSlowTimer()
-  slowTimer = setTimeout(async () => {
-    if (firstFrameMs || errorText.value) return
-    const el = videoEl.value
-    if (!el) return
-    // 用户自己暂停的不算卡住
-    if (el.paused === false) return
-    if (!slowRetried) {
-      slowRetried = true
-      status.value = '8 秒还没出画面，正在重新加载…'
-      try {
-        await loadPlayurl()
-      } catch {}
-      armSlowTimer()
-      return
-    }
-    slowHint.value = true
-    status.value = '加载卡住了，可以点下面按钮重试'
-    try {
-      ;(window as any).__biliSlow = true
-    } catch {}
-  }, 8000)
 }
 
 /** 播放出错统一入口：CDN 抖动先自动换线路重试（最多 2 次），仍失败才把错误卡片给用户 */
@@ -1163,10 +1093,7 @@ async function loadPlayurl(manual?: any) {
       onState: (s, message) => {
         playing.value = s === 'playing'
         if (s === 'waiting') status.value = '缓冲中…'
-        else if (s === 'playing') {
-          status.value = ''
-          clearSlowTimer()
-        }
+        else if (s === 'playing') status.value = ''
         else if (s === 'paused' && message) status.value = message
       },
       onEnded: onEnded,
@@ -1193,8 +1120,6 @@ async function loadPlayurl(manual?: any) {
     cdnRetries = 0
     startTimers()
     updatePerf()
-    slowRetried = false
-    armSlowTimer()
     // 起播慢时给个人话提示（数据其实早到了，多半是没播起来）
     if (slowHintTimer) clearTimeout(slowHintTimer)
     slowHintTimer = setTimeout(() => {
@@ -1436,8 +1361,8 @@ const STAGE_SEEK_SPAN = 120
 
 function onStagePointerDown(e: PointerEvent) {
   const target = e.target as HTMLElement | null
-  // 控制条/按钮区域不接管，避免抢进度条拖动和按钮点击（清晰度标签同理）
-  if (target && target.closest && target.closest('.stage-ui, .q-badge')) return
+  // 控制条/按钮区域不接管，避免抢进度条拖动和按钮点击
+  if (target && target.closest && target.closest('.stage-ui')) return
   if (e.pointerType === 'mouse' && e.button !== 0) return
   stageGesture = {
     id: e.pointerId,
@@ -1796,22 +1721,11 @@ onBeforeUnmount(() => {
           </div>
           <div v-else-if="perfText" class="perf-line perf-corner">{{ perfText }}</div>
 
+          <!-- 小窗占位 -->
           <div v-if="miniHere" class="player-msg player-msg-col">
             <Icon name="pip" :size="28" />
             <div>视频正在小窗播放</div>
             <button class="btn sm" @click="fromMini">收回本页播放</button>
-          </div>
-
-          <!-- 视频内分P浮层（0.4.50） -->
-          <div v-if="partsMenu" class="parts-pop" @click.stop>
-            <div class="pp-head">
-              <Icon name="list" :size="15" />
-              <b>分P（{{ pages.length }}）</b>
-              <span class="dim">· 点了就切</span>
-              <span class="grow" />
-              <button class="pp-x" title="关闭" @click="partsMenu = false">✕</button>
-            </div>
-            <PartList compact :parts="pages" :index="pageIndex" @select="pickPart" />
           </div>
 
           <!-- 控制条 -->
@@ -1861,39 +1775,6 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
               </div>
-
-              <!-- 清晰度（0.4.45：从右栏搬进控制条） -->
-              <div class="ctl-menu-wrap">
-                <button
-                  class="btn ghost sm q-ctl"
-                  :title="'清晰度：' + qualityName(currentQuality)"
-                  @click.stop="qualityMenu = !qualityMenu"
-                >
-                  {{ qualityName(currentQuality) }}
-                </button>
-                <div v-if="qualityMenu" class="ctl-menu q-menu">
-                  <div class="mhead">清晰度</div>
-                  <div
-                    v-for="q in qualityList"
-                    :key="q"
-                    :class="['mi', { on: q === currentQuality, lock: isLocked(q) }]"
-                    @click="selectQuality(q)"
-                  >
-                    <span>{{ qualityName(q) }}</span>
-                    <span v-if="isLocked(q)" class="k">登录</span>
-                    <span v-else-if="q === currentQuality" class="k">当前</span>
-                  </div>
-                </div>
-              </div>
-
-              <!-- 分P（0.4.50：视频内独立浮层，避免被控制条菜单挤压） -->
-              <button
-                class="btn ghost sm"
-                :title="'分P：共 ' + pages.length + ' 个'"
-                @click.stop="partsMenu = !partsMenu"
-              >
-                分P{{ pages.length > 1 ? ' ' + pages.length : '' }}
-              </button>
 
               <!-- 字幕 -->
               <div class="ctl-menu-wrap">
@@ -2012,9 +1893,6 @@ onBeforeUnmount(() => {
 
       <!-- 播放出错 -->
       <div v-if="errorText" class="panel err-card" style="margin-top: 12px">
-        <button v-if="slowHint" class="slow-retry btn sm" @click="loadPlayurl(true)">
-          加载卡住了 · 点此重新加载
-        </button>
         <div class="err-head">
           <b>{{ errHuman.human }}</b>
           <span v-if="errHuman.why" class="err-why" :title="errorText">{{ errHuman.why }}</span>
@@ -2037,50 +1915,13 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <!-- 标题区折叠条（0.4.47）：默认只留一行标题，点开看完整信息 -->
-      <div v-if="headCollapsed" class="head-collapsed" @click="toggleHead">
-        <span class="hc-arrow">▸</span>
-        <span class="hc-title">{{ video.title }}</span>
-        <span class="hc-more">展开 ⌄</span>
-      </div>
-
-      <!-- 标题 + 操作（0.4.46：按效果图改成「标题 → meta → 操作」三段，操作单独一行） -->
-      <div v-show="!headCollapsed" style="margin-top: 14px">
-        <div class="row" style="align-items: flex-start; gap: 10px">
+      <!-- 标题 + 操作 -->
+      <div style="margin-top: 14px; display: flex; gap: 10px; align-items: flex-start">
         <div class="grow" style="min-width: 0">
-          <h1
-            class="head-title"
-            style="font-size: 17px; margin: 0 0 6px; line-height: 1.45"
-            title="点击收起"
-            @click="toggleHead"
-          >
-            {{ video.title }}
-          </h1>
+          <h1 style="font-size: 17px; margin: 0 0 6px; line-height: 1.45">{{ video.title }}</h1>
           <div v-if="partLabel" class="dim" style="font-size: 12.5px">正在播放：{{ partLabel }}</div>
         </div>
-        <span class="head-collapse" title="收起标题区" @click="toggleHead">收起 ⌃</span>
-        </div>
-      </div>
-
-      <!-- UP / BV / 发布时间 -->
-      <div v-show="!headCollapsed" class="row muted" style="flex-wrap: wrap; margin-top: 10px; font-size: 12.5px">
-        <span class="chip link" @click="router.push({ name: 'up', params: { mid: String(upMid) } })">
-          <Icon name="user" :size="13" /> {{ upName }}
-        </span>
-        <button
-          v-if="bvid"
-          class="chip link bv-chip mono"
-          title="点击复制 BV 号"
-          aria-label="复制 BV 号"
-          @click="copyBvid"
-        >
-          <Icon name="copy" :size="12" /> {{ bvid }}
-        </button>
-        <span class="chip plain">{{ formatDateTime(video.pubdate || 0) }}</span>
-      </div>
-
-      <div v-show="!headCollapsed" class="row" style="margin-top: 12px; flex-wrap: wrap">
-
+        <div class="row" style="flex: none">
           <button class="btn sm" @click="collectOpen = true">
             <Icon :name="collectCount ? 'check' : 'star'" :size="14" />
             {{ collectCount ? `已收藏 ${collectCount > 1 ? collectCount + ' 处' : ''}` : '收藏' }}
@@ -2118,12 +1959,30 @@ onBeforeUnmount(() => {
             <Icon name="pip" :size="16" />
           </button>
         </div>
+      </div>
+
+      <!-- UP / BV / 发布时间 -->
+      <div class="row muted" style="flex-wrap: wrap; margin-top: 10px; font-size: 12.5px">
+        <span class="chip link" @click="router.push({ name: 'up', params: { mid: String(upMid) } })">
+          <Icon name="user" :size="13" /> {{ upName }}
+        </span>
+        <button
+          v-if="bvid"
+          class="chip link bv-chip mono"
+          title="点击复制 BV 号"
+          aria-label="复制 BV 号"
+          @click="copyBvid"
+        >
+          <Icon name="copy" :size="12" /> {{ bvid }}
+        </button>
+        <span class="chip plain">{{ formatDateTime(video.pubdate || 0) }}</span>
+      </div>
 
       <!-- Tab -->
       <div class="tabs" style="margin-top: 18px">
         <div :class="['tab', { on: tab === 'intro' }]" @click="tab = 'intro'">简介</div>
-        <div :class="['tab', { on: tab === 'notes' }]" @click="openTab('notes')">
-          笔记<span class="dim">（{{ notes.length }}）</span>
+        <div :class="['tab', { on: tab === 'notes' }]" @click="tab = 'notes'">
+          笔记（{{ notes.length }}）
         </div>
         <div :class="['tab', { on: tab === 'related' }]" @click="tab = 'related'">相关推荐</div>
         <div :class="['tab', { on: tab === 'comments' }]" @click="openTab('comments')">
@@ -2149,7 +2008,7 @@ onBeforeUnmount(() => {
             @keydown.ctrl.enter.prevent="saveNote"
             @keydown.meta.enter.prevent="saveNote"
           ></textarea>
-          <button class="btn primary" :disabled="!noteText.trim()" @click="saveNote">
+          <button class="btn primary" @click="saveNote">
             <Icon name="plus" :size="14" /> 保存
           </button>
         </div>
@@ -2157,10 +2016,8 @@ onBeforeUnmount(() => {
           还没有笔记。笔记按分P独立保存：「回车」换行，点「保存」把「时间点 + 想法」存到本地。
         </div>
         <div v-for="n in notes" :key="n.id" class="field note-row">
-          <button class="note-at mono" :title="'跳到 ' + formatClock(n.sec)" @click="jumpNote(n.sec)">
-            {{ formatClock(n.sec) }}
-          </button>
-          <div class="ctrl" style="white-space: pre-wrap; flex: 1; min-width: 0">{{ n.text }}</div>
+          <label class="mono" style="width: 62px">{{ formatClock(n.sec) }}</label>
+          <div class="ctrl" style="white-space: pre-wrap">{{ n.text }}</div>
           <button class="btn sm danger note-del" title="删除这条笔记" @click="removeNote(n.id)">
             <Icon name="trash" :size="13" />
           </button>
@@ -2302,6 +2159,37 @@ onBeforeUnmount(() => {
         </template>
       </div>
     </div>
+
+    <aside style="display: flex; flex-direction: column; gap: 14px; min-width: 0">
+      <!-- 清晰度 -->
+      <div class="panel" style="padding: 13px">
+        <div class="row" style="margin-bottom: 9px">
+          <Icon name="monitor" :size="15" />
+          <b style="font-size: 13px">清晰度</b>
+          <span class="grow" />
+          <span class="muted" style="font-size: 11.5px">当前 {{ qualityName(currentQuality) }}</span>
+        </div>
+        <div class="row" style="flex-wrap: wrap">
+          <span
+            v-for="q in qualityList"
+            :key="q"
+            :class="['chip', { on: q === currentQuality, cur: q === currentQuality, lock: isLocked(q) }]"
+            :title="isLocked(q) ? '未登录时选不了这一档，点「扫码登录」解锁' : qualityName(q)"
+            @click="selectQuality(q)"
+          >
+            {{ qualityName(q) }}
+          </span>
+        </div>
+        <div v-if="playurl && playurl.mode === 'durl'" class="muted" style="font-size: 11.5px; margin-top: 8px">
+          该视频只提供整段流（durl），清晰度档位受限。
+        </div>
+      </div>
+
+      <!-- 分 P -->
+      <div class="panel" style="padding: 13px">
+        <PartList :parts="pages" :index="pageIndex" @select="selectPage" />
+      </div>
+    </aside>
 
     <CollectModal :open="collectOpen" :video="collectVideo" @close="collectOpen = false" />
   </div>
