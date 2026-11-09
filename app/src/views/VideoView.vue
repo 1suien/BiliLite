@@ -920,7 +920,7 @@ async function loadRelated() {
 /** 最近一条笔记的预览（时间 + 前 40 字） */
 const latestNoteText = computed(() => {
   const n = notes.value[0]
-  if (!n) return '还没有笔记，点「记笔记」记第一条'
+  if (!n) return '还没有笔记，点这一条记第一条'
   const t = String(n.text || '').replace(/\s+/g, ' ')
   return `${formatClock(n.sec)} · ${t.length > 40 ? t.slice(0, 40) + '…' : t}`
 })
