@@ -305,6 +305,20 @@ const volume = ref(0.8)
 /** 静音 */
 const muted = ref(false)
 /** 当前 tab：intro | notes | related */
+/** 标题区是否折叠（0.4.47）：默认折叠，记住上次选择 */
+const HEAD_KEY = 'study-bili-video-head-collapsed'
+const headCollapsed = ref(true)
+try {
+  const saved = localStorage.getItem(HEAD_KEY)
+  if (saved === '0') headCollapsed.value = false
+} catch {}
+function toggleHead() {
+  headCollapsed.value = !headCollapsed.value
+  try {
+    localStorage.setItem(HEAD_KEY, headCollapsed.value ? '1' : '0')
+  } catch {}
+}
+
 const tab = ref('intro')
 /** 笔记输入 */
 const noteText = ref('')
@@ -1950,8 +1964,15 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
+      <!-- 标题区折叠条（0.4.47）：默认只留一行标题，点开看完整信息 -->
+      <div v-if="headCollapsed" class="head-collapsed" @click="toggleHead">
+        <span class="hc-arrow">▸</span>
+        <span class="hc-title">{{ video.title }}</span>
+        <span class="hc-more">展开 ⌄</span>
+      </div>
+
       <!-- 标题 + 操作（0.4.46：按效果图改成「标题 → meta → 操作」三段，操作单独一行） -->
-      <div style="margin-top: 14px">
+      <div v-show="!headCollapsed" style="margin-top: 14px">
         <div class="grow" style="min-width: 0">
           <h1 style="font-size: 17px; margin: 0 0 6px; line-height: 1.45">{{ video.title }}</h1>
           <div v-if="partLabel" class="dim" style="font-size: 12.5px">正在播放：{{ partLabel }}</div>
@@ -1960,7 +1981,7 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- UP / BV / 发布时间 -->
-      <div class="row muted" style="flex-wrap: wrap; margin-top: 10px; font-size: 12.5px">
+      <div v-show="!headCollapsed" class="row muted" style="flex-wrap: wrap; margin-top: 10px; font-size: 12.5px">
         <span class="chip link" @click="router.push({ name: 'up', params: { mid: String(upMid) } })">
           <Icon name="user" :size="13" /> {{ upName }}
         </span>
@@ -1976,7 +1997,7 @@ onBeforeUnmount(() => {
         <span class="chip plain">{{ formatDateTime(video.pubdate || 0) }}</span>
       </div>
 
-      <div class="row" style="margin-top: 12px; flex-wrap: wrap">
+      <div v-show="!headCollapsed" class="row" style="margin-top: 12px; flex-wrap: wrap">
 
           <button class="btn sm" @click="collectOpen = true">
             <Icon :name="collectCount ? 'check' : 'star'" :size="14" />

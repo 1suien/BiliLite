@@ -1696,3 +1696,42 @@ body.has-reminder .page-float {
 .ctl-menu .mi.lock {
   opacity: 0.55;
 }
+
+/* 标题区折叠（0.4.47） */
+.head-collapsed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  height: 44px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  cursor: pointer;
+  user-select: none;
+}
+.head-collapsed:hover {
+  border-color: var(--line-strong);
+}
+.head-collapsed .hc-arrow {
+  color: var(--t2);
+  font-size: 12px;
+  width: 12px;
+  text-align: center;
+}
+.head-collapsed .hc-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--t1);
+}
+.head-collapsed .hc-more {
+  color: var(--brand);
+  font-size: 12.5px;
+  white-space: nowrap;
+}

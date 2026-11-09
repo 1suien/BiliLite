@@ -69,3 +69,9 @@ body{background:var(--bg);color:var(--t1);font:14px/1.6 -apple-system,"PingFang 
 
 .tri{display:block;width:0;height:0;border-left:9px solid #fff;border-top:6px solid transparent;border-bottom:6px solid transparent;margin-left:2px}
 .ctrl .pbtn{font-size:13px;color:#fff}
+
+.hcollapse{display:flex;align-items:center;gap:8px;margin-top:14px;height:44px;padding:0 10px;border-radius:8px;background:var(--card);border:1px solid var(--line);cursor:pointer}
+.hcollapse:hover{border-color:var(--line-strong)}
+.harrow{color:var(--t2);font-size:12px;width:12px;text-align:center}
+.htitle{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px;font-weight:600;color:var(--t1)}
+.hmore{color:var(--brand);font-size:12.5px;white-space:nowrap}
