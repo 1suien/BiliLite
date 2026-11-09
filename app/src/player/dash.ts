@@ -98,6 +98,8 @@ export interface DashStat {
   /** append 次数 / append 总耗时（定位 MSE 慢） */
   appends: number
   appendMs: number
+  /** 当前视频轨缓冲超前秒数（每秒刷新，诊断「一直缓冲」用） */
+  aheadSec: number
   host: string
   vBytes: number
   aBytes: number
@@ -532,6 +534,7 @@ class DashKernel implements DashPlayer {
     retries: 0,
     appends: 0,
     appendMs: 0,
+    aheadSec: 0,
     host: '',
     vBytes: 0,
     aBytes: 0,
@@ -664,6 +667,7 @@ class DashKernel implements DashPlayer {
       retries: 0,
       appends: 0,
       appendMs: 0,
+      aheadSec: 0,
       host: '',
       vBytes: 0,
       aBytes: 0,
@@ -753,6 +757,11 @@ class DashKernel implements DashPlayer {
   /** DASH：建 MediaSource、选轨、开流 */
   private async openDash(payload: DashPayload, startTime: number) {
     const gen = ++this.gen
+    // 诊断：每秒刷新缓冲超前秒数，便于判断「一直在下载但缓冲不涨」
+    this.clearStatTimer()
+    this.statTimer = setInterval(() => {
+      if (this.stat) this.stat.aheadSec = Math.round(this.ahead('video'))
+    }, 1000)
     this.teardownMedia()
     this.usedFallbackFromZero = false
 
@@ -1701,7 +1710,18 @@ class DashKernel implements DashPlayer {
     this.statusAt = 0
   }
 
+  /** 诊断计时器（0.4.53） */
+  private statTimer: any = null
+
+  private clearStatTimer() {
+    if (this.statTimer) {
+      clearInterval(this.statTimer)
+      this.statTimer = null
+    }
+  }
+
   destroy() {
+    this.clearStatTimer()
     this.destroyed = true
     this.gen++
     this.detach()

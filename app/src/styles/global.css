@@ -1747,3 +1747,16 @@ body.has-reminder .page-float {
 .note-at:hover {
   text-decoration: underline;
 }
+
+/* 加载卡住时的重试按钮（0.4.53） */
+.slow-retry {
+  position: absolute;
+  left: 50%;
+  bottom: 78px;
+  transform: translateX(-50%);
+  z-index: 7;
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}

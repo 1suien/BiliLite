@@ -278,6 +278,7 @@ function updatePerf() {
   if (firstFrameMs) parts.push(`首帧 ${(firstFrameMs / 1000).toFixed(1)}s`)
   if (st && st.retries) parts.push(`换线 ${st.retries}次`)
   if (st && st.appends) parts.push(`append ${st.appends}次/${(st.appendMs / 1000).toFixed(1)}s`)
+  if (st && (st.appends || st.aheadSec)) parts.push(`缓冲 ${st.aheadSec || 0}s`)
   if (st && st.host) {
     parts.push(
       String(st.host)
@@ -1001,6 +1002,42 @@ function isStallError(text: string) {
   return /没有新数据|线路.*没有数据/i.test(text)
 }
 
+/** 首帧超时兜底（0.4.53）：8 秒还没出画面就自动重载一次；仍不行在画面上给「重新加载」按钮 */
+const slowHint = ref(false)
+let slowTimer: any = null
+let slowRetried = false
+function clearSlowTimer() {
+  if (slowTimer) {
+    clearTimeout(slowTimer)
+    slowTimer = null
+  }
+  slowHint.value = false
+}
+function armSlowTimer() {
+  clearSlowTimer()
+  slowTimer = setTimeout(async () => {
+    if (firstFrameMs || errorText.value) return
+    const el = videoEl.value
+    if (!el) return
+    // 用户自己暂停的不算卡住
+    if (el.paused === false) return
+    if (!slowRetried) {
+      slowRetried = true
+      status.value = '8 秒还没出画面，正在重新加载…'
+      try {
+        await loadPlayurl()
+      } catch {}
+      armSlowTimer()
+      return
+    }
+    slowHint.value = true
+    status.value = '加载卡住了，可以点下面按钮重试'
+    try {
+      ;(window as any).__biliSlow = true
+    } catch {}
+  }, 8000)
+}
+
 /** 播放出错统一入口：CDN 抖动先自动换线路重试（最多 2 次），仍失败才把错误卡片给用户 */
 function handlePlayError(e: any) {
   const msg = String((e && e.message) || e || '播放失败')
@@ -1126,7 +1163,10 @@ async function loadPlayurl(manual?: any) {
       onState: (s, message) => {
         playing.value = s === 'playing'
         if (s === 'waiting') status.value = '缓冲中…'
-        else if (s === 'playing') status.value = ''
+        else if (s === 'playing') {
+          status.value = ''
+          clearSlowTimer()
+        }
         else if (s === 'paused' && message) status.value = message
       },
       onEnded: onEnded,
@@ -1153,6 +1193,8 @@ async function loadPlayurl(manual?: any) {
     cdnRetries = 0
     startTimers()
     updatePerf()
+    slowRetried = false
+    armSlowTimer()
     // 起播慢时给个人话提示（数据其实早到了，多半是没播起来）
     if (slowHintTimer) clearTimeout(slowHintTimer)
     slowHintTimer = setTimeout(() => {
@@ -1970,6 +2012,9 @@ onBeforeUnmount(() => {
 
       <!-- 播放出错 -->
       <div v-if="errorText" class="panel err-card" style="margin-top: 12px">
+        <button v-if="slowHint" class="slow-retry btn sm" @click="loadPlayurl(true)">
+          加载卡住了 · 点此重新加载
+        </button>
         <div class="err-head">
           <b>{{ errHuman.human }}</b>
           <span v-if="errHuman.why" class="err-why" :title="errorText">{{ errHuman.why }}</span>
