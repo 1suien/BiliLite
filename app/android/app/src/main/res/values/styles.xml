@@ -16,7 +16,10 @@
     </style>
 
 
+    <!-- 开屏（本机 0.4.65）：Android 12+ 系统开屏底色也走深色，避免白闪 -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/splashBackground</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
         <item name="android:background">@drawable/splash</item>
     </style>
 </resources>

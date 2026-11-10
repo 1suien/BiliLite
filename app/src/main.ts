@@ -15,6 +15,23 @@ import router from './router'
 import { useUiStore } from './stores/ui'
 import './styles/global.css'
 
+/** 开屏收起：最少展示 800ms，失败/超时也一定会消失（本机 0.4.65） */
+const BOOT_AT = performance.now()
+function hideBootSplash() {
+  const el = document.getElementById('boot-splash')
+  if (!el) return
+  const wait = Math.max(0, 800 - (performance.now() - BOOT_AT))
+  window.setTimeout(() => {
+    el.classList.add('out')
+    window.setTimeout(() => el.remove(), 280)
+  }, wait)
+}
+// 3 秒还没好就显示「正在加载数据…」；8 秒强制收起，避免卡在开屏
+window.setTimeout(() => {
+  document.getElementById('boot-splash-tip')?.classList.add('on')
+}, 3000)
+window.setTimeout(hideBootSplash, 8000)
+
 async function boot() {
   document.documentElement.dataset.platform = 'android'
 
@@ -65,6 +82,7 @@ async function boot() {
 
   app.use(router)
   app.mount('#app')
+  hideBootSplash()
 
   // 与 APK 一致：数据初始化在 App.vue 的 onMounted 里（设置→登录态→本地数据），
   // 这里挂载后立刻接管返回键，不阻塞首屏。
@@ -118,6 +136,7 @@ async function installBackButton() {
 
 boot().catch((e) => {
   console.error('[mobile] 渲染层启动失败:', e)
+  hideBootSplash()
   const root = document.getElementById('app')
   if (root) {
     root.innerHTML =

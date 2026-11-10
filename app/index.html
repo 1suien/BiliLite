@@ -18,9 +18,110 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; media-src 'self' blob: https:; connect-src 'self' http: https: ws: wss:; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'"
     />
+    <style>
+      /* 冷启动开屏（本机 0.4.65）：原生开屏图之后无缝衔接，boot 完成后淡出 */
+      #boot-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #0a0a0b;
+        color: #f3f3f4;
+        font-family: -apple-system, 'Noto Sans CJK SC', 'PingFang SC', system-ui, sans-serif;
+        transition: opacity 0.24s ease;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      #boot-splash.out {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #boot-splash .bs-inner {
+        text-align: center;
+        animation: bs-fade 0.7s ease both;
+      }
+      #boot-splash .bs-logo {
+        width: 92px;
+        height: 92px;
+        border-radius: 26px;
+        margin: 0 auto 30px;
+        background: #fff;
+        color: #111;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 42px;
+        font-weight: 800;
+      }
+      #boot-splash .bs-quote {
+        font-family: Georgia, 'Times New Roman', serif;
+        font-style: italic;
+        font-size: 42px;
+        line-height: 1.3;
+        letter-spacing: 0.5px;
+      }
+      #boot-splash .bs-sub {
+        margin-top: 14px;
+        font-size: 14px;
+        letter-spacing: 2px;
+        color: #8b8b95;
+      }
+      #boot-splash .bs-bar {
+        width: 128px;
+        height: 3px;
+        border-radius: 2px;
+        margin: 46px auto 0;
+        background: #26272c;
+        overflow: hidden;
+      }
+      #boot-splash .bs-bar i {
+        display: block;
+        width: 46%;
+        height: 100%;
+        border-radius: 2px;
+        background: #fff;
+        animation: bs-load 1.2s ease-in-out infinite;
+      }
+      #boot-splash .bs-tip {
+        margin-top: 18px;
+        font-size: 12px;
+        color: #6a6a73;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+      }
+      #boot-splash .bs-tip.on {
+        opacity: 1;
+      }
+      @keyframes bs-load {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(320%); }
+      }
+      @keyframes bs-fade {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: none; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #boot-splash .bs-inner,
+        #boot-splash .bs-bar i {
+          animation: none;
+        }
+      }
+    </style>
     <title>BiliLite</title>
   </head>
   <body>
+    <!-- 冷启动开屏（本机 0.4.65）：纯静态，先于 JS 显示，避免白闪 -->
+    <div id="boot-splash" aria-hidden="true">
+      <div class="bs-inner">
+        <div class="bs-logo">学</div>
+        <div class="bs-quote">It’s never too late to learn</div>
+        <div class="bs-sub">学习，永远不晚</div>
+        <div class="bs-bar"><i></i></div>
+        <div class="bs-tip" id="boot-splash-tip">正在加载数据…</div>
+      </div>
+    </div>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
