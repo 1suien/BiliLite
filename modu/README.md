@@ -26,10 +26,9 @@
 
 ## 下载安装
 
-- GitHub Releases（推荐）：<https://github.com/1suien/BiliLite/releases/tag/modu-v0.2.0>
-  资产 `MoDu-0.2.0-debug.apk`（6,050,600 B，debug 签名，v1+v2 校验通过，sha256 `4c59bf11564349033c628c56bb8991384be53bf659e83e55406217550bf0289e`）
-- 源码：<https://github.com/1suien/BiliLite/tree/modu>（分支 `modu`，源码在 `modu/` 目录）
-- 本机直链（仅本平板可访问）：<http://127.0.0.1:3080/dl/install.html>
+- 直接下载 APK（推荐）：<https://github.com/1suien/BiliLite/raw/modu/MoDu-0.2.0-debug.apk>
+  `MoDu-0.2.0-debug.apk`，6,050,600 B，debug 签名（v1+v2 校验通过），sha256 `4c59bf11564349033c628c56bb8991384be53bf659e83e55406217550bf0289e`
+- 源码：<https://github.com/1suien/BiliLite/tree/modu>（分支 `modu`，源码在 `modu/` 目录；tag `modu-v0.2.0`）
 
 安装：下载 APK → 点开 → 首次允许「安装未知应用」→ 安装。包名 `com.readawre.app`，minSdk 22（Android 5.1+），targetSdk 34。
 
