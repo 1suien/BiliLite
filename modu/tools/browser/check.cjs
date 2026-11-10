@@ -133,11 +133,22 @@ async function main() {
   await wait(900)
   let cards = await page.locator('.card').count()
   check('示例书已灌入（≥3 本）', cards >= 3, `${cards} 本`)
-  check('书架标题', (await page.locator('.brand h1').innerText()) === '墨读')
+  check('顶部 tabs', (await page.locator('.hh-tab.on').innerText()) === '书架')
   await shot('shelf')
 
+  // 书架 / 智能助理 切换
+  await page.locator('.hh-tab', { hasText: '智能助理' }).click()
+  await page.waitForSelector('.agent', { timeout: 8000 })
+  check('智能助理欢迎页', (await page.locator('.agent .welcome h1').innerText()) === '智能助理')
+  check('欢迎页四个建议', (await page.locator('.agent .sug').count()) === 4)
+  await shot('agent')
+  await page.locator('.hh-tab', { hasText: '书架' }).click()
+  await page.waitForSelector('.shelf', { timeout: 8000 })
+  await page.waitForFunction(() => document.querySelectorAll('.card').length >= 3, null, { timeout: 15000 })
+  await wait(500)
+
   const openByText = async (t) => {
-    await page.locator('.card', { hasText: t }).first().click()
+    await page.locator(`.card[aria-label*="${t}"]`).first().click()
     await page.waitForSelector('.reader', { timeout: 15000 })
     await wait(1200)
   }
@@ -168,6 +179,60 @@ async function main() {
   await wait(700)
   const after = await chipMain()
   check('翻页生效', before !== after, `${before} → ${after}`)
+
+  // ---------- 手感：书眉 / 跟手翻页 / 进度拖动 ----------
+  console.log('\n[2b] 阅读手感')
+  const hideChrome = async () => {
+    for (let i = 0; i < 8; i++) {
+      if (!(await page.locator('.pill').count())) return
+      await page.locator('.stage').click({ position: { x: 195, y: 700 } })
+      await wait(420)
+    }
+  }
+  await hideChrome()
+  const runHead = await page.locator('.run-head').innerText().catch(() => '')
+  check('沉浸态书眉（书名 · 章节）', runHead.includes('岛上灯塔') && runHead.length > 5, runHead)
+  const folio = await page.locator('.run-foot .folio').innerText().catch(() => '')
+  check('页脚页码', /^\d+ \/ \d+$/.test(folio.trim()), folio.trim())
+
+  // 用 CDP 触摸事件模拟手指拖拽翻页
+  const cdp = await ctx.newCDPSession(page)
+  const touch = (type, x, y) =>
+    cdp.send('Input.dispatchTouchEvent', {
+      type,
+      touchPoints: type === 'touchEnd' ? [] : [{ x, y }],
+    })
+  const dragBefore = await chipMain()
+  const [curPage, totalPage] = dragBefore.split('/').map((x) => parseInt(x.trim(), 10))
+  const forward = curPage < totalPage // 在最后一页就往回拖，避免拖到书尾
+  const fromX = forward ? 320 : 90
+  const toX = forward ? 140 : 300
+  await touch('touchStart', fromX, 600)
+  for (let i = 1; i <= 9; i++) {
+    await touch('touchMove', fromX + ((toX - fromX) * i) / 9, 600)
+    await wait(16)
+  }
+  await touch('touchEnd', toX, 600)
+  await wait(600)
+  const dragAfter = await chipMain()
+  check('跟手拖拽翻页', dragBefore !== dragAfter, `${dragBefore} → ${dragAfter}`)
+
+  // 按住页脚进度线拖到 90% 附近
+  await pill()
+  await wait(250)
+  const box = await page.locator('.scrub').boundingBox()
+  if (box) {
+    const y = box.y + box.height / 2
+    await page.mouse.move(box.x + 6, y)
+    await page.mouse.down()
+    await page.mouse.move(box.x + box.width * 0.9, y, { steps: 8 })
+    await page.mouse.up()
+    await wait(700)
+    const nums = (await chipMain()).split('/').map((x) => parseInt(x.trim(), 10))
+    check('进度拖动跳页', nums.length === 2 && nums[0] >= nums[1] - 1, `读到 ${nums.join(' / ')}`)
+  } else {
+    check('进度拖动跳页', false, '找不到 .scrub')
+  }
 
   // ---------- 目录 ----------
   console.log('\n[3] 目录')
@@ -270,7 +335,12 @@ async function main() {
   await backToShelf()
   await wait(900)
   await shot('shelf-progress')
-  await page.locator('.icon[aria-label="阅读统计"]').click()
+  await page.locator('.hh-menu').click()
+  await page.waitForSelector('.drawer', { timeout: 5000 })
+  await wait(350)
+  check('筛选抽屉打开', (await page.locator('.drawer .chips .chip').count()) > 0)
+  await shot('drawer')
+  await page.locator('.drawer .link-row', { hasText: '阅读统计' }).click()
   await page.waitForSelector('.stats', { timeout: 8000 })
   await wait(700)
   check('统计页打开', await page.locator('.hero').isVisible())
@@ -292,8 +362,8 @@ async function main() {
   fs.writeFileSync(cbz, demoCbz)
   await page.locator('input.file-input').setInputFiles([fb2, cbz])
   await wait(2500)
-  check('FB2 已导入', (await page.locator('.card', { hasText: '星海拾遗' }).count()) > 0)
-  check('CBZ 已导入', (await page.locator('.fmt-cbz').count()) > 0)
+  check('FB2 已导入', (await page.locator('.card[aria-label*="星海拾遗"]').count()) > 0)
+  check('CBZ 已导入', (await page.locator('.card[aria-label*="银河画集"]').count()) > 0)
   await shot('shelf-all')
 
   await openByText('星海拾遗')
@@ -301,7 +371,7 @@ async function main() {
   await shot('fb2')
 
   await backToShelf()
-  await page.locator('.card', { has: page.locator('.fmt-cbz') }).first().click()
+  await page.locator('.card[aria-label*="银河画集"]').first().click()
   await page.waitForSelector('.comic', { timeout: 10000 })
   await page.locator('.comic img.page').first().waitFor({ timeout: 8000 })
   await wait(700)

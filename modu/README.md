@@ -1,36 +1,51 @@
 # 墨读 · Android 电子阅读器
 
-一个完全离线的安卓阅读器，照着 [ReadAware](https://readaware.app) 的阅读体验做的轻量实现：
-**逐句聚焦 + 划线批注 + 阅读统计 + 阅读助手**，支持 TXT / EPUB / PDF / FB2 / CBZ 五种格式。
+一个完全离线的安卓阅读器，照着 [ReadAware](https://readaware.app) 做的轻量实现：
+首页是「**书架 / 智能助理**」双 tab + 纯封面书墙，阅读页有**逐句聚焦 + 划线批注 + 阅读统计 + 阅读助手**，支持 TXT / EPUB / PDF / FB2 / CBZ 五种格式。
 数据全部存在本机（IndexedDB），不登录、不上传、不联网也能读；只有你主动配置 AI Key 时才会请求你指定的接口。
 
 体积对比：原版 ReadAware 的 Android 包约 55 MB（Tauri + 52 MB Rust 动态库），墨读的 APK 约 6 MB。
 
-![书架](docs/screenshots/shelf.png)
+![书架（1920 / 平板横屏）](docs/screenshots/shelf-wide.png)
 
-| 沉浸阅读（右上角页数 / 本次计时） | 逐句聚焦 | 选中划线 |
+| 书架（手机） | 智能助理 | 智能助理对话 |
 | --- | --- | --- |
-| ![阅读](docs/screenshots/txt-reading.png) | ![逐句](docs/screenshots/focus.png) | ![选中](docs/screenshots/selection.png) |
+| ![书架](docs/screenshots/shelf.png) | ![智能助理](docs/screenshots/agent.png) | ![对话](docs/screenshots/agent-chat.png) |
 
-| 划线批注 | 阅读统计 | 目录 |
+| 沉浸阅读（宽屏居中单栏） | 沉浸阅读 | 逐句聚焦 |
 | --- | --- | --- |
-| ![笔记](docs/screenshots/notes.png) | ![统计](docs/screenshots/stats.png) | ![目录](docs/screenshots/toc.png) |
+| ![宽屏阅读](docs/screenshots/reader-wide.png) | ![阅读](docs/screenshots/txt-reading.png) | ![逐句](docs/screenshots/focus.png) |
 
-| 阅读外观 | 夜间 | PDF |
+| 选中划线 | 划线批注 | 阅读统计 |
 | --- | --- | --- |
-| ![设置](docs/screenshots/settings.png) | ![夜间](docs/screenshots/night.png) | ![PDF](docs/screenshots/pdf.png) |
+| ![选中](docs/screenshots/selection.png) | ![笔记](docs/screenshots/notes.png) | ![统计](docs/screenshots/stats.png) |
 
-| 漫画（CBZ） | FB2 |
-| --- | --- |
-| ![漫画](docs/screenshots/comic.png) | ![FB2](docs/screenshots/fb2.png) |
+| 目录 | 阅读外观 | 夜间 |
+| --- | --- | --- |
+| ![目录](docs/screenshots/toc.png) | ![设置](docs/screenshots/settings.png) | ![夜间](docs/screenshots/night.png) |
+
+| 筛选与排序 | PDF | 漫画（CBZ） |
+| --- | --- | --- |
+| ![抽屉](docs/screenshots/drawer.png) | ![PDF](docs/screenshots/pdf.png) | ![漫画](docs/screenshots/comic.png) |
 
 ## 下载安装
 
-- 直接下载 APK（推荐）：<https://github.com/1suien/BiliLite/raw/modu/MoDu-0.3.0-debug.apk>
-  `MoDu-0.3.0-debug.apk`，6,123,722 B，debug 签名（v1+v2 校验通过），sha256 `160d5159f0cfd02b48b13c0bafa2fd9ef4fc33890a14111f419b2b26bdf4312b`
-- 源码：<https://github.com/1suien/BiliLite/tree/modu>（分支 `modu`，源码在 `modu/` 目录；tag `modu-v0.3.0`）
+- 直接下载 APK（推荐）：<https://github.com/1suien/BiliLite/raw/modu/MoDu-0.3.1-debug.apk>
+  `MoDu-0.3.1-debug.apk`，6,134,741 B，debug 签名（v1+v2 校验通过），sha256 `6d361be1a71fe102088467fcc8b06a2f0ad8f01255bf90f0d780a6153e2e2c73`
+- 源码：<https://github.com/1suien/BiliLite/tree/modu>（分支 `modu`，源码在 `modu/` 目录；tag `modu-v0.3.1`）
 
 安装：下载 APK → 点开 → 首次允许「安装未知应用」→ 安装。包名 `com.readawre.app`，minSdk 22（Android 5.1+），targetSdk 34。
+
+## 0.3.1 新增：首页与智能助理
+
+把首页补成 ReadAware 的样子，并把「智能助理」真正做出来：
+
+- **居中双 tab**：「书架 / 智能助理」，右侧一行细线图标（搜索 / 导入 / 筛选 / 统计 / 设置 / 更多），宽屏显示全部，手机只留常用的，其余收进更多与抽屉。
+- **纯封面书墙**：手机上 3 列、平板 4–5 列、桌面最多 6 列（1440 宽下 6 列），只有封面，没有标题、角标和百分比；在读的书左上角一个小圆点，封面底部 2px 进度线。
+- **搜索 / 筛选 / 排序**：点搜索图标展开一行搜索框；左侧抽屉放「全部 / 在读 / 未读 / 读完」和四种排序，手机上也够得着；长按封面可以改名以外的操作（从头开始读 / 删除）。
+- **智能助理页**：欢迎语 + 四个建议卡（挑下一本 / 最近状态 / 解释概念 / 排阅读计划），自带 Key 的 OpenAI 兼容对话（OpenAI / DeepSeek / 通义千问预设 + 任意 baseUrl），流式输出可停止；发送时自动把书架、作者、格式、阅读进度整理成上下文，所以它真的知道你读到哪里。没配置 Key 时只显示配置引导，不发任何请求。
+- **宽屏阅读单栏**：平板横屏 / 桌面下正文限制在 760px 居中，不再出现一页几十个字宽的超长行；手机布局不变。
+- 端到端验收扩到 **39 项**（新增双 tab、智能助理欢迎页、筛选抽屉断言）。
 
 ## 0.3.0 新增：阅读手感
 
@@ -58,13 +73,14 @@
 
 ## 功能
 
-- **书架**：多选导入（带进度）、搜索、筛选、排序、封面 / 格式角标 / 阅读百分比、继续阅读、长按「从头开始读 / 删除」；内置 3 本示例书（TXT / EPUB / PDF）。
+- **书架**：纯封面书墙（手机 3 列 / 桌面最多 6 列）、多选导入（带进度）、搜索、筛选、排序、长按「从头开始读 / 删除」；内置 3 本示例书（TXT / EPUB / PDF）。
 - **TXT**：自动识别 UTF-8 / UTF-16 / GB18030（含 BOM），按「第 N 章 / Chapter N / 序章 / 楔子…」自动分章，识别不到标题时按长度切节。
 - **EPUB**：`container.xml → OPF`，读取 spine / 目录（nav.xhtml 或 ncx），正文清掉脚本、表单、内联事件，图片解包成 blob 显示；封面自动提取。
 - **PDF**：pdf.js 连续滚动，页面懒渲染（离开视野释放 canvas），0.6×–2.4× 缩放，A− / A+ / 适宽，页码与进度。
 - **FB2 / CBZ**：见上。
 - **排版**：CSS 多列分页（整页翻页、无滚动条），纸白 / 米黄 / 松绿 / 夜间四套主题，字号 14–30，行距三档，字距 / 段距各三档，两端对齐 / 左对齐，首行缩进开关，宋体 / 黑体，页边距三档，滑动 / 掀页 / 淡入 / 无动画四种翻页，书眉与页码可关。
 - **进度**：按「章 + 页 + 百分比」记录，翻页、退后台、退出都会落盘；改字号、转屏保持相对位置。
+- **智能助理**：`/agent` 页，书架上下文 + 流式对话，模型 Key 只存本机。
 - **交互**：跟手拖拽翻页、左右点按翻页、中间点按呼出 / 收起工具条、横滑翻页、键盘 ←/→/空格/PageUp/PageDown/Esc、滚轮翻页；阅读时常亮（Wake Lock）可关；系统返回键从阅读器回书架。
 
 ## 格式支持
@@ -90,18 +106,19 @@ AI 客户端是自己写的最小 OpenAI 兼容 SSE 客户端（`src/lib/ai.ts`�
 ```
 app/
   src/
-    views/        ShelfView（书架）、ReaderView（阅读器装配 + 工具条 + 面板 + 会话统计）
-                  StatsView（阅读统计）
+    views/        ShelfView（书架 / 筛选抽屉 / 设置）、AgentView（智能助理对话）、
+                  ReaderView（阅读器装配 + 工具条 + 面板 + 会话统计）、StatsView（阅读统计）
     readers/      ReflowReader（TXT/EPUB/FB2 分页 + 逐句 + 批注渲染）
                   PdfReader（PDF）、ComicReader（CBZ）
-    components/   SettingsSheet（阅读外观）、TocSheet（目录）、NotesSheet（书中笔记）、AiSheet（阅读助手）
+    components/   HomeHeader（居中双 tab 顶栏）、SettingsSheet（阅读外观）、TocSheet（目录）、
+                  NotesSheet（书中笔记）、AiSheet（阅读内助手）
     lib/          encoding（编码/分章）、epub、pdf、fb2、cbz、ai（SSE）、stats（统计聚合）、
                   import（导入入库）、cover（生成封面）、sample（示例书）、util
     db/           Dexie 表结构（books / files / covers / settings / annotations / sessions）
     dev/          ?seed=1 时灌入示例书
   android/        Capacitor Android 工程
 tools/
-  browser/check.cjs   无头浏览器端到端验收（书架→TXT→聚焦→划线→笔记→统计→FB2/CBZ→PDF，36 项断言）
+  browser/check.cjs   无头浏览器端到端验收（书架→智能助理→TXT→聚焦→划线→笔记→统计→FB2/CBZ→PDF，39 项断言）
   browser/probe.cjs   单点探针（IndexedDB / 排版尺寸调试）
   gen-assets.cjs      生成各密度图标与启动图
 docs/screenshots/     验收截图

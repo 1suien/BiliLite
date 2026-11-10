@@ -1075,7 +1075,9 @@ defineExpose({
       @touchmove.passive="onTouchMove"
       @touchend.passive="onTouchEnd"
     >
-      <div ref="flowEl" class="reflow-flow" />
+      <div class="reflow-window">
+        <div ref="flowEl" class="reflow-flow" />
+      </div>
     </div>
 
     <div v-if="loading" class="reflow-mask">
@@ -1099,6 +1101,13 @@ defineExpose({
   inset: 0;
   overflow: hidden;
   touch-action: pan-y;
+}
+.reflow-window {
+  width: 100%;
+  max-width: 760px;
+  height: 100%;
+  margin: 0 auto;
+  overflow: hidden;
 }
 .reflow-flow {
   box-sizing: border-box;
@@ -1182,6 +1191,7 @@ defineExpose({
   break-after: avoid;
 }
 .reflow-flow :deep(img) {
+  max-height: 82vh;
   max-width: 100% !important;
   height: auto !important;
   display: block;
