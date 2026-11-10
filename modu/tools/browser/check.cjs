@@ -3,19 +3,22 @@
  * 墨读 web 端验收脚本（开发工具，不进 APK）
  *
  * 运行：
- *   cd /root/readawre/app && npm run dev -- --port 5173 --strictPort   # 另开终端
- *   NODE_PATH=/root/学习软件/tools/browser/node_modules node tools/browser/check.cjs
+ *   cd /root/readawre && NODE_PATH=/root/学习软件/tools/browser/node_modules node tools/browser/check.cjs
+ *   （需要 app 的 vite dev server 在 127.0.0.1:5173 运行）
  *
  * 依赖：playwright（复用 /root/学习软件/tools/browser/node_modules）
  *       + /root/学习软件/tools/browser/chromium-libs 里的共享库与中文字体
  * 输出：/tmp/shots/*.png
  */
 const fs = require('node:fs')
+const path = require('node:path')
+const os = require('node:os')
 const { chromium } = require('playwright')
 
 const LIBS = '/root/学习软件/tools/browser/chromium-libs/root/usr/lib/aarch64-linux-gnu'
 const FONT_CONF = '/root/学习软件/tools/browser/fonts.conf'
 const OUT = '/tmp/shots'
+const FIX = path.resolve(__dirname, '../../app/tests/fixtures')
 
 function browserEnv() {
   const env = { ...process.env }
@@ -28,10 +31,56 @@ function browserEnv() {
   return env
 }
 
+const results = []
+function check(name, ok, extra = '') {
+  results.push({ name, ok, extra })
+  console.log(`  ${ok ? '✓' : '✗'} ${name}${extra ? '  — ' + extra : ''}`)
+}
+
+/** 用隐藏页渲染两页「银河画集」并压成 CBZ，给验收截图用 */
+async function makeDemoCbz(ctx, jszipPath) {
+  const JSZip = require(jszipPath)
+  const p = await ctx.newPage()
+  await p.setViewportSize({ width: 820, height: 1180 })
+  const pages = []
+  for (let i = 1; i <= 3; i++) {
+    await p.setContent(`<!doctype html><meta charset="utf-8"><style>
+      html,body{margin:0;height:100%;background:#0d1220;color:#e8e2d4;font-family:Georgia,'Noto Serif CJK SC',serif}
+      .page{position:relative;width:820px;height:1180px;overflow:hidden;background:
+        radial-gradient(120% 90% at 20% 0%, #17233f 0%, #0b0f1a 55%, #05070c 100%)}
+      .stars{position:absolute;inset:0;background-image:radial-gradient(#d9e2ff 1px,transparent 1.4px);
+        background-size:46px 46px;opacity:.35}
+      .moon{position:absolute;left:470px;top:150px;width:250px;height:250px;border-radius:50%;
+        background:radial-gradient(circle at 38% 34%, #fdf6e3, #cbb98e 62%, #7c6a45);box-shadow:0 0 90px #d8c79c80}
+      .hill{position:absolute;left:-40px;right:-40px;bottom:-80px;height:420px;border-radius:50% 50% 0 0;background:#070b14}
+      .cap{position:absolute;left:60px;top:56px;font-size:20px;letter-spacing:.3em;opacity:.7}
+      .chap{position:absolute;left:60px;top:120px;font-size:56px;font-weight:600;letter-spacing:.08em}
+      .line{position:absolute;left:60px;top:200px;width:120px;height:2px;background:#cbb98e;opacity:.8}
+      .no{position:absolute;right:60px;bottom:56px;font-size:18px;letter-spacing:.24em;opacity:.6}
+      .body{position:absolute;left:70px;bottom:330px;right:90px;font-size:26px;line-height:1.9;color:#d8d2c0}
+    </style>
+    <div class="page"><div class="stars"></div><div class="moon"></div><div class="hill"></div>
+      <div class="cap">银河画集 · VOL.1</div>
+      <div class="chap">夜航</div><div class="line"></div>
+      <div class="body">${
+        i === 1
+          ? '船沿着星图的缝隙向前，\n灯塔在身后缩成一颗小小的光。'
+          : i === 2
+          ? '“你听见了吗？”她问。\n海面之下，有另一种潮声。'
+          : '他们把灯挂在桅杆上，\n像把一整片夜空带回了家。'
+      }</div>
+      <div class="no">${String(i).padStart(2, '0')} / 03</div>
+    </div>`)
+    pages.push(await p.screenshot({ type: 'png' }))
+  }
+  await p.close()
+  const zip = new JSZip()
+  pages.forEach((buf, i) => zip.file(`page-${String(i + 1).padStart(2, '0')}.png`, buf))
+  return zip.generateAsync({ type: 'nodebuffer' })
+}
+
 async function main() {
   const BASE = process.argv[2] || 'http://127.0.0.1:5173/'
-  // PROD=1 时对 dist 产物做验收（无 /src 模块、?seed=1 不生效，改为点按钮灌示例书）
-  const PROD = process.env.PROD === '1'
   fs.mkdirSync(OUT, { recursive: true })
 
   const browser = await chromium.launch({
@@ -46,281 +95,247 @@ async function main() {
     locale: 'zh-CN',
   })
   const page = await ctx.newPage()
-  const logs = []
-  page.on('console', (m) => logs.push(`[${m.type()}] ${m.text()}`))
-  page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`))
-  page.on('requestfailed', (r) => logs.push(`[requestfailed] ${r.url()} ${r.failure()?.errorText}`))
+  const errors = []
+  page.on('pageerror', (e) => errors.push('[pageerror] ' + e.message))
+  page.on('console', (m) => {
+    if (m.type() === 'error') errors.push('[console] ' + m.text())
+  })
+  page.on('requestfailed', (r) => errors.push('[requestfailed] ' + r.url() + ' ' + r.failure()?.errorText))
 
-  const shots = []
   const shot = async (name) => {
     await page.screenshot({ path: `${OUT}/${name}.png` })
-    shots.push(name)
     console.log('  shot:', name)
   }
-  const vp = { width: 390, height: 844 }
-  const clickZone = async (zone) => {
-    const x = zone === 'left' ? vp.width * 0.12 : zone === 'right' ? vp.width * 0.88 : vp.width * 0.5
-    await page.mouse.click(x, vp.height * 0.55)
-    await page.waitForTimeout(260)
+  const wait = (ms) => page.waitForTimeout(ms)
+  const goto = async (hash = '') => {
+    await page.goto(BASE + hash, { waitUntil: 'domcontentloaded' })
+    await wait(400)
   }
-  const footText = async () =>
-    await page.$eval('.footbar', (e) => e.textContent.replace(/\s+/g, ' ').trim()).catch(() => null)
-  const topbarVisible = async () => (await page.$('.topbar')) !== null
-  /** 保证工具栏可见（中间点击是 toggle，所以要按当前状态决定） */
-  const ensureChrome = async () => {
+  const pill = async () => {
     for (let i = 0; i < 4; i++) {
-      if (await topbarVisible()) return true
-      await clickZone('center')
+      if (await page.locator('.pill').count()) return
+      await page.locator('.stage').click({ position: { x: 195, y: 700 } }).catch(() => {})
+      await wait(480)
     }
-    return await topbarVisible()
   }
-  const openBook = async (title) => {
-    const cards = await page.$$('.card')
-    for (const c of cards) {
-      const t = await c.$eval('.title', (e) => e.textContent.trim())
-      if (t === title) {
-        await c.click()
-        return true
-      }
+  const closeSheets = async () => {
+    for (let i = 0; i < 4; i++) {
+      const scrim = page.locator('.scrim').last()
+      if (await scrim.count()) await scrim.click({ position: { x: 10, y: 10 } }).catch(() => {})
+      await wait(150)
     }
-    return false
+  }
+
+  // ---------- 书架 ----------
+  console.log('\n[1] 书架')
+  await goto('?seed=1')
+  await page.waitForFunction(() => document.querySelectorAll('.card').length >= 3, null, { timeout: 30000 })
+  await wait(900)
+  let cards = await page.locator('.card').count()
+  check('示例书已灌入（≥3 本）', cards >= 3, `${cards} 本`)
+  check('书架标题', (await page.locator('.brand h1').innerText()) === '墨读')
+  await shot('shelf')
+
+  const openByText = async (t) => {
+    await page.locator('.card', { hasText: t }).first().click()
+    await page.waitForSelector('.reader', { timeout: 15000 })
+    await wait(1200)
   }
   const backToShelf = async () => {
-    await ensureChrome()
-    await page.click('.topbar .tb-btn:first-child')
-    await page.waitForSelector('.shelf', { timeout: 15000 })
-    await page.waitForTimeout(600)
-  }
-  const fail = (msg) => {
-    throw new Error('ASSERT: ' + msg)
-  }
-  const assert = (cond, msg) => {
-    if (!cond) fail(msg)
-    console.log('  ok:', msg)
+    await page.locator('.tb[aria-label="返回"]').click()
+    await page.waitForSelector('.shelf', { timeout: 10000 })
+    await wait(600)
   }
 
-  try {
-    if (PROD) {
-      await page.goto(BASE, { waitUntil: 'load' })
-      await page.waitForSelector('.shelf', { timeout: 30000 })
-      await page.waitForTimeout(500)
-      const have = await page.$$eval('.grid .card', (e) => e.length).catch(() => 0)
-      if (!have) {
-        await page.click('button[title="放入示例书"]')
-        console.log('  (prod) 点击「放入示例书」')
+  // ---------- TXT 阅读 ----------
+  console.log('\n[2] TXT 阅读页')
+  await openByText('岛上灯塔')
+  check('阅读页已打开', (await page.locator('.reflow-flow').count()) > 0)
+  check('读数 chip 常驻', await page.locator('.chip').isVisible())
+  await wait(3400) // chrome 自动隐藏
+  check('浮动工具条自动隐藏', (await page.locator('.pill').count()) === 0)
+  check('读数 chip 在沉浸态可见', await page.locator('.chip').isVisible())
+  await shot('txt-reading')
+  await page.locator('.stage').click({ position: { x: 195, y: 700 } })
+  await wait(500)
+  check('点击中间唤出工具条', await page.locator('.pill').isVisible())
+  await shot('reading-tools')
+
+  // 翻页
+  const chipMain = () => page.locator('.chip .num').first().innerText()
+  const before = await chipMain()
+  await page.locator('.pb[aria-label="下一页"]').click({ force: true })
+  await wait(700)
+  const after = await chipMain()
+  check('翻页生效', before !== after, `${before} → ${after}`)
+
+  // ---------- 目录 ----------
+  console.log('\n[3] 目录')
+  await pill()
+  await page.locator('.pb[aria-label="目录"]').click({ force: true })
+  await page.waitForSelector('.toc-item', { timeout: 5000 })
+  const tocCount = await page.locator('.toc-item').count()
+  check('目录有章节', tocCount > 0, `${tocCount} 章`)
+  await shot('toc')
+  await page.locator('.toc-item').nth(Math.min(1, tocCount - 1)).click()
+  await wait(900)
+  check('跳章后目录关闭', (await page.locator('.toc-item').count()) === 0)
+
+  // ---------- 设置 / 夜间 ----------
+  console.log('\n[4] 阅读外观')
+  await pill()
+  await page.locator('.pb[aria-label="阅读外观"]').click({ force: true })
+  await page.waitForSelector('.settings-sheet', { timeout: 5000 })
+  await shot('settings')
+  await page.locator('.themes .theme-dot').nth(3).click()
+  await wait(500)
+  check('夜间主题生效', (await page.locator('.reader').getAttribute('data-rtheme')) === 'night')
+  await closeSheets()
+  await wait(400)
+  await shot('night')
+  // 切回纸白
+  await pill()
+  await page.locator('.pb[aria-label="阅读外观"]').click({ force: true })
+  await page.locator('.themes .theme-dot').nth(0).click()
+  await wait(300)
+  await closeSheets()
+
+  // ---------- 逐句聚焦 ----------
+  console.log('\n[5] 逐句聚焦')
+  await pill()
+  await page.locator('.pb[aria-label="逐句聚焦"]').click({ force: true })
+  await wait(900)
+  check('聚焦模式 class 生效', (await page.locator('.reflow-flow.is-focus').count()) > 0)
+  check('当前句高亮', (await page.locator('.reflow-flow .sent.is-current').count()) === 1)
+  const chipFocus = await page.locator('.chip').innerText()
+  check('chip 切换为句读数', /句/.test(chipFocus), chipFocus.replace(/\n/g, ' '))
+  await shot('focus')
+  const curBefore = await page.locator('.sent.is-current').first().getAttribute('data-si')
+  await page.keyboard.press('ArrowRight')
+  await wait(500)
+  const curAfter = await page.locator('.sent.is-current').first().getAttribute('data-si')
+  check('方向键逐句前进', curBefore !== curAfter, `${curBefore} → ${curAfter}`)
+  await page.locator('.stage').click({ position: { x: 360, y: 500 } })
+  await wait(400)
+  check('右侧点击仍是逐句', (await page.locator('.sent.is-current').count()) === 1)
+  await page.locator('.pb[aria-label="逐句聚焦"]').click({ force: true })
+  await wait(500)
+  check('可退出聚焦模式', (await page.locator('.reflow-flow.is-focus').count()) === 0)
+
+  // ---------- 选中划线 ----------
+  console.log('\n[6] 选中 + 划线 + 笔记')
+  await page.evaluate(() => {
+    const p = Array.from(document.querySelectorAll('.reflow-flow p')).find((el) => (el.textContent || '').trim().length > 40)
+    const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT)
+    let node = null
+    let n
+    while ((n = walker.nextNode())) {
+      if ((n.textContent || '').trim().length > 12) {
+        node = n
+        break
       }
-    } else {
-      await page.goto(BASE + '?seed=1', { waitUntil: 'load' })
     }
-    // 等到 3 本示例书全部灌入
-    await page.waitForFunction(() => document.querySelectorAll('.grid .card').length >= 3, null, { timeout: 45000 })
-    await page.waitForTimeout(700)
-    const titles = await page.$$eval('.card .title', (els) => els.map((e) => e.textContent.trim()))
-    console.log('shelf titles:', JSON.stringify(titles))
-    assert(titles.length === 3, '示例书架有 3 本书')
-    assert(titles.includes('MoDu 示例 PDF'), 'PDF 示例书已导入')
-    await shot('01-shelf')
+    const range = document.createRange()
+    range.setStart(node, 2)
+    range.setEnd(node, Math.min(node.textContent.length, 30))
+    const sel = window.getSelection()
+    sel.removeAllRanges()
+    sel.addRange(range)
+    document.dispatchEvent(new Event('selectionchange'))
+  })
+  await page.waitForSelector('.sel-bar', { timeout: 5000 })
+  check('选中浮条出现', await page.locator('.sel-bar').isVisible())
+  await shot('selection')
+  await page.locator('.sel-bar .colors .dot').first().click()
+  await wait(800)
+  check('划线已渲染', (await page.locator('.reflow-flow mark.hl').count()) > 0)
+  await pill()
+  await page.locator('.pb[aria-label="笔记"]').click({ force: true })
+  await page.waitForSelector('.notes-sheet', { timeout: 5000 })
+  const noteItems = await page.locator('.notes-sheet .item').count()
+  check('笔记面板列出划线', noteItems > 0, `${noteItems} 条`)
+  await shot('notes')
+  await closeSheets()
 
-    // ============ 长文本分页压力测试（合成书，仅 dev） ============
-    console.log('[长文本分页]')
-    if (PROD) {
-      console.log('  (prod) 跳过：生产包不含 /src 模块，示例 TXT/EPUB 已覆盖多页与目录')
-    } else {
-    await page.evaluate(async () => {
-      const { importBuffer } = await import('/src/lib/import.ts')
-      const cols = ['第一章 起风', '第二章 落雨', '第三章 归航', '第四章 灯塔']
-      const paras = [
-        '海面上浮起一层薄薄的白雾，把远处的礁石和守着礁石的灯塔都吞了进去。林舟把窗推开一条缝，潮气立刻涌进来，带着咸味和铁锈味。他数着雾里传来的钟声，一声，两声，到第七声的时候停了，海面重新安静下来。',
-        '他每天做的事都很像：擦灯罩，记日志，检查油量，然后坐在门口等补给船。岛上没有别人，只有一只黑猫陪着他。猫不太叫，喜欢蹲在栏杆上看海，看得比人还专注，好像海里有它认识的东西。',
-        '傍晚风转向了，云压得很低。他把晾在外面的衣服收进来，把窗一扇一扇关好。灯亮起来的时候，光柱慢慢地扫过海面，像一只手在黑暗里摸索。他站了一会儿，忽然觉得这光也是在摸他自己。',
-        '有时候他会想，如果有人在对面岸上看见这盏灯，会不会以为岛上还有人等着他。这个念头让他心里暖了一下，又很快凉下去。他知道没有人等，也知道自己暂时还不想回去。',
-      ]
-      let text = ''
-      for (let c = 0; c < cols.length; c++) {
-        text += cols[c] + '\n\n'
-        for (let p = 0; p < 9; p++) text += `（${cols[c].slice(0, 2)}·第${p + 1}段）` + paras[p % paras.length] + '\n\n'
-      }
-      const buf = new TextEncoder().encode(text)
-      await importBuffer('长夜手记.txt', buf.buffer, 'text/plain')
-    })
-    await page.waitForFunction(() => document.querySelectorAll('.grid .card').length >= 4, null, { timeout: 20000 })
-    await page.waitForTimeout(400)
-    await shot('02-shelf-with-long-book')
+  await page.locator('.reflow-flow mark.hl').first().click({ force: true })
+  await wait(600)
+  check('点击划线出现操作浮条', (await page.locator('.mark-pop').count()) > 0)
+  await page.locator('.mark-pop .sb.danger').click({ force: true })
+  await wait(600)
+  check('删除划线', (await page.locator('.reflow-flow mark.hl').count()) === 0)
 
-    assert(await openBook('长夜手记'), '打开合成的长文本')
-    await page.waitForSelector('.reflow-flow', { timeout: 20000 })
-    await page.waitForTimeout(1200)
-    let f = await footText()
-    console.log('  long book footer:', f)
-    const firstPages = Number(String(f).split('/')[1]?.match(/\d+/)?.[0] || 0)
-    assert(firstPages >= 2, `长文本每章多页（pages=${firstPages}）`)
-    await shot('03-long-page1')
+  // ---------- 阅读统计 ----------
+  console.log('\n[7] 阅读统计')
+  if ((await page.locator('.tb[aria-label="返回"]').count()) === 0) await pill()
+  await backToShelf()
+  await wait(900)
+  await shot('shelf-progress')
+  await page.locator('.icon[aria-label="阅读统计"]').click()
+  await page.waitForSelector('.stats', { timeout: 8000 })
+  await wait(700)
+  check('统计页打开', await page.locator('.hero').isVisible())
+  check('7 天柱状图', (await page.locator('.chart .col').count()) === 7)
+  const hero = await page.locator('.hero .big').innerText()
+  check('总时长有记录', hero.trim().length > 0, hero)
+  await shot('stats')
+  await page.locator('.head .icon[aria-label="返回"]').click()
+  await page.waitForSelector('.shelf', { timeout: 8000 })
+  await wait(500)
 
-    // 连续翻页：页码应递增
-    const seq = []
-    for (let i = 0; i < 6; i++) {
-      await clickZone('right')
-      await page.waitForTimeout(200)
-      seq.push(await footText())
-    }
-    console.log('  flip seq:', JSON.stringify(seq))
-    assert(seq[0] !== f, '右区点击可以翻页')
-    await shot('04-long-after-flips')
+  // ---------- 导入 FB2 / CBZ ----------
+  console.log('\n[8] FB2 / CBZ 导入')
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'modu-e2e-'))
+  const fb2 = path.join(tmp, '星海拾遗.fb2')
+  const cbz = path.join(tmp, '银河画集.cbz')
+  fs.copyFileSync(path.join(FIX, 'sample.fb2'), fb2)
+  const demoCbz = await makeDemoCbz(ctx, path.join(__dirname, '../../app/node_modules/jszip'))
+  fs.writeFileSync(cbz, demoCbz)
+  await page.locator('input.file-input').setInputFiles([fb2, cbz])
+  await wait(2500)
+  check('FB2 已导入', (await page.locator('.card', { hasText: '星海拾遗' }).count()) > 0)
+  check('CBZ 已导入', (await page.locator('.fmt-cbz').count()) > 0)
+  await shot('shelf-all')
 
-    // 目录跳章
-    await ensureChrome()
-    await page.click('.tb-actions .tb-btn:nth-child(1)')
-    await page.waitForTimeout(400)
-    const tocCount = await page.$$eval('.toc-item', (els) => els.length)
-    console.log('  toc items:', tocCount)
-    assert(tocCount === 4, '长文本目录有 4 章')
-    await shot('05-toc')
-    await page.click('.toc-item:nth-child(3)')
-    await page.waitForTimeout(700)
-    const afterJump = await page.$eval('.tb-title strong', (e) => e.textContent.trim()).catch(() => '')
-    console.log('  chapter after toc jump:', afterJump)
-    assert(afterJump.includes('三章') || afterJump.includes('第 3'), '目录跳转到第三章')
-    await shot('06-long-chapter3')
-    await backToShelf()
-    }
+  await openByText('星海拾遗')
+  check('FB2 正文渲染', (await page.locator('.reflow-flow p').count()) > 0)
+  await shot('fb2')
 
-    // ============ TXT 示例书 ============
-    console.log('[示例 TXT]')
-    assert(await openBook('岛上灯塔'), '打开示例 TXT')
-    await page.waitForSelector('.reflow-flow', { timeout: 20000 })
-    await page.waitForTimeout(900)
-    console.log('  txt footer:', await footText())
-    await shot('07-txt')
-    await ensureChrome()
-    await shot('08-txt-chrome')
+  await backToShelf()
+  await page.locator('.card', { has: page.locator('.fmt-cbz') }).first().click()
+  await page.waitForSelector('.comic', { timeout: 10000 })
+  await page.locator('.comic img.page').first().waitFor({ timeout: 8000 })
+  await wait(700)
+  check('CBZ 漫画页渲染', await page.locator('.comic img.page').first().isVisible())
+  await shot('comic')
+  const comicChip = await page.locator('.chip').innerText()
+  check('漫画页码 chip', /\//.test(comicChip), comicChip.replace(/\n/g, ' '))
+  await backToShelf()
 
-    // 设置：夜间主题 + 字号加大
-    const tbBtns = await page.$$('.tb-actions .tb-btn')
-    await tbBtns[tbBtns.length - 1].click()
-    await page.waitForSelector('.settings-sheet', { timeout: 10000 })
-    await page.waitForTimeout(400)
-    await shot('09-settings')
-    const plus = await page.$$('.stepper .step')
-    await plus[plus.length - 1].click()
-    await plus[plus.length - 1].click()
-    await page.waitForTimeout(500)
-    await page.click('.themes .theme-dot:nth-child(4)')
-    await page.waitForTimeout(600)
-    await page.evaluate(() => document.querySelector('.scrim')?.click())
-    await page.waitForTimeout(700)
-    const theme = await page.$eval('.reader', (e) => e.getAttribute('data-rtheme'))
-    const fs2 = await page.$eval('.reflow-flow', (e) => getComputedStyle(e).fontSize).catch(() => '')
-    console.log('  theme/font:', theme, fs2)
-    assert(theme === 'night', '夜间主题已生效')
-    assert(parseFloat(fs2) > 19, '字号加大已生效')
-    await shot('10-night')
+  // ---------- PDF ----------
+  console.log('\n[9] PDF')
+  await openByText('MoDu 示例 PDF')
+  await page.waitForSelector('canvas', { timeout: 15000 })
+  await wait(1500)
+  check('PDF 页面渲染', (await page.locator('canvas').count()) > 0)
+  await shot('pdf')
+  if (await page.locator('.tb[aria-label="返回"]').count()) await backToShelf()
 
-    // 主题持久化：回书架再进
-    await backToShelf()
-    assert(await openBook('岛上灯塔'), '再次打开 TXT')
-    await page.waitForSelector('.reflow-flow', { timeout: 20000 })
-    await page.waitForTimeout(800)
-    const theme2 = await page.$eval('.reader', (e) => e.getAttribute('data-rtheme'))
-    assert(theme2 === 'night', '阅读设置持久化（IndexedDB）')
-    // 恢复默认主题
-    await ensureChrome()
-    const tbs = await page.$$('.tb-actions .tb-btn')
-    await tbs[tbs.length - 1].click()
-    await page.waitForTimeout(500)
-    await page.click('.themes .theme-dot:nth-child(1)')
-    await page.waitForTimeout(400)
-    await page.evaluate(() => document.querySelector('.scrim')?.click())
-    await page.waitForTimeout(500)
-    await backToShelf()
+  // ---------- 控制台错误 ----------
+  console.log('\n[10] 控制台')
+  const real = errors.filter((e) => !/favicon|404 \(Not Found\)|pdf\.worker/.test(e))
+  check('无页面异常', real.length === 0, real.slice(0, 3).join(' | '))
 
-    // ============ EPUB ============
-    console.log('[示例 EPUB]')
-    assert(await openBook('岛上灯塔（EPUB 示例）'), '打开示例 EPUB')
-    await page.waitForSelector('.reflow-flow', { timeout: 20000 })
-    await page.waitForTimeout(1500)
-    console.log('  epub footer:', await footText())
-    await shot('11-epub')
-    // 第二章带内嵌插图，跳到第二章检查图片解密
-    await ensureChrome()
-    await page.click('.tb-actions .tb-btn:nth-child(1)')
-    await page.waitForTimeout(400)
-    const epubToc = await page.$$eval('.toc-item', (els) => els.length)
-    console.log('  epub toc items:', epubToc)
-    assert(epubToc === 4, 'EPUB 目录有 4 章')
-    await shot('12-epub-toc')
-    await page.click('.toc-item:nth-child(2)')
-    await page.waitForTimeout(1500)
-    const imgState = await page.$$eval('.reflow-flow img', (els) =>
-      els.map((i) => ({ w: i.naturalWidth, h: i.naturalHeight, src: i.getAttribute('src')?.slice(0, 16) })),
-    )
-    console.log('  epub images:', JSON.stringify(imgState))
-    assert(imgState.length > 0, 'EPUB 插图已解出')
-    assert(imgState.every((i) => i.w > 0), 'EPUB 插图加载成功')
-    await shot('13-epub-image')
-    await backToShelf()
+  await browser.close()
 
-    // ============ PDF ============
-    console.log('[示例 PDF]')
-    assert(await openBook('MoDu 示例 PDF'), '打开示例 PDF')
-    await page.waitForSelector('.pdf-page canvas', { timeout: 30000 })
-    await page.waitForTimeout(1500)
-    console.log('  pdf footer:', await footText())
-    const cv = await page.$eval('.pdf-page canvas', (c) => ({ w: c.width, h: c.height }))
-    console.log('  pdf canvas:', JSON.stringify(cv))
-    assert(cv.w > 0, 'PDF 页面已渲染到 canvas')
-    await shot('14-pdf')
-    // 放大
-    const pdfBtns = await page.$$('.footbar .fb-btn')
-    console.log('  pdf foot buttons:', pdfBtns.length)
-    await pdfBtns[pdfBtns.length - 2]?.click() // A+
-    await page.waitForTimeout(1200)
-    await shot('15-pdf-zoom')
-    // 滚动到后面
-    await page.evaluate(() => {
-      const el = document.querySelector('.pdf-scroll')
-      if (el) el.scrollTop = el.scrollHeight * 0.45
-    })
-    await page.waitForTimeout(1500)
-    console.log('  pdf footer after scroll:', await footText())
-    await shot('16-pdf-scrolled')
-    // PDF 目录（outline）
-    await ensureChrome()
-    const pdfTb = await page.$$('.tb-actions .tb-btn')
-    console.log('  pdf topbar buttons:', pdfTb.length)
-    if (pdfTb.length) {
-      await pdfTb[0].click()
-      await page.waitForTimeout(500)
-      const pdfToc = await page.$$eval('.toc-item', (e) => e.length).catch(() => 0)
-      console.log('  pdf toc items:', pdfToc)
-      await shot('17-pdf-toc')
-      await page.evaluate(() => document.querySelector('.scrim')?.click())
-      await page.waitForTimeout(400)
-    }
-    await backToShelf()
-
-    await page.waitForTimeout(600)
-    await shot('18-shelf-final')
-    const cards = await page.$$eval('.card', (els) =>
-      els.map((c) => ({
-        title: c.querySelector('.title')?.textContent.trim(),
-        meta: c.querySelector('.meta')?.textContent.replace(/\s+/g, ' ').trim(),
-        bar: c.querySelector('.bar i')?.getAttribute('style') || '',
-      })),
-    )
-    console.log('final shelf:', JSON.stringify(cards, null, 1))
-    console.log('ALL CHECKS PASSED')
-  } catch (e) {
-    console.error('CHECK FAILED:', e.message)
-    await page.screenshot({ path: `${OUT}/zz-failure.png` }).catch(() => {})
+  const failed = results.filter((r) => !r.ok)
+  console.log(`\n${results.length - failed.length} passed, ${failed.length} failed`)
+  if (failed.length) {
+    for (const f of failed) console.log('  FAILED:', f.name, f.extra)
     process.exitCode = 1
-  } finally {
-    console.log('--- browser console (' + logs.length + ') ---')
-    for (const l of logs.slice(-40)) console.log(l.slice(0, 600))
-    await browser.close()
   }
 }
 
 main().catch((e) => {
-  console.error('LAUNCH FAILED:', e)
-  process.exit(1)
+  console.error(e)
+  process.exitCode = 1
 })

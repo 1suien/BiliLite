@@ -5,8 +5,8 @@
    ============================================================ */
 
 :root {
-  --shelf-bg: #f2ebdc;
-  --shelf-bg-2: #e9e0cd;
+  --shelf-bg: #f4efe4;
+  --shelf-bg-2: #ece5d7;
   --surface: #fbf8f1;
   --surface-2: #f4eddf;
   --ink: #221f1a;
@@ -200,13 +200,15 @@ textarea {
 /* ---------- 阅读页主题变量 ----------
    paper 纸白 / sepia 米黄 / green 松绿 / night 夜间 */
 .reader[data-rtheme='paper'] {
-  --r-bg: #f8f4ea;
-  --r-bg-2: #efe8d9;
-  --r-ink: #26221b;
-  --r-ink-2: #5f5849;
-  --r-muted: #9a9180;
-  --r-line: rgba(70, 58, 38, 0.14);
-  --r-panel: rgba(251, 248, 241, 0.94);
+  --r-bg: #f5f1e8;
+  --r-bg-2: #ede7da;
+  --r-ink: #292524;
+  --r-ink-2: #57534e;
+  --r-muted: #a8a29e;
+  --r-line: rgba(41, 37, 36, 0.12);
+  --r-line-strong: rgba(41, 37, 36, 0.2);
+  --r-panel: rgba(250, 247, 240, 0.94);
+  --r-sent: rgba(168, 162, 158, 0.24);
   color-scheme: light;
 }
 .reader[data-rtheme='sepia'] {
@@ -216,7 +218,9 @@ textarea {
   --r-ink-2: #6b5d45;
   --r-muted: #9b8b6e;
   --r-line: rgba(90, 70, 40, 0.18);
+  --r-line-strong: rgba(90, 70, 40, 0.28);
   --r-panel: rgba(246, 236, 214, 0.95);
+  --r-sent: rgba(150, 120, 70, 0.2);
   color-scheme: light;
 }
 .reader[data-rtheme='green'] {
@@ -226,7 +230,9 @@ textarea {
   --r-ink-2: #4e5b50;
   --r-muted: #86927f;
   --r-line: rgba(50, 80, 55, 0.16);
+  --r-line-strong: rgba(50, 80, 55, 0.26);
   --r-panel: rgba(238, 245, 234, 0.95);
+  --r-sent: rgba(70, 110, 75, 0.2);
   color-scheme: light;
 }
 .reader[data-rtheme='night'] {
@@ -236,6 +242,16 @@ textarea {
   --r-ink-2: #8e887d;
   --r-muted: #6b665d;
   --r-line: rgba(220, 210, 190, 0.12);
+  --r-line-strong: rgba(220, 210, 190, 0.22);
   --r-panel: rgba(28, 28, 28, 0.96);
+  --r-sent: rgba(255, 255, 255, 0.12);
   color-scheme: dark;
+}
+/* 划线四色（与 ReadAware 的 rgba 浓度对齐） */
+.reader {
+  --hl-yellow: rgba(250, 204, 21, 0.35);
+  --hl-green: rgba(134, 239, 172, 0.32);
+  --hl-blue: rgba(147, 197, 253, 0.34);
+  --hl-pink: rgba(249, 168, 212, 0.32);
+  --hl-note: rgba(120, 113, 108, 0.28);
 }

@@ -6,6 +6,7 @@ export const router = createRouter({
   routes: [
     { path: '/', name: 'shelf', component: () => import('./views/ShelfView.vue') },
     { path: '/read/:id', name: 'read', component: () => import('./views/ReaderView.vue') },
+    { path: '/stats', name: 'stats', component: () => import('./views/StatsView.vue') },
   ],
   scrollBehavior: () => ({ top: 0 }),
 })

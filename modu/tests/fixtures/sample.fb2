@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
+  <description>
+    <title-info>
+      <genre>science_fiction</genre>
+      <author>
+        <nickname>青灯</nickname>
+      </author>
+      <book-title>星海拾遗</book-title>
+      <annotation>
+        <p>一本用于解析器自测的小书。A tiny FB2 sample for parser tests.</p>
+      </annotation>
+      <coverpage>
+        <image l:href="#cover.png"/>
+      </coverpage>
+      <lang>zh-CN</lang>
+    </title-info>
+    <document-info>
+      <author>
+        <nickname>tester</nickname>
+      </author>
+      <program-used>fixture</program-used>
+      <date value="2024-01-01">2024-01-01</date>
+      <id>fixture-fb2-0001</id>
+      <version>1.0</version>
+    </document-info>
+  </description>
+  <body>
+    <epigraph>
+      <p>献给所有在夜里读书的人。</p>
+      <text-author>无名氏</text-author>
+    </epigraph>
+    <section>
+      <title>
+        <p>第一章 出发</p>
+      </title>
+      <p>天亮之前，码头还笼在雾里。The dock was still wrapped in fog before dawn.</p>
+      <empty-line/>
+      <p>老周把最后一只箱子搬上船，低声说：“走吧。”</p>
+    </section>
+    <section>
+      <title>
+        <p>第二章 星图</p>
+        <p>The Star Chart</p>
+      </title>
+      <epigraph>
+        <p>“All roads lead to the sea.”</p>
+      </epigraph>
+      <p>船身在浪里轻轻摇晃，他把星图摊在膝上。He spread the star chart on his knees.</p>
+      <poem>
+        <stanza>
+          <v>星光落在旧木桌上</v>
+          <v>Starlight falls on the old wooden desk</v>
+        </stanza>
+      </poem>
+      <empty-line/>
+      <p>“往北。”他说。</p>
+      <section>
+        <title>
+          <p>二·一 暗礁</p>
+        </title>
+        <p>暗礁像一排黑色的牙齿。The reef looked like a row of black teeth.</p>
+      </section>
+    </section>
+    <section>
+      <title>
+        <p>第三章 归航</p>
+      </title>
+      <p>很多年以后，他仍然记得那晚的灯。Many years later, he still remembered the light of that night.</p>
+      <empty-line/>
+      <p>书到此为止。This is the end.</p>
+    </section>
+  </body>
+  <binary id="cover.png" content-type="image/png">
+iVBORw0KGgoAAAANSUhEUgAAAAQAAAAGCAIAAABrW6giAAAAOklEQVR42gXBgQAAMAwDwYAN4iEK
+UYhABKIQwdqd+rhHHn6ocBAwqMMNGTyoyy1ZvKjmTIyNGi4kOHztKiHBhK4cAQAAAABJRU5ErkJg
+gg==
+  </binary>
+</FictionBook>

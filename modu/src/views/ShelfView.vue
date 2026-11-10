@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { db, listBooks, removeBook, resetProgress, type Book } from '@/db'
 import { importFiles } from '@/lib/import'
@@ -16,6 +16,25 @@ const fileInput = ref<HTMLInputElement>()
 const menuBook = ref<Book | null>(null)
 const busy = ref(false)
 
+const query = ref('')
+const filter = ref<'all' | 'reading' | 'unread' | 'done'>('all')
+const sort = ref<'recent' | 'added' | 'title' | 'progress'>('recent')
+const sortOpen = ref(false)
+
+const SORTS = [
+  { id: 'recent', label: '最近打开' },
+  { id: 'added', label: '最近添加' },
+  { id: 'title', label: '书名' },
+  { id: 'progress', label: '阅读进度' },
+] as const
+
+const FILTERS = [
+  { id: 'all', label: '全部' },
+  { id: 'reading', label: '在读' },
+  { id: 'unread', label: '未读' },
+  { id: 'done', label: '读完' },
+] as const
+
 async function load() {
   const list = await listBooks()
   const cs = await db.covers.toArray()
@@ -25,6 +44,28 @@ async function load() {
   covers.value = map
   loading.value = false
 }
+
+const visible = computed(() => {
+  let list = books.value.slice()
+  const q = query.value.trim().toLowerCase()
+  if (q) list = list.filter((b) => b.title.toLowerCase().includes(q) || (b.author || '').toLowerCase().includes(q))
+  if (filter.value === 'reading') list = list.filter((b) => b.percent > 0.001 && b.percent < 0.999)
+  else if (filter.value === 'unread') list = list.filter((b) => !b.lastReadAt)
+  else if (filter.value === 'done') list = list.filter((b) => b.percent >= 0.999)
+  if (sort.value === 'recent') list.sort((a, b) => (b.lastReadAt || b.addedAt) - (a.lastReadAt || a.addedAt))
+  else if (sort.value === 'added') list.sort((a, b) => b.addedAt - a.addedAt)
+  else if (sort.value === 'title') list.sort((a, b) => a.title.localeCompare(b.title, 'zh-Hans-CN'))
+  else if (sort.value === 'progress') list.sort((a, b) => b.percent - a.percent || b.lastReadAt - a.lastReadAt)
+  return list
+})
+
+/** 继续阅读：最近在读、且没读完的那本 */
+const current = computed(() => {
+  if (query.value.trim() || filter.value !== 'all') return null
+  return books.value.find((b) => b.percent > 0.001 && b.percent < 0.999) || null
+})
+
+const readingCount = computed(() => books.value.filter((b) => b.percent > 0.001 && b.percent < 0.999).length)
 
 function pick() {
   fileInput.value?.click()
@@ -119,8 +160,13 @@ function onBooksChanged() {
   void load()
 }
 
-onMounted(() => {
-  void load()
+function chooseSort(id: (typeof SORTS)[number]['id']) {
+  sort.value = id
+  sortOpen.value = false
+}
+
+onMounted(async () => {
+  await load()
   window.addEventListener('books-changed', onBooksChanged)
 })
 onBeforeUnmount(() => {
@@ -131,31 +177,60 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="shelf">
+  <div class="shelf" @click="sortOpen = false">
     <header class="shelf-head">
-      <div class="brand">
-        <svg class="logo" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M4 5.5C4 4.7 4.7 4 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5v-13Z" />
-          <path d="M20 5.5c0-.8-.7-1.5-1.5-1.5H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5v-13Z" />
-        </svg>
-        <div>
-          <h1>墨读</h1>
-          <p class="sub">书架 · {{ books.length }} 本</p>
-        </div>
-      </div>
-      <div class="head-actions">
-        <button class="icon-btn" title="放入示例书" :disabled="busy" @click="pickSamples">
+      <div class="head-top">
+        <button class="icon" aria-label="阅读统计" @click="router.push('/stats')">
           <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 3v3M12 18v3M4.2 7.5l2.6 1.5M17.2 15l2.6 1.5M3 12h3M18 12h3M4.2 16.5l2.6-1.5M17.2 9l2.6-1.5" />
-            <circle cx="12" cy="12" r="3.2" />
+            <path d="M4 19h16" />
+            <path d="M7 16v-4M12 16V7M17 16v-6" />
           </svg>
         </button>
-        <button class="btn import-btn" @click="pick">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <div class="brand">
+          <h1>墨读</h1>
+          <span>书架 · {{ readingCount ? `${readingCount} 本在读` : `${books.length} 本` }}</span>
+        </div>
+        <button class="icon" aria-label="导入" @click="pick">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 5v14M5 12h14" />
           </svg>
-          导入
         </button>
+      </div>
+
+      <div v-if="books.length" class="tools">
+        <div class="search">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="7" />
+            <path d="M20 20l-4.2-4.2" />
+          </svg>
+          <input v-model="query" placeholder="搜索书名、作者" enterkeyhint="search" />
+          <button v-if="query" class="clear" @click="query = ''">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+          </button>
+        </div>
+        <div class="filters">
+          <button
+            v-for="f in FILTERS"
+            :key="f.id"
+            class="fchip"
+            :class="{ on: filter === f.id }"
+            @click="filter = f.id"
+          >
+            {{ f.label }}
+          </button>
+          <span class="grow" />
+          <div class="sort-wrap">
+            <button class="sort" @click.stop="sortOpen = !sortOpen">
+              {{ SORTS.find((s) => s.id === sort)?.label }}
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6" /></svg>
+            </button>
+            <Transition name="fade">
+              <div v-if="sortOpen" class="sort-menu" @click.stop>
+                <button v-for="s in SORTS" :key="s.id" :class="{ on: sort === s.id }" @click="chooseSort(s.id)">{{ s.label }}</button>
+              </div>
+            </Transition>
+          </div>
+        </div>
       </div>
     </header>
 
@@ -164,7 +239,7 @@ onBeforeUnmount(() => {
       class="file-input"
       type="file"
       multiple
-      accept=".txt,.epub,.pdf,text/plain,application/epub+zip,application/pdf"
+      accept=".txt,.epub,.pdf,.fb2,.cbz,text/plain,application/epub+zip,application/pdf"
       @change="onFiles"
     />
 
@@ -179,46 +254,66 @@ onBeforeUnmount(() => {
           </svg>
         </div>
         <h2>书架还是空的</h2>
-        <p>导入 TXT、EPUB 或 PDF，开始读第一本。</p>
+        <p>导入 TXT、EPUB、PDF、FB2 或 CBZ，开始读第一本。</p>
         <div class="empty-actions">
-          <button class="btn" @click="pick">导入本地书</button>
-          <button class="btn ghost" @click="pickSamples">放入示例书</button>
+          <button class="solid" @click="pick">导入本地书</button>
+          <button class="ghost" @click="pickSamples">放入示例书</button>
         </div>
       </div>
 
-      <!-- 书格 -->
-      <div v-else class="grid">
-        <article
-          v-for="b in books"
-          :key="b.id"
-          class="card"
-          @click="openBook(b)"
-          @pointerdown="onPressStart(b)"
-          @pointerup="onPressEnd"
-          @pointercancel="onPressEnd"
-          @pointerleave="onPressEnd"
-          @contextmenu.prevent
-        >
-          <div class="cover-wrap">
-            <img v-if="covers[b.id]" class="cover" :src="covers[b.id]" :alt="b.title" loading="lazy" />
-            <div v-else class="cover cover-gen" :style="{ background: `linear-gradient(150deg, hsl(${b.hue}, 26%, 34%), hsl(${b.hue}, 20%, 16%))` }">
-              <span>{{ b.title }}</span>
-            </div>
-            <span class="fmt" :class="'fmt-' + b.format">{{ b.format.toUpperCase() }}</span>
-            <div v-if="b.percent > 0.001" class="continue">读 {{ Math.round(b.percent * 100) }}%</div>
+      <template v-else>
+        <!-- 继续阅读 -->
+        <article v-if="current" class="continue-card" @click="openBook(current)">
+          <div class="cc-cover">
+            <img v-if="covers[current.id]" :src="covers[current.id]" alt="" />
+            <div v-else class="cc-gen" :style="{ background: `linear-gradient(150deg, hsl(${current.hue}, 26%, 34%), hsl(${current.hue}, 20%, 16%))` }">{{ current.title }}</div>
           </div>
-          <h3 class="title">{{ b.title }}</h3>
-          <p class="meta">
-            <span v-if="b.author" class="author">{{ b.author }}</span>
-            <span v-else>{{ fmtSize(b.size) }}</span>
-            <span class="dot">·</span>
-            <span>{{ fmtTime(b.lastReadAt) }}</span>
-          </p>
-          <div class="bar">
-            <i :style="{ width: Math.max(2, b.percent * 100) + '%' }" />
+          <div class="cc-body">
+            <span class="cc-eyebrow">继续阅读</span>
+            <h2>{{ current.title }}</h2>
+            <p>
+              {{ current.author || fmtSize(current.size) }} · {{ Math.round(current.percent * 100) }}%
+            </p>
+            <div class="cc-bar"><i :style="{ width: Math.max(2, current.percent * 100) + '%' }" /></div>
           </div>
+          <span class="cc-go">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6" /></svg>
+          </span>
         </article>
-      </div>
+
+        <!-- 书格 -->
+        <div class="grid">
+          <article
+            v-for="b in visible"
+            :key="b.id"
+            class="card"
+            @click="openBook(b)"
+            @pointerdown="onPressStart(b)"
+            @pointerup="onPressEnd"
+            @pointercancel="onPressEnd"
+            @pointerleave="onPressEnd"
+            @contextmenu.prevent
+          >
+            <div class="cover-wrap">
+              <img v-if="covers[b.id]" class="cover" :src="covers[b.id]" :alt="b.title" loading="lazy" />
+              <div v-else class="cover cover-gen" :style="{ background: `linear-gradient(150deg, hsl(${b.hue}, 26%, 34%), hsl(${b.hue}, 20%, 16%))` }">
+                <span>{{ b.title }}</span>
+              </div>
+              <span class="fmt" :class="'fmt-' + b.format">{{ b.format.toUpperCase() }}</span>
+              <div v-if="b.percent > 0.001" class="pct">{{ Math.round(b.percent * 100) }}%</div>
+              <div class="cover-bar"><i :style="{ width: Math.max(2, b.percent * 100) + '%' }" /></div>
+            </div>
+            <h3 class="title">{{ b.title }}</h3>
+            <p class="meta">{{ b.author || fmtTime(b.lastReadAt) }}</p>
+          </article>
+        </div>
+
+        <p v-if="visible.length === 0" class="no-result">没有找到符合条件的书</p>
+
+        <div class="foot-tools">
+          <button class="ghost sm" :disabled="busy" @click="pickSamples">放入示例书</button>
+        </div>
+      </template>
     </main>
 
     <!-- 导入进度 -->
@@ -259,51 +354,154 @@ onBeforeUnmount(() => {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, var(--shelf-bg) 0%, var(--shelf-bg-2) 100%);
+  background: var(--shelf-bg);
 }
 .shelf-head {
-  padding: calc(14px + var(--safe-top)) 18px 12px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
   position: sticky;
   top: 0;
-  z-index: 5;
-  backdrop-filter: blur(8px);
-  background: color-mix(in srgb, var(--shelf-bg) 78%, transparent);
+  z-index: 6;
+  padding: calc(10px + var(--safe-top)) 14px 8px;
+  background: color-mix(in srgb, var(--shelf-bg) 86%, transparent);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 7%, transparent);
 }
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.logo {
-  color: var(--accent);
-}
-.brand h1 {
-  margin: 0;
-  font-family: var(--font-serif);
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-}
-.sub {
-  margin: 1px 0 0;
-  font-size: 11.5px;
-  color: var(--muted);
-  letter-spacing: 0.04em;
-}
-.head-actions {
+.head-top {
   display: flex;
   align-items: center;
   gap: 4px;
 }
-.import-btn {
+.icon {
+  width: 40px;
   height: 40px;
-  padding: 0 16px;
-  font-size: 14px;
-  border-radius: 13px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  color: var(--ink-2);
+}
+.icon:active {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+.brand {
+  flex: 1;
+  text-align: center;
+  min-width: 0;
+}
+.brand h1 {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--ink);
+}
+.brand span {
+  display: block;
+  margin-top: 1px;
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.tools {
+  padding-top: 8px;
+}
+.search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 11px;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  color: var(--muted);
+}
+.search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font-size: 13.5px;
+  font-family: inherit;
+}
+.search input::placeholder {
+  color: var(--muted);
+}
+.clear {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+  color: var(--ink-2);
+}
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 0 3px;
+}
+.fchip {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 14px;
+  font-size: 12px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.fchip.on {
+  background: var(--ink);
+  color: var(--shelf-bg);
+}
+.filters .grow {
+  flex: 1;
+}
+.sort-wrap {
+  position: relative;
+}
+.sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 28px;
+  padding: 0 6px 0 10px;
+  border-radius: 14px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.sort-menu {
+  position: absolute;
+  right: 0;
+  top: 34px;
+  z-index: 9;
+  min-width: 116px;
+  padding: 5px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: 0 10px 26px -10px rgba(28, 25, 23, 0.3);
+}
+.sort-menu button {
+  display: block;
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 8px;
+  text-align: left;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.sort-menu button.on {
+  color: var(--accent);
+  font-weight: 600;
+}
+.sort-menu button:active {
+  background: var(--surface-2);
 }
 .file-input {
   display: none;
@@ -312,8 +510,101 @@ onBeforeUnmount(() => {
   flex: 1;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 6px 16px calc(28px + var(--safe-bottom));
+  padding: 12px 14px calc(30px + var(--safe-bottom));
 }
+
+/* 继续阅读卡片 */
+.continue-card {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--ink) 6%, transparent);
+  box-shadow: 0 8px 24px -18px rgba(28, 25, 23, 0.4);
+  margin-bottom: 18px;
+  cursor: pointer;
+}
+.continue-card:active {
+  transform: scale(0.99);
+}
+.cc-cover {
+  width: 54px;
+  height: 74px;
+  flex: 0 0 auto;
+  border-radius: 5px;
+  overflow: hidden;
+  box-shadow: 0 6px 14px -8px rgba(28, 25, 23, 0.5);
+}
+.cc-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.cc-gen {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
+  color: rgba(250, 245, 235, 0.92);
+  font-family: var(--font-serif);
+  font-size: 10px;
+  line-height: 1.3;
+  text-align: center;
+  overflow: hidden;
+}
+.cc-body {
+  flex: 1;
+  min-width: 0;
+}
+.cc-eyebrow {
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+  font-weight: 600;
+}
+.cc-body h2 {
+  margin: 3px 0 3px;
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cc-body p {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cc-bar {
+  height: 2.5px;
+  margin-top: 8px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+.cc-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.cc-go {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+/* 书格 */
 .grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -343,10 +634,10 @@ onBeforeUnmount(() => {
 }
 .cover-wrap {
   position: relative;
-  border-radius: 8px;
+  border-radius: 5px;
   overflow: hidden;
-  aspect-ratio: 3 / 4.25;
-  box-shadow: var(--shadow-cover);
+  aspect-ratio: 2 / 3;
+  box-shadow: 0 6px 16px -10px rgba(28, 25, 23, 0.5);
   background: var(--surface-2);
 }
 .cover {
@@ -359,12 +650,12 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 12px;
+  padding: 10px;
 }
 .cover-gen span {
   color: rgba(250, 245, 235, 0.92);
   font-family: var(--font-serif);
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 1.4;
   text-align: center;
@@ -376,15 +667,16 @@ onBeforeUnmount(() => {
 }
 .fmt {
   position: absolute;
-  left: 5px;
-  top: 5px;
-  font-size: 9px;
+  left: 4px;
+  top: 4px;
+  font-size: 8.5px;
   font-weight: 700;
   letter-spacing: 0.06em;
-  padding: 2px 5px;
-  border-radius: 4px;
+  padding: 1.5px 4px;
+  border-radius: 3px;
   color: #fff;
-  background: rgba(30, 26, 20, 0.55);
+  background: rgba(30, 26, 20, 0.5);
+  -webkit-backdrop-filter: blur(3px);
   backdrop-filter: blur(3px);
 }
 .fmt-epub {
@@ -393,58 +685,71 @@ onBeforeUnmount(() => {
 .fmt-pdf {
   background: rgba(150, 70, 50, 0.82);
 }
-.continue {
+.fmt-fb2 {
+  background: rgba(88, 82, 130, 0.84);
+}
+.fmt-cbz {
+  background: rgba(140, 96, 46, 0.84);
+}
+.pct {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  padding: 1.5px 4px;
+  border-radius: 3px;
+  font-size: 8.5px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(30, 26, 20, 0.5);
+  font-variant-numeric: tabular-nums;
+}
+.cover-bar {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  padding: 14px 6px 4px;
-  font-size: 10px;
-  color: rgba(255, 255, 255, 0.94);
-  background: linear-gradient(180deg, transparent, rgba(20, 16, 10, 0.62));
-  text-align: right;
-  letter-spacing: 0.04em;
+  height: 2.5px;
+  background: rgba(255, 255, 255, 0.22);
+}
+.cover-bar i {
+  display: block;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.9);
 }
 .title {
-  margin: 8px 2px 0;
-  font-size: 13px;
+  margin: 7px 1px 0;
+  font-family: var(--font-serif);
+  font-size: 12.5px;
   font-weight: 600;
-  line-height: 1.35;
+  line-height: 1.4;
   color: var(--ink);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  min-height: 2.7em;
+  min-height: 2.8em;
 }
 .meta {
-  margin: 3px 2px 0;
+  margin: 2px 1px 0;
   font-size: 10.5px;
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.meta .dot {
-  margin: 0 3px;
+.no-result {
+  margin: 60px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
 }
-.author {
-  color: var(--ink-2);
+.foot-tools {
+  display: flex;
+  justify-content: center;
+  padding: 26px 0 6px;
 }
-.bar {
-  margin: 6px 2px 0;
-  height: 2.5px;
-  border-radius: 2px;
-  background: var(--line);
-  overflow: hidden;
-}
-.bar i {
-  display: block;
-  height: 100%;
-  border-radius: 2px;
-  background: var(--accent);
-  transition: width 0.3s ease;
-}
+
+/* 空态 */
 .empty {
   height: 100%;
   display: flex;
@@ -477,6 +782,8 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   justify-content: center;
 }
+
+/* 导入进度 */
 .importing {
   position: fixed;
   left: 16px;
@@ -574,5 +881,33 @@ onBeforeUnmount(() => {
   font-size: 14.5px;
   border-top: 1px solid var(--line);
   border-radius: 0;
+}
+
+/* 补全局按钮在本页内的形状 */
+.solid {
+  height: 44px;
+  padding: 0 22px;
+  border-radius: 13px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+}
+.ghost {
+  height: 44px;
+  padding: 0 20px;
+  border-radius: 13px;
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+  font-size: 14px;
+}
+.ghost.sm {
+  height: 36px;
+  padding: 0 16px;
+  font-size: 12.5px;
+  border-radius: 11px;
+}
+.ghost:active {
+  background: var(--surface-2);
 }
 </style>

@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import type JSZip from 'jszip'
-import type { Book, ReaderPos, ReaderSettings, TxtChapter } from '@/db'
-import { db } from '@/db'
+import type { Annotation, Book, HlColor, ReaderPos, ReaderSettings, TxtChapter } from '@/db'
+import { db, listAnnotationsForChapter, removeAnnotation, saveAnnotation } from '@/db'
 import { decodeText, parseTxtChapters, textToHtml } from '@/lib/encoding'
 import { loadEpubZip, readEpubChapter } from '@/lib/epub'
-import { clamp } from '@/lib/util'
+import { clamp, uid } from '@/lib/util'
 
 const props = defineProps<{
   book: Book
@@ -13,20 +13,33 @@ const props = defineProps<{
   initial?: ReaderPos | null
 }>()
 
+export interface ReaderState {
+  chapterTitle: string
+  page: number
+  pages: number
+  /** 全书进度 0–1 */
+  percent: number
+  chapter: number
+  chapters: number
+  loading: boolean
+  /** 逐句模式：当前句序号与总句数 */
+  sentenceIndex: number
+  sentences: number
+  /** 本章总字数、剩余阅读时间估算（分钟） */
+  chapterChars: number
+  remainMin: number
+}
+
 const emit = defineEmits<{
-  (
-    e: 'state',
-    s: {
-      chapterTitle: string
-      page: number
-      pages: number
-      percent: number
-      chapter: number
-      chapters: number
-      loading: boolean
-    },
-  ): void
+  (e: 'state', s: ReaderState): void
   (e: 'tap-center'): void
+  (
+    e: 'selection',
+    v: { start: number; end: number; quote: string; top: number; bottom: number; left: number; right: number } | null,
+  ): void
+  (e: 'mark-tap', v: { id: string; top: number; bottom: number; left: number }): void
+  (e: 'annotations-changed'): void
+  (e: 'toast', msg: string): void
 }>()
 
 const viewEl = ref<HTMLDivElement>()
@@ -45,8 +58,23 @@ const chapter = ref(0)
 const page = ref(0)
 const pages = ref(0)
 const chapterTitle = ref('')
+const chapterChars = ref(0)
 let loadToken = 0
 let flipToken = 0
+
+// ---------- 逐句 / 批注 ----------
+interface Sentence {
+  /** 一句可能跨多个内联节点（<em>、<a> 等），所以是一组 span */
+  els: HTMLElement[]
+  text: string
+}
+const sentences = shallowRef<Sentence[]>([])
+const curSent = ref(-1)
+const anns = shallowRef<Annotation[]>([])
+/** 每句所在的页，延迟计算并随重排失效 */
+let sentPages: number[] | null = null
+
+const SENT_BLOCK_SEL = 'p, li, td, th'
 
 function chaptersCount(): number {
   return props.book.format === 'epub' ? props.book.spine?.length || 0 : txtChapters.length
@@ -64,7 +92,7 @@ function pageWidth(): number {
   return flowEl.value?.clientWidth || viewEl.value?.clientWidth || 1
 }
 
-// ---------- 排版 ----------
+// ---------- 排版（沿用 0.1.0 的 CSS 多列 + 横向位移翻页） ----------
 function applyTypography() {
   const flow = flowEl.value
   if (!flow) return
@@ -86,8 +114,7 @@ function setColumnWidth() {
   const flow = flowEl.value
   if (!flow) return
   const W = pageWidth()
-  const m = margin()
-  flow.style.columnWidth = Math.max(60, W - m * 2) + 'px'
+  flow.style.columnWidth = Math.max(60, W - margin() * 2) + 'px'
 }
 
 function placeEndMark() {
@@ -110,7 +137,6 @@ function computePages(): number {
   const mark = flow.querySelector('[data-end]') as HTMLElement | null
   let n: number
   if (mark && mark.offsetWidth === 0) {
-    // 文末标记在哪一列，就是最后一页；比 scrollWidth 更可靠（不会被多出来的空列骗到）
     const x = mark.offsetLeft
     n = Math.floor(Math.max(0, x - m) / W + 1e-4) + 1
   } else {
@@ -135,7 +161,6 @@ function applyTransform(animate: boolean) {
     return
   }
 
-  // 淡入：淡出 → 跳页 → 淡入；期间又翻页就只保留最后一次
   const my = ++fadeSeq
   flow.style.transition = 'opacity 0.1s ease'
   flow.style.opacity = '0'
@@ -168,6 +193,319 @@ function waitImages(flow: HTMLElement): Promise<void> {
   ])
 }
 
+// ---------- 文本工具：按字符偏移包裹节点 ----------
+function collectTextNodes(root: HTMLElement): { nodes: Text[]; starts: number[] } {
+  const nodes: Text[] = []
+  const starts: number[] = []
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  let pos = 0
+  let n: Node | null
+  while ((n = walker.nextNode())) {
+    const t = n as Text
+    nodes.push(t)
+    starts.push(pos)
+    pos += t.data.length
+  }
+  return { nodes, starts }
+}
+
+/**
+ * 把 root 内 [start, end) 的文本用 make() 生成的元素包起来（跨节点时每段包一个）。
+ * 从后往前处理，避免偏移被 splitText 打乱。返回生成的包裹元素。
+ */
+function wrapRange(root: HTMLElement, start: number, end: number, make: () => HTMLElement): HTMLElement[] {
+  const { nodes, starts } = collectTextNodes(root)
+  const made: HTMLElement[] = []
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    const node = nodes[i]
+    const ns = starts[i]
+    const len = node.data.length
+    if (!len) continue
+    const a = Math.max(0, start - ns)
+    const b = Math.min(len, end - ns)
+    if (b <= a) continue
+    const wrap = make()
+    let target: Text = node
+    if (a > 0) target = target.splitText(a)
+    if (b - a < target.data.length) target.splitText(b - a)
+    target.parentNode?.insertBefore(wrap, target)
+    wrap.appendChild(target)
+    made.push(wrap)
+  }
+  return made
+}
+
+/** 当前文本在整章里的字符偏移（用于批注锚定） */
+function offsetOf(node: Node, off: number): number {
+  const flow = flowEl.value
+  if (!flow) return 0
+  const r = document.createRange()
+  r.setStart(flow, 0)
+  try {
+    r.setEnd(node, off)
+  } catch {
+    return 0
+  }
+  return r.toString().length
+}
+
+// ---------- 断句 ----------
+function splitSentences(text: string): Array<[number, number]> {
+  const out: Array<[number, number]> = []
+  const Seg = (Intl as any).Segmenter
+  if (typeof Seg === 'function') {
+    const seg = new Seg(undefined, { granularity: 'sentence' })
+    for (const s of seg.segment(text)) {
+      const a = s.index as number
+      const b = a + (s.segment as string).length
+      if ((s.segment as string).trim()) out.push([a, b])
+    }
+    return out
+  }
+  // 兜底：中英文句末标点切分
+  const re = /[^。！？!?…\n]+[。！？!?…]+[”’"'」』）)]*|[^。！？!?…\n]+$/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text))) {
+    if (m[0].trim()) out.push([m.index, m.index + m[0].length])
+  }
+  return out
+}
+
+function wrapSentences(flow: HTMLElement): Sentence[] {
+  const out: Sentence[] = []
+  const blocks = Array.from(flow.querySelectorAll<HTMLElement>(SENT_BLOCK_SEL))
+  let seq = 0
+  for (const block of blocks) {
+    if (block.closest('.ch-title')) continue
+    // li > p 这类嵌套只处理最内层，避免重复切句
+    if (block.querySelector('p, li')) continue
+    const text = block.textContent || ''
+    if (text.trim().length < 2) continue
+    for (const [a, b] of splitSentences(text)) {
+      const els = wrapRange(block, a, b, () => {
+        const span = document.createElement('span')
+        span.className = 'sent'
+        span.setAttribute('data-si', String(seq))
+        return span
+      })
+      if (!els.length) continue
+      out.push({ els, text: text.slice(a, b).trim() })
+      seq++
+    }
+  }
+  out.sort((x, y) => {
+    const a = x.els[0]
+    const b = y.els[0]
+    if (!a || !b || a === b) return 0
+    return a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1
+  })
+  out.forEach((s, i) => s.els.forEach((el) => el.setAttribute('data-si', String(i))))
+  return out
+}
+
+// ---------- 逐句渲染 ----------
+function paintSentences() {
+  const flow = flowEl.value
+  if (!flow) return
+  flow.querySelectorAll<HTMLElement>('.sent.is-current').forEach((el) => el.classList.remove('is-current'))
+  const active = !!props.settings.focusMode
+  flow.classList.toggle('is-focus', active)
+  if (!active) return
+  const s = sentences.value[curSent.value]
+  if (s) for (const el of s.els) el.classList.add('is-current')
+}
+
+/** 元素在整章排版坐标里的水平位置 → 页号 */
+function pageOfEl(el: HTMLElement): number {
+  const flow = flowEl.value
+  if (!flow) return 0
+  const W = pageWidth()
+  const m = margin()
+  let x = 0
+  let n: HTMLElement | null = el
+  while (n && n !== flow) {
+    x += n.offsetLeft
+    n = n.offsetParent as HTMLElement | null
+  }
+  return clamp(Math.floor((x - m) / W + 1e-4), 0, Math.max(0, pages.value - 1))
+}
+
+function ensureSentPages() {
+  if (sentPages && sentPages.length === sentences.value.length) return
+  sentPages = sentences.value.map((s) => (s.els[0] ? pageOfEl(s.els[0]) : 0))
+}
+
+function firstSentenceOnPage(p: number): number {
+  const list = sentences.value
+  if (!list.length) return -1
+  ensureSentPages()
+  const sp = sentPages!
+  for (let i = 0; i < sp.length; i++) if (sp[i] >= p) return i
+  return sp.length - 1
+}
+
+function focusSentence(idx: number, turn = true) {
+  const list = sentences.value
+  if (!list.length) return
+  const i = clamp(idx, 0, list.length - 1)
+  curSent.value = i
+  paintSentences()
+  if (turn) {
+    ensureSentPages()
+    const p = sentPages![i] ?? page.value
+    if (p !== page.value) {
+      page.value = clamp(p, 0, pages.value - 1)
+      applyTransform(false)
+    }
+  }
+  emitState()
+}
+
+function syncSentenceToPage() {
+  if (!props.settings.focusMode) return
+  if (!sentences.value.length) return
+  ensureSentPages()
+  const i = firstSentenceOnPage(page.value)
+  if (i >= 0) {
+    curSent.value = i
+    paintSentences()
+  }
+}
+
+function goSentence(delta: number) {
+  if (loading.value) return
+  const list = sentences.value
+  if (!list.length) {
+    void (delta > 0 ? next() : prev())
+    return
+  }
+  ensureSentPages()
+  let i = curSent.value
+  if (i < 0) i = firstSentenceOnPage(page.value)
+  const target = i + delta
+  if (target >= 0 && target < list.length) {
+    focusSentence(target)
+    return
+  }
+  if (target >= list.length) {
+    if (chapter.value < chaptersCount() - 1) {
+      void openChapter(chapter.value + 1, 0, true)
+      emit('toast', '下一章')
+    } else {
+      emit('toast', '读到全书末尾了')
+    }
+  } else {
+    if (chapter.value > 0) {
+      void openChapter(chapter.value - 1, -1, true)
+      emit('toast', '上一章')
+    } else {
+      emit('toast', '已经是开头了')
+    }
+  }
+}
+
+function nextSentence() {
+  goSentence(1)
+}
+
+function prevSentence() {
+  goSentence(-1)
+}
+
+// ---------- 批注渲染 ----------
+function markEl(a: Annotation): HTMLElement {
+  const m = document.createElement('mark')
+  m.className = `hl hl-${a.color}${a.note ? ' has-note' : ''}`
+  m.setAttribute('data-aid', a.id)
+  return m
+}
+
+function paintAnnotation(a: Annotation) {
+  const flow = flowEl.value
+  if (!flow) return
+  wrapRange(flow, a.start, a.end, () => markEl(a))
+}
+
+function unwrapMark(m: HTMLElement) {
+  const parent = m.parentNode
+  if (!parent) return
+  while (m.firstChild) parent.insertBefore(m.firstChild, m)
+  parent.removeChild(m)
+  const p = parent as HTMLElement
+  if (p.normalize) p.normalize()
+}
+
+function unpaintAid(aid: string) {
+  const flow = flowEl.value
+  if (!flow) return
+  flow.querySelectorAll<HTMLElement>(`mark[data-aid="${aid}"]`).forEach(unwrapMark)
+}
+
+function unpaintAll() {
+  const flow = flowEl.value
+  if (!flow) return
+  flow.querySelectorAll<HTMLElement>('mark[data-aid]').forEach(unwrapMark)
+}
+
+async function loadAnnotations() {
+  anns.value = await listAnnotationsForChapter(props.book.id, chapter.value)
+}
+
+function paintAllAnnotations() {
+  for (const a of anns.value) paintAnnotation(a)
+}
+
+async function refreshAnnotations() {
+  unpaintAll()
+  await loadAnnotations()
+  paintAllAnnotations()
+}
+
+async function createHighlight(p: {
+  start: number
+  end: number
+  quote: string
+  color: HlColor
+  note?: string
+}): Promise<Annotation | null> {
+  if (p.end <= p.start) return null
+  const now = Date.now()
+  const a: Annotation = {
+    id: uid(),
+    bookId: props.book.id,
+    chapter: chapter.value,
+    chapterTitle: chapterTitle.value,
+    start: p.start,
+    end: p.end,
+    quote: p.quote.slice(0, 500),
+    color: p.color,
+    note: (p.note || '').trim(),
+    createdAt: now,
+    updatedAt: now,
+  }
+  await saveAnnotation(a)
+  anns.value = [...anns.value, a]
+  paintAnnotation(a)
+  emit('annotations-changed')
+  return a
+}
+
+async function updateAnnotation(a: Annotation) {
+  a.updatedAt = Date.now()
+  await saveAnnotation(a)
+  anns.value = anns.value.map((x) => (x.id === a.id ? a : x))
+  unpaintAid(a.id)
+  paintAnnotation(a)
+  emit('annotations-changed')
+}
+
+async function deleteAnnotation(id: string) {
+  await removeAnnotation(id)
+  anns.value = anns.value.filter((x) => x.id !== id)
+  unpaintAid(id)
+  emit('annotations-changed')
+}
+
 // ---------- 进度 ----------
 function emitState() {
   let percent = 0
@@ -180,6 +518,8 @@ function emitState() {
     const offset = ch ? ch.start + (pages.value > 1 ? page.value / (pages.value - 1) : 1) * (ch.end - ch.start) : 0
     percent = totalChars ? offset / totalChars : 0
   }
+  const frac = pages.value > 1 ? page.value / (pages.value - 1) : 1
+  const remainMin = Math.max(0, Math.round(((1 - frac) * chapterChars.value) / 380))
   emit('state', {
     chapterTitle: chapterTitle.value,
     page: page.value,
@@ -188,11 +528,11 @@ function emitState() {
     chapter: chapter.value,
     chapters: total,
     loading: loading.value,
+    sentenceIndex: curSent.value,
+    sentences: sentences.value.length,
+    chapterChars: chapterChars.value,
+    remainMin,
   })
-}
-
-function emitWithProgress() {
-  emitState()
 }
 
 // ---------- 打开章节 ----------
@@ -214,7 +554,15 @@ async function ensureZip(): Promise<JSZip> {
   return zipLoading
 }
 
-async function openChapter(idx: number, targetPage = 0) {
+function decorate(flow: HTMLElement) {
+  // 首段首字下沉：仅当开头是拉丁字母时启用（中文下沉观感差）
+  const firstP = flow.querySelector<HTMLElement>('p')
+  if (!firstP) return
+  const t = (firstP.textContent || '').trimStart()
+  if (/^[A-Za-z“"'(]/.test(t)) firstP.classList.add('dropcap')
+}
+
+async function openChapter(idx: number, targetPage = 0, startAtSentence = false) {
   const flow = flowEl.value
   if (!flow) return
   const token = ++loadToken
@@ -227,6 +575,7 @@ async function openChapter(idx: number, targetPage = 0) {
   chapter.value = clamp(idx, 0, total - 1)
   loading.value = true
   error.value = ''
+  emit('selection', null)
 
   let html = ''
   try {
@@ -262,7 +611,24 @@ async function openChapter(idx: number, targetPage = 0) {
   flow.style.transition = 'none'
   flow.style.opacity = '1'
   flow.innerHTML = html
+  flow.classList.remove('is-focus')
   applyTypography()
+  decorate(flow)
+
+  // 先断句（包 span），再叠加批注 —— 两者都只改 DOM 结构，不改文本内容
+  sentences.value = wrapSentences(flow)
+  curSent.value = -1
+  sentPages = null
+  chapterChars.value = (flow.textContent || '').length
+
+  try {
+    await loadAnnotations()
+    paintAllAnnotations()
+  } catch (e) {
+    console.warn('批注加载失败', e)
+  }
+
+  paintSentences()
   placeEndMark()
   await waitImages(flow)
   await nextTick()
@@ -272,7 +638,16 @@ async function openChapter(idx: number, targetPage = 0) {
   page.value = targetPage < 0 ? pages.value - 1 : clamp(targetPage, 0, pages.value - 1)
   applyTransform(false)
   loading.value = false
-  emitWithProgress()
+
+  if (props.settings.focusMode && sentences.value.length) {
+    ensureSentPages()
+    curSent.value = firstSentenceOnPage(page.value)
+    paintSentences()
+  } else if (startAtSentence && sentences.value.length) {
+    curSent.value = 0
+    paintSentences()
+  }
+  emitState()
 }
 
 // ---------- 翻页 ----------
@@ -282,7 +657,8 @@ function turnTo(n: number, animate = true) {
   if (target === page.value && animate) return
   page.value = target
   applyTransform(animate)
-  emitWithProgress()
+  syncSentenceToPage()
+  emitState()
 }
 
 export interface FlipResult {
@@ -290,8 +666,8 @@ export interface FlipResult {
   atEnd: boolean
 }
 
-async function next() {
-  if (loading.value) return
+async function next(): Promise<FlipResult> {
+  if (loading.value) return { atStart: false, atEnd: false }
   if (page.value < pages.value - 1) {
     turnTo(page.value + 1)
     return { atStart: false, atEnd: false }
@@ -303,15 +679,15 @@ async function next() {
   return { atStart: false, atEnd: true }
 }
 
-async function prev() {
-  if (loading.value) return
+async function prev(): Promise<FlipResult> {
+  if (loading.value) return { atStart: false, atEnd: false }
   if (page.value > 0) {
     turnTo(page.value - 1)
     return { atStart: false, atEnd: false }
   }
   if (chapter.value > 0) {
     await openChapter(chapter.value - 1, -1)
-    return { atStart: false, atEnd: false }
+    return { atStart: true, atEnd: false }
   }
   return { atStart: true, atEnd: false }
 }
@@ -321,7 +697,6 @@ async function goChapter(idx: number) {
 }
 
 function jumpToPercent(p: number) {
-  // 目前只用于「恢复阅读位置」，按章节 + 页处理
   void p
 }
 
@@ -335,7 +710,66 @@ function relayout(keepFraction: boolean) {
   const target = keepFraction && oldPages > 1 ? Math.round(frac * (pages.value - 1)) : page.value
   page.value = clamp(target, 0, pages.value - 1)
   applyTransform(false)
+  sentPages = null
+  if (props.settings.focusMode) syncSentenceToPage()
   emitState()
+}
+
+// ---------- 选中文字 → 浮动操作条 ----------
+let selTimer = 0
+let lastSelKey = ''
+
+function clearBubble() {
+  lastSelKey = ''
+  emit('selection', null)
+}
+
+function checkSelection() {
+  const flow = flowEl.value
+  const view = viewEl.value
+  if (!flow || !view) return
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
+    if (lastSelKey) clearBubble()
+    return
+  }
+  const range = sel.getRangeAt(0)
+  if (!flow.contains(range.startContainer) || !flow.contains(range.endContainer)) {
+    if (lastSelKey) clearBubble()
+    return
+  }
+  const quote = sel.toString().replace(/\s+/g, ' ').trim()
+  if (!quote) {
+    if (lastSelKey) clearBubble()
+    return
+  }
+  const start = offsetOf(range.startContainer, range.startOffset)
+  const end = offsetOf(range.endContainer, range.endOffset)
+  if (end - start < 1) return
+  const key = `${start}:${end}`
+  if (key === lastSelKey) return
+  lastSelKey = key
+  const rect = range.getBoundingClientRect()
+  emit('selection', {
+    start,
+    end: Math.min(start + 500, end),
+    quote: quote.slice(0, 500),
+    top: rect.top,
+    bottom: rect.bottom,
+    left: rect.left,
+    right: rect.right,
+  })
+}
+
+function onSelectionChange() {
+  window.clearTimeout(selTimer)
+  selTimer = window.setTimeout(checkSelection, 140)
+}
+
+function clearSelection() {
+  const sel = window.getSelection()
+  if (sel && !sel.isCollapsed) sel.removeAllRanges()
+  clearBubble()
 }
 
 // ---------- 手势 ----------
@@ -345,7 +779,6 @@ let touchStartT = 0
 let swiped = false
 
 function onTouchStart(e: TouchEvent) {
-  // 双指是捏合（缩放），不当作翻页手势
   if (e.touches.length !== 1) {
     touchStartT = 0
     return
@@ -363,6 +796,7 @@ function onTouchEnd(e: TouchEvent) {
   const dx = t.clientX - touchStartX
   const dy = t.clientY - touchStartY
   const dt = Date.now() - touchStartT
+  touchStartT = 0
   if (Math.abs(dx) > 46 && Math.abs(dx) > Math.abs(dy) * 1.3 && dt < 800) {
     swiped = true
     if (dx < 0) void next()
@@ -375,22 +809,60 @@ function onClick(e: MouseEvent) {
     swiped = false
     return
   }
-  const el = viewEl.value
-  if (!el) return
-  const rect = el.getBoundingClientRect()
+  const sel = window.getSelection()
+  if (sel && !sel.isCollapsed) return
+  const view = viewEl.value
+  if (!view) return
+  const target = e.target as HTMLElement
+
+  // 点批注 → 交给父组件弹出操作
+  const mark = target.closest?.('mark[data-aid]') as HTMLElement | null
+  if (mark) {
+    const id = mark.getAttribute('data-aid') || ''
+    const r = mark.getBoundingClientRect()
+    // 阻止冒泡：父级 stage 的 click 会立刻把操作浮条清掉
+    e.stopPropagation()
+    emit('mark-tap', { id, top: r.top, bottom: r.bottom, left: r.left + r.width / 2 })
+    return
+  }
+
+  const rect = view.getBoundingClientRect()
   const x = (e.clientX - rect.left) / rect.width
+  if (props.settings.focusMode) {
+    if (x < 0.26) {
+      prevSentence()
+      return
+    }
+    if (x > 0.74) {
+      nextSentence()
+      return
+    }
+    const sent = target.closest?.('.sent') as HTMLElement | null
+    if (sent) {
+      const si = Number(sent.getAttribute('data-si'))
+      if (Number.isFinite(si) && si >= 0) {
+        focusSentence(si, false)
+        return
+      }
+    }
+    emit('tap-center')
+    return
+  }
   if (x < 0.28) void prev()
   else if (x > 0.72) void next()
   else emit('tap-center')
 }
 
 function onKey(e: KeyboardEvent) {
+  const focus = props.settings.focusMode
   if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
     e.preventDefault()
-    void next()
+    if (focus) nextSentence()
+    else void next()
   } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
     e.preventDefault()
-    void prev()
+    if (focus) prevSentence()
+    else void prev()
   } else if (e.key === 'Escape') {
     emit('tap-center')
   }
@@ -398,6 +870,11 @@ function onKey(e: KeyboardEvent) {
 
 function onWheel(e: WheelEvent) {
   if (Math.abs(e.deltaY) < 12) return
+  if (props.settings.focusMode) {
+    if (e.deltaY > 0) nextSentence()
+    else prevSentence()
+    return
+  }
   if (e.deltaY > 0) void next()
   else void prev()
 }
@@ -426,14 +903,13 @@ onMounted(async () => {
   await nextTick()
 
   const pos = props.initial
-  const ch = pos?.chapter ?? 0
-  const pg = pos?.page ?? 0
-  await openChapter(ch, pg)
+  await openChapter(pos?.chapter ?? 0, pos?.page ?? 0)
 
   ro = new ResizeObserver(() => relayout(true))
   if (viewEl.value) ro.observe(viewEl.value)
   window.addEventListener('keydown', onKey)
   viewEl.value?.addEventListener('wheel', onWheel, { passive: true })
+  document.addEventListener('selectionchange', onSelectionChange)
 })
 
 onBeforeUnmount(() => {
@@ -444,6 +920,8 @@ onBeforeUnmount(() => {
   ro?.disconnect()
   window.removeEventListener('keydown', onKey)
   viewEl.value?.removeEventListener('wheel', onWheel)
+  document.removeEventListener('selectionchange', onSelectionChange)
+  window.clearTimeout(selTimer)
 })
 
 watch(
@@ -451,12 +929,67 @@ watch(
   () => {
     if (loading.value) return
     applyTypography()
+    paintSentences()
     nextTick(() => relayout(true))
   },
   { deep: true },
 )
 
-defineExpose({ next, prev, goChapter, jumpToPercent })
+// ---------- 给父组件用的读取接口 ----------
+function getContextText(limit = 1800): { title: string; excerpt: string; sentence: string } {
+  const flow = flowEl.value
+  const chapterText = flow ? flow.textContent || '' : ''
+  const list = sentences.value
+  const cur = curSent.value
+  let excerpt = chapterText.slice(0, limit)
+  if (cur >= 0 && list.length) {
+    const around = list.slice(Math.max(0, cur - 8), Math.min(list.length, cur + 9))
+    excerpt = around.map((s) => s.text).join('')
+    if (excerpt.length > limit) excerpt = excerpt.slice(0, limit)
+  }
+  return {
+    title: chapterTitle.value,
+    excerpt,
+    sentence: list[cur]?.text || '',
+  }
+}
+
+function currentSentence(): string {
+  return sentences.value[curSent.value]?.text || ''
+}
+
+/** 从笔记列表点进来：切到那一章并翻到划线所在的页，闪一下让它自己现形 */
+async function focusAnnotation(id: string) {
+  const a = await db.annotations.get(id)
+  if (!a) return
+  if (a.chapter !== chapter.value) await openChapter(a.chapter, 0)
+  await nextTick()
+  await nextTick()
+  const mark = flowEl.value?.querySelector<HTMLElement>(`mark[data-aid="${id}"]`)
+  if (!mark) return
+  page.value = clamp(pageOfEl(mark), 0, Math.max(0, pages.value - 1))
+  applyTransform(false)
+  mark.classList.add('flash')
+  window.setTimeout(() => mark.classList.remove('flash'), 1200)
+}
+
+defineExpose({
+  focusAnnotation,
+  next,
+  prev,
+  goChapter,
+  jumpToPercent,
+  nextSentence,
+  prevSentence,
+  focusSentence,
+  getContextText,
+  currentSentence,
+  createHighlight,
+  updateAnnotation,
+  deleteAnnotation,
+  refreshAnnotations,
+  clearSelection,
+})
 </script>
 
 <template>
@@ -497,9 +1030,9 @@ defineExpose({ next, prev, goChapter, jumpToPercent })
   box-sizing: border-box;
   width: 100%;
   height: 100%;
-  /* 给顶栏/底栏留出固定空间，正文不被浮层遮挡 */
-  padding-top: calc(44px + var(--safe-top));
-  padding-bottom: calc(30px + var(--safe-bottom));
+  /* 顶部/底部给浮层留白，正文不被工具条遮挡 */
+  padding-top: calc(58px + var(--safe-top));
+  padding-bottom: calc(92px + var(--safe-bottom));
   column-fill: auto;
   text-align: justify;
   -webkit-hyphens: auto;
@@ -508,6 +1041,9 @@ defineExpose({ next, prev, goChapter, jumpToPercent })
   will-change: transform;
   color: var(--r-ink);
   outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
 }
 .reflow-flow :deep(p) {
   margin: 0 0 0.9em;
@@ -515,12 +1051,46 @@ defineExpose({ next, prev, goChapter, jumpToPercent })
   text-align: justify;
   word-break: break-word;
 }
+.reflow-flow :deep(.ch-title) {
+  margin: 0.1em 0 1.35em;
+  font-size: 1.5em;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-align: center;
+  text-indent: 0;
+  line-height: 1.5;
+  break-after: avoid;
+}
+.reflow-flow :deep(.ch-title::after) {
+  content: '';
+  display: block;
+  width: 30px;
+  height: 1px;
+  margin: 14px auto 0;
+  background: var(--r-line-strong);
+}
 .reflow-flow :deep(h1),
 .reflow-flow :deep(h2),
-.reflow-flow :deep(h3),
-.reflow-flow :deep(h4) {
-  margin: 0.35em 0 0.7em;
+.reflow-flow :deep(h3) {
+  margin: 1.05em 0 0.75em;
   font-size: 1.22em;
+  font-weight: 600;
+  text-indent: 0;
+  text-align: center;
+  letter-spacing: 0.05em;
+  line-height: 1.5;
+  break-after: avoid;
+}
+.reflow-flow :deep(h1):first-child,
+.reflow-flow :deep(h2):first-child,
+.reflow-flow :deep(h3):first-child {
+  margin-top: 0.25em;
+}
+.reflow-flow :deep(h4),
+.reflow-flow :deep(h5),
+.reflow-flow :deep(h6) {
+  margin: 0.7em 0 0.55em;
+  font-size: 1.06em;
   font-weight: 600;
   text-indent: 0;
   line-height: 1.5;
@@ -562,6 +1132,70 @@ defineExpose({ next, prev, goChapter, jumpToPercent })
   border: 1px solid var(--r-line);
   padding: 4px 6px;
 }
+
+/* ---------- 首字下沉 ---------- */
+.reflow-flow :deep(p.dropcap)::first-letter {
+  float: left;
+  font-size: 3.1em;
+  line-height: 0.86;
+  padding: 0.06em 0.1em 0 0;
+  font-weight: 500;
+  color: var(--r-ink);
+}
+
+/* ---------- 逐句聚焦 ---------- */
+.sent {
+  transition: opacity 0.18s ease, background-color 0.18s ease;
+  border-radius: 4px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.reflow-flow.is-focus :deep(.sent) {
+  opacity: 0.3;
+}
+.reflow-flow.is-focus :deep(.sent.is-current) {
+  opacity: 1;
+  background: var(--r-sent);
+}
+.reflow-flow.is-focus :deep(p),
+.reflow-flow.is-focus :deep(li) {
+  transition: opacity 0.18s ease;
+}
+
+/* ---------- 批注 ---------- */
+.reflow-flow :deep(mark.hl) {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  border-radius: 3px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  cursor: pointer;
+}
+.reflow-flow :deep(mark.hl-yellow) {
+  background: var(--hl-yellow);
+}
+.reflow-flow :deep(mark.hl-green) {
+  background: var(--hl-green);
+}
+.reflow-flow :deep(mark.hl-blue) {
+  background: var(--hl-blue);
+}
+.reflow-flow :deep(mark.hl-pink) {
+  background: var(--hl-pink);
+}
+.reflow-flow :deep(mark.hl.has-note) {
+  box-shadow: inset 0 -0.55em 0 var(--hl-note);
+}
+.reflow-flow :deep(mark.hl.flash) {
+  animation: mark-flash 0.42s ease-in-out 3;
+}
+@keyframes mark-flash {
+  50% {
+    box-shadow: 0 0 0 3px var(--r-ink-2);
+  }
+}
+
 .reflow-mask {
   position: absolute;
   inset: 0;

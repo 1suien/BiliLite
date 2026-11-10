@@ -1,7 +1,7 @@
 {
   "name": "readawre-app",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "墨读 —— Android 电子阅读器（Vue 3 + Capacitor，支持 TXT / EPUB / PDF）",
   "type": "module",
   "scripts": {

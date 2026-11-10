@@ -2,6 +2,8 @@ import { db, type Book, type BookFile, type BookCover } from '@/db'
 import { decodeText, parseTxtChapters } from './encoding'
 import { parseEpub } from './epub'
 import { getPdfCover, getPdfPageCount } from './pdf'
+import { parseFb2 } from './fb2'
+import { openCbz } from './cbz'
 import { generatedCover } from './cover'
 import { hueOf, titleFromFilename, uid, fmtSize } from './util'
 
@@ -25,7 +27,7 @@ function extOf(name: string): string {
 async function buildBook(file: File): Promise<Book> {
   const name = file.name
   const format = extOf(name)
-  if (format !== 'txt' && format !== 'epub' && format !== 'pdf') {
+  if (!['txt', 'epub', 'pdf', 'fb2', 'cbz'].includes(format)) {
     throw new Error('不支持的文件类型：.' + (format || '未知'))
   }
   if (!file.size) throw new Error('文件是空的（' + fmtSize(file.size) + '）')
@@ -38,6 +40,8 @@ async function buildBook(file: File): Promise<Book> {
 
   let book: Book
   let cover: string | undefined
+  /** 存进 IndexedDB 的字节；FB2 会转成 UTF-8 纯文本再存（阅读器按 TXT 的路子渲染） */
+  let stored = buf
 
   if (format === 'txt') {
     const text = decodeText(buf)
@@ -75,6 +79,40 @@ async function buildBook(file: File): Promise<Book> {
     }
     if (!parsed.spine.length) throw new Error('EPUB 里没有可读的章节（spine 为空）')
     cover = parsed.coverDataUrl || generatedCover(book.title, book.author, hue)
+  } else if (format === 'fb2') {
+    const parsed = await parseFb2(buf)
+    if (!parsed.text.trim()) throw new Error('FB2 解码后没有正文')
+    stored = new TextEncoder().encode(parsed.text).buffer as ArrayBuffer
+    book = {
+      id,
+      title: parsed.title || baseTitle,
+      author: parsed.author,
+      format: 'fb2',
+      size: file.size,
+      addedAt: Date.now(),
+      lastReadAt: 0,
+      percent: 0,
+      pos: null,
+      chapters: parsed.chapters,
+      hue,
+    }
+    cover = parsed.coverDataUrl || generatedCover(book.title, book.author, hue)
+  } else if (format === 'cbz') {
+    const comic = await openCbz(buf)
+    book = {
+      id,
+      title: baseTitle,
+      author: '',
+      format: 'cbz',
+      size: file.size,
+      addedAt: Date.now(),
+      lastReadAt: 0,
+      percent: 0,
+      pos: null,
+      pageCount: comic.pageCount,
+      hue,
+    }
+    cover = comic.coverDataUrl || generatedCover(baseTitle, '', hue)
   } else {
     const pageCount = await getPdfPageCount(buf)
     book = {
@@ -93,7 +131,7 @@ async function buildBook(file: File): Promise<Book> {
     cover = (await getPdfCover(buf)) || generatedCover(baseTitle, '', hue)
   }
 
-  const fileRow: BookFile = { id, data: buf }
+  const fileRow: BookFile = { id, data: stored }
   const coverRow: BookCover = { id, dataUrl: cover || '' }
   await db.transaction('rw', [db.books, db.files, db.covers], async () => {
     await db.files.put(fileRow)
