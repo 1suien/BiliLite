@@ -1874,3 +1874,93 @@ body.has-reminder .page-float {
   cursor: pointer;
 }
 .note-bar .nb-sub:hover { color: var(--t2); }
+
+/* 底部「发现新版本」更新条（本机 0.4.66） */
+.update-bar {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: 14px;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--card);
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
+}
+.update-bar .ub-ico {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--brand-soft);
+  color: var(--link);
+  font-size: 17px;
+}
+.update-bar .ub-main {
+  flex: 1;
+  min-width: 0;
+}
+.update-bar .ub-title {
+  font-size: 14px;
+}
+.update-bar .ub-cur {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.update-bar .ub-notes {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.update-bar .ub-note::before {
+  content: '· ';
+}
+.update-bar .ub-err {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--danger);
+}
+.update-bar .ub-prog {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 200px;
+  flex: none;
+}
+.update-bar .ub-prog-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+.update-bar .ub-prog-bar i {
+  display: block;
+  height: 100%;
+  background: var(--brand);
+  border-radius: 2px;
+  transition: width 0.2s linear;
+}
+.update-bar .ub-prog-text {
+  font-size: 11.5px;
+  color: var(--t3);
+}
+@media (max-width: 720px) {
+  .update-bar {
+    flex-wrap: wrap;
+  }
+  .update-bar .ub-prog {
+    width: 100%;
+    order: 5;
+  }
+}

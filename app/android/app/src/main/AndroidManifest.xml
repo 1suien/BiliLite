@@ -78,6 +78,8 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 软件内更新：下载 APK 后拉起系统安装器（本机 0.4.66） -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- 0.4.26：按媒体库文件夹导入需要读视频/音频（13+ 用细分媒体权限，12 及以下用读外置存储） -->
     <!-- 本机定制 0.4.13：到点提醒要用系统通知 + 准点闹钟（软件在后台/关闭时也能提醒） -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />

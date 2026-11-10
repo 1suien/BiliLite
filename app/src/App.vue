@@ -18,6 +18,8 @@ import Toasts from '@/components/Toasts.vue'
 import LoginModal from '@/components/LoginModal.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import { useUiStore } from '@/stores/ui'
+import { useUpdateStore } from '@/stores/update'
+import UpdateBar from '@/components/UpdateBar.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useSettingsStore } from '@/stores/settings'
 import { useLearnStore } from '@/stores/learn'
@@ -279,6 +281,10 @@ function onVisibilityForShare() {
 }
 
 onMounted(async () => {
+  try {
+    useUpdateStore().init()
+  } catch {}
+
   // 启动预热：设置 -> 登录态 -> 本地数据（各块失败只影响自己）
   await settings.init()
   await auth.restore()
@@ -509,5 +515,6 @@ onUnmounted(() => {
     <Toasts />
     <LoginModal />
     <ConfirmModal />
-  </div>
+    <UpdateBar />
+</div>
 </template>

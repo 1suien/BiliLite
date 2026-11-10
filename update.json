@@ -1,0 +1,12 @@
+{
+  "versionCode": 70,
+  "versionName": "0.4.66",
+  "apk": "http://127.0.0.1:3080/dl/BiliLite-latest.apk",
+  "sha256": "77f0fdd983e871e8b311f9c81022b06f1cfeb25597fc164d4acb0bee19a06ae5",
+  "size": 4214005,
+  "publishedAt": "2026-11-10T08:40:00+08:00",
+  "notes": [
+    "软件内更新：启动静默检查 + 底部更新条 + 应用内下载安装（sha256 校验）",
+    "设置页「关于」可手动检查、切换更新源"
+  ]
+}

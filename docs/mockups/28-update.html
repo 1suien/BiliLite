@@ -1,0 +1,45 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><style>
+html,body{margin:0;height:100%}
+body{background:#0a0a0b;color:#f3f3f4;font-family:-apple-system,"Noto Sans CJK SC","PingFang SC",sans-serif;overflow:hidden}
+.app{display:flex;height:100%}
+.side{width:200px;border-right:1px solid #26272c;padding:18px 12px;box-sizing:border-box;display:flex;flex-direction:column;gap:8px}
+.brand{display:flex;gap:8px;align-items:center;margin-bottom:14px}
+.logo{width:34px;height:34px;border-radius:10px;background:#fff;color:#111;display:flex;align-items:center;justify-content:center;font-weight:800}
+.nav a{display:block;padding:9px 10px;border-radius:8px;color:#9b9ba4;font-size:13.5px}
+.nav a.on{background:rgba(255,255,255,.08);color:#fff}
+.main{flex:1;padding:18px 22px;box-sizing:border-box;position:relative}
+.title{font-size:22px;font-weight:700}
+.card{background:#141416;border:1px solid #26272c;border-radius:12px;padding:16px;margin-top:14px;color:#9b9ba4;font-size:13px}
+.bar{position:absolute;left:22px;right:22px;bottom:18px;background:#16171b;border:1px solid #34353b;border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:14px;box-shadow:0 18px 44px rgba(0,0,0,.6)}
+.bar .ico{width:38px;height:38px;border-radius:10px;background:rgba(74,168,255,.16);color:#8ec7ff;display:flex;align-items:center;justify-content:center;font-size:18px}
+.bar .tt{flex:1;min-width:0}
+.bar .tt b{font-size:14.5px}
+.bar .tt div{color:#8b8b95;font-size:12.5px;margin-top:3px}
+.btn{border-radius:9px;padding:8px 14px;font-size:13px;border:1px solid #34353b;background:#1c1d21;color:#f3f3f4}
+.btn.pri{background:#4aa8ff;border-color:#4aa8ff;color:#06121f;font-weight:600}
+.btn.ghost{background:transparent;border-color:transparent;color:#8b8b95}
+.prog{height:4px;background:#26272c;border-radius:2px;width:180px;overflow:hidden}
+.prog i{display:block;height:100%;width:62%;background:#4aa8ff;border-radius:2px}
+.tip{font-size:12px;color:#8b8b95}
+</style></head><body>
+<div class="app">
+  <div class="side">
+    <div class="brand"><div class="logo">学</div><div><b>BiliLite</b><div style="font-size:11px;color:#6a6a73">专注模式 · 黑白极简</div></div></div>
+    <div class="nav"><a class="on">学习</a><a>习惯</a><a>课表</a></div>
+  </div>
+  <div class="main">
+    <div class="title">学习</div>
+    <div class="card">（页面内容略）下面这条是「发现新版本」更新条，默认不打断使用。</div>
+    <div class="bar">
+      <div class="ico">⬇</div>
+      <div class="tt">
+        <b>发现新版本 0.4.66</b>
+        <div>分P 列表左侧弹出 · 起播卡住修复 · 开屏优化　<span style="color:#4aa8ff">查看更新说明</span></div>
+      </div>
+      <div class="prog"><i></i></div>
+      <span class="tip">下载中 62% · 2.6/4.2 MB</span>
+      <button class="btn pri">立即更新</button>
+      <button class="btn ghost">稍后</button>
+    </div>
+  </div>
+</div></body></html>

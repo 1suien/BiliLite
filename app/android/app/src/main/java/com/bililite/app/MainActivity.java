@@ -41,6 +41,7 @@ public class MainActivity extends BridgeActivity {
     registerPlugin(ImmersivePlugin.class);
     registerPlugin(ReminderChannelPlugin.class);
     registerPlugin(LocalMediaPlugin.class);
+    registerPlugin(UpdatePlugin.class);
     super.onCreate(savedInstanceState);
     applyDesktopUserAgent();
     captureSharedIntent(getIntent());

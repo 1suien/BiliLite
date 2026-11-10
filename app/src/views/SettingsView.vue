@@ -14,6 +14,7 @@ import { ACCENTS, useSettingsStore } from '@/stores/settings'
 import { nativeNotifySupported, openReminderChannelSettings, testReminderNotification } from '@/bridge/notify'
 import { useAuthStore } from '@/stores/auth'
 import { useLearnStore } from '@/stores/learn'
+import { useUpdateStore } from '@/stores/update'
 import { useUiStore } from '@/stores/ui'
 import { applyBackup, applyBackupPrefs, collectBackup, describeBackup, normalizePayload } from '@/utils/backup'
 
@@ -89,6 +90,9 @@ async function loadOverview() {
 }
 /** 桥上报的版本号 */
 const version = ref('')
+/** 软件内更新（0.4.66） */
+const upd = useUpdateStore()
+const sourceInput = ref(upd.source)
 
 /** 强调色预设列表：{ key, label, dark, light } */
 const accentList = Object.keys(ACCENTS).map((key) => ({ key, ...ACCENTS[key] }))
@@ -401,8 +405,24 @@ function resetSettings() {
   })
 }
 
+/** 手动检查更新 */
+async function manualCheck() {
+  const has = await upd.check(true)
+  if (has) ui.toast(`发现新版本 ${upd.latest?.versionName || ''}`, 'info', 3000)
+  else if (upd.error) ui.err(upd.error)
+  else ui.ok('已是最新版本')
+}
+
+function saveSource() {
+  upd.saveSource(sourceInput.value)
+  sourceInput.value = upd.source
+  ui.ok('更新地址已保存')
+}
+
 onMounted(() => {
   void loadOverview()
+  upd.loadCurrent().catch(() => {})
+  sourceInput.value = upd.source
   settings.init()
   learn.init().catch(() => {})
   // 版本号来自数据桥
@@ -628,6 +648,28 @@ onMounted(() => {
         <span class="ver mono">v{{ version || '—' }}</span>
         <span class="muted">· Electron + Vue 3 · 本地优先</span>
       </p>
+      <div class="field">
+        <label>软件更新</label>
+        <div class="row" style="gap: 8px; flex-wrap: wrap; align-items: center">
+          <button class="btn sm" :disabled="upd.checking" @click="manualCheck">
+            {{ upd.checking ? '检查中…' : '检查更新' }}
+          </button>
+          <span class="muted" style="font-size: 12px">
+            {{ upd.latest ? `最新 ${upd.latest.versionName}` : '已是最新版本' }}
+          </span>
+          <button v-if="upd.latest" class="btn sm ghost" @click="upd.visible = true">查看更新</button>
+        </div>
+        <div class="row" style="gap: 8px; margin-top: 10px; align-items: center">
+          <button class="btn sm" :class="{ primary: upd.auto }" @click="upd.setAuto(!upd.auto)">
+            {{ upd.auto ? '自动检查：开' : '自动检查：关' }}
+          </button>
+          <input v-model="sourceInput" class="input" placeholder="更新清单地址" style="flex: 1; min-width: 220px" />
+          <button class="btn sm" @click="saveSource">保存地址</button>
+        </div>
+        <p class="hint">
+          当前版本 v{{ upd.current || version || '—' }}。启动 8 秒后自动检查（每 24 小时最多一次），发现新版本时底部会出现更新条；下载完成后拉起系统安装器覆盖安装，数据保留。
+        </p>
+      </div>
       <p class="hint" style="line-height: 1.8">
         界面与交互参考开源项目
         <a href="#" @click.prevent="bili.sys.openExternal('https://github.com/ywmoyue/biliuwp-lite').catch(() => {})">biliuwp-lite / BiliLite</a>
