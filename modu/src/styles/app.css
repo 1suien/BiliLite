@@ -4,6 +4,28 @@
    阅读页有 纸白 / 米黄 / 松绿 / 夜间 四套主题。
    ============================================================ */
 
+/* 书名号、数字、拉丁文用 EB Garamond，中文回落到系统衬线，读起来更像纸质书 */
+@font-face {
+  font-family: 'EB Garamond';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/ebgaramond-400-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+    U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'EB Garamond';
+  font-style: italic;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/ebgaramond-400i-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+    U+FEFF, U+FFFD;
+}
+
 :root {
   --shelf-bg: #f4efe4;
   --shelf-bg-2: #ece5d7;
@@ -26,7 +48,8 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --font-ui: system-ui, -apple-system, 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC',
     'Microsoft YaHei', sans-serif;
-  --font-serif: 'Noto Serif CJK SC', 'Source Han Serif SC', 'Songti SC', 'SimSun', Georgia, serif;
+  --font-serif: 'EB Garamond', 'Noto Serif CJK SC', 'Source Han Serif SC', 'Songti SC', 'SimSun',
+    Georgia, serif;
 
   color-scheme: light;
 }

@@ -69,6 +69,32 @@ const THEMES = [
       </div>
 
       <div class="row">
+        <span class="label">字距</span>
+        <div class="seg">
+          <button class="seg-item" :class="{ on: settings.letterSpacing < 0.01 }" @click="patch({ letterSpacing: 0 })">标准</button>
+          <button class="seg-item" :class="{ on: settings.letterSpacing > 0.01 && settings.letterSpacing < 0.04 }" @click="patch({ letterSpacing: 0.02 })">宽松</button>
+          <button class="seg-item" :class="{ on: settings.letterSpacing >= 0.04 }" @click="patch({ letterSpacing: 0.05 })">更宽</button>
+        </div>
+      </div>
+
+      <div class="row">
+        <span class="label">段距</span>
+        <div class="seg">
+          <button class="seg-item" :class="{ on: settings.paraSpacing <= 0.75 }" @click="patch({ paraSpacing: 0.7 })">紧凑</button>
+          <button class="seg-item" :class="{ on: settings.paraSpacing > 0.75 && settings.paraSpacing < 1.05 }" @click="patch({ paraSpacing: 0.9 })">适中</button>
+          <button class="seg-item" :class="{ on: settings.paraSpacing >= 1.05 }" @click="patch({ paraSpacing: 1.2 })">疏朗</button>
+        </div>
+      </div>
+
+      <div class="row">
+        <span class="label">对齐</span>
+        <div class="seg">
+          <button class="seg-item" :class="{ on: settings.align === 'justify' }" @click="patch({ align: 'justify' })">两端</button>
+          <button class="seg-item" :class="{ on: settings.align === 'left' }" @click="patch({ align: 'left' })">左对齐</button>
+        </div>
+      </div>
+
+      <div class="row">
         <span class="label">字体</span>
         <div class="seg">
           <button class="seg-item" :class="{ on: settings.fontFamily === 'serif' }" @click="patch({ fontFamily: 'serif' })">宋体</button>
@@ -89,8 +115,42 @@ const THEMES = [
         <span class="label">翻页</span>
         <div class="seg">
           <button class="seg-item" :class="{ on: settings.pageAnim === 'slide' }" @click="patch({ pageAnim: 'slide' })">滑动</button>
+          <button class="seg-item" :class="{ on: settings.pageAnim === 'cover' }" @click="patch({ pageAnim: 'cover' })">掀页</button>
           <button class="seg-item" :class="{ on: settings.pageAnim === 'fade' }" @click="patch({ pageAnim: 'fade' })">淡入</button>
+          <button class="seg-item" :class="{ on: settings.pageAnim === 'none' }" @click="patch({ pageAnim: 'none' })">无</button>
         </div>
+      </div>
+
+      <div class="row">
+        <div class="label-group">
+          <span class="label">首行缩进</span>
+          <span class="desc">段落开头空两格</span>
+        </div>
+        <button
+          class="switch"
+          :class="{ on: settings.indent }"
+          role="switch"
+          :aria-checked="settings.indent"
+          @click="patch({ indent: !settings.indent })"
+        >
+          <i />
+        </button>
+      </div>
+
+      <div class="row">
+        <div class="label-group">
+          <span class="label">书眉与页码</span>
+          <span class="desc">沉浸时显示书名、章节和页码</span>
+        </div>
+        <button
+          class="switch"
+          :class="{ on: settings.headerFooter }"
+          role="switch"
+          :aria-checked="settings.headerFooter"
+          @click="patch({ headerFooter: !settings.headerFooter })"
+        >
+          <i />
+        </button>
       </div>
 
       <div class="divider" />
@@ -135,6 +195,8 @@ const THEMES = [
 <style scoped>
 .settings-sheet {
   color: var(--ink);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .row {
   display: flex;

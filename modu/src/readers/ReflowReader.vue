@@ -101,11 +101,15 @@ function applyTypography() {
   flow.style.lineHeight = String(props.settings.lineHeight)
   flow.style.fontFamily =
     props.settings.fontFamily === 'serif'
-      ? "'Noto Serif CJK SC', 'Source Han Serif SC', 'Songti SC', SimSun, Georgia, serif"
+      ? "'EB Garamond', 'Noto Serif CJK SC', 'Source Han Serif SC', 'Songti SC', SimSun, Georgia, serif"
       : "'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', system-ui, sans-serif"
   flow.style.paddingLeft = m + 'px'
   flow.style.paddingRight = m + 'px'
   flow.style.columnGap = m * 2 + 'px'
+  flow.style.letterSpacing = (props.settings.letterSpacing || 0) + 'em'
+  flow.style.textAlign = props.settings.align === 'left' ? 'left' : 'justify'
+  flow.style.setProperty('--p-space', (props.settings.paraSpacing ?? 0.9) + 'em')
+  flow.classList.toggle('no-indent', !props.settings.indent)
   setColumnWidth()
 }
 
@@ -146,6 +150,9 @@ function computePages(): number {
 }
 
 let fadeSeq = 0
+let dragging = false
+let dragDx = 0
+let dragAxis: 'x' | 'y' | null = null
 
 function applyTransform(animate: boolean) {
   const flow = flowEl.value
@@ -154,10 +161,32 @@ function applyTransform(animate: boolean) {
   const tx = `translateX(${-page.value * W}px)`
   const seq = ++flipToken
 
-  if (!animate || props.settings.pageAnim === 'slide') {
-    flow.style.transition = animate ? 'transform 0.22s cubic-bezier(0.24, 0.7, 0.3, 1)' : 'none'
+  const anim = props.settings.pageAnim
+  if (!animate || anim === 'none') {
+    flow.style.transition = 'none'
     flow.style.opacity = '1'
     flow.style.transform = tx
+    flow.style.filter = 'none'
+    return
+  }
+
+  if (anim === 'slide') {
+    flow.style.transition = 'transform 0.22s cubic-bezier(0.24, 0.7, 0.3, 1)'
+    flow.style.opacity = '1'
+    flow.style.transform = tx
+    return
+  }
+
+  if (anim === 'cover') {
+    // 像掀一页纸：轻微降亮 + 投影，再在新页上恢复，做出翻页的“厚度”
+    const before = flow.style.transform
+    flow.style.transition = 'transform 0.24s cubic-bezier(0.22, 0.68, 0.2, 1), filter 0.24s ease'
+    flow.style.filter = 'brightness(0.93)'
+    flow.style.transform = before || tx
+    window.setTimeout(() => {
+      flow.style.transform = tx
+      flow.style.filter = 'brightness(1)'
+    }, 16)
     return
   }
 
@@ -781,6 +810,7 @@ let swiped = false
 function onTouchStart(e: TouchEvent) {
   if (e.touches.length !== 1) {
     touchStartT = 0
+    dragging = false
     return
   }
   const t = e.touches[0]
@@ -788,6 +818,34 @@ function onTouchStart(e: TouchEvent) {
   touchStartY = t.clientY
   touchStartT = Date.now()
   swiped = false
+  dragging = false
+  dragDx = 0
+  dragAxis = null
+}
+
+/** 跟手翻页：按住左右拖动时页面跟着手指走，松手再决定翻页还是弹回 */
+function onTouchMove(e: TouchEvent) {
+  if (!touchStartT || e.touches.length !== 1) return
+  const t = e.touches[0]
+  const dx = t.clientX - touchStartX
+  const dy = t.clientY - touchStartY
+  if (!dragAxis) {
+    if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return
+    dragAxis = Math.abs(dx) > Math.abs(dy) * 1.2 ? 'x' : 'y'
+  }
+  if (dragAxis !== 'x') return
+  if (props.settings.pageAnim !== 'slide') return
+  if (window.getSelection()?.toString()) return
+  const flow = flowEl.value
+  if (!flow) return
+  const W = pageWidth()
+  let d = dx
+  // 到首尾页时给一点阻尼，拖不动太多
+  if ((page.value === 0 && dx > 0) || (page.value >= pages.value - 1 && dx < 0)) d = dx * 0.22
+  dragging = true
+  dragDx = d
+  flow.style.transition = 'none'
+  flow.style.transform = `translateX(${-page.value * W + d}px)`
 }
 
 function onTouchEnd(e: TouchEvent) {
@@ -797,6 +855,21 @@ function onTouchEnd(e: TouchEvent) {
   const dy = t.clientY - touchStartY
   const dt = Date.now() - touchStartT
   touchStartT = 0
+  dragAxis = null
+  if (dragging) {
+    dragging = false
+    const W = pageWidth()
+    const d = dragDx
+    if (Math.abs(d) > Math.min(120, W * 0.2) || (Math.abs(d) > 34 && dt < 260)) {
+      swiped = true
+      if (d < 0) void next()
+      else void prev()
+    } else {
+      swiped = true
+      applyTransform(true)
+    }
+    return
+  }
   if (Math.abs(dx) > 46 && Math.abs(dx) > Math.abs(dy) * 1.3 && dt < 800) {
     swiped = true
     if (dx < 0) void next()
@@ -999,6 +1072,7 @@ defineExpose({
       class="reflow-view"
       @click="onClick"
       @touchstart.passive="onTouchStart"
+      @touchmove.passive="onTouchMove"
       @touchend.passive="onTouchEnd"
     >
       <div ref="flowEl" class="reflow-flow" />
@@ -1037,6 +1111,8 @@ defineExpose({
   text-align: justify;
   -webkit-hyphens: auto;
   hyphens: auto;
+  font-kerning: normal;
+  text-rendering: optimizeLegibility;
   transform: translateX(0);
   will-change: transform;
   color: var(--r-ink);
@@ -1046,10 +1122,19 @@ defineExpose({
   -webkit-touch-callout: default;
 }
 .reflow-flow :deep(p) {
-  margin: 0 0 0.9em;
+  margin: 0 0 var(--p-space, 0.9em);
   text-indent: 2em;
-  text-align: justify;
+  text-align: inherit;
   word-break: break-word;
+  line-break: strict;
+  hanging-punctuation: allow-end;
+}
+.reflow-flow.no-indent :deep(p) {
+  text-indent: 0;
+}
+.reflow-flow :deep(em),
+.reflow-flow :deep(i) {
+  font-style: italic;
 }
 .reflow-flow :deep(.ch-title) {
   margin: 0.1em 0 1.35em;

@@ -94,7 +94,17 @@ export interface ReaderSettings {
   theme: 'paper' | 'sepia' | 'green' | 'night'
   fontFamily: 'serif' | 'sans'
   margin: number
-  pageAnim: 'slide' | 'fade'
+  pageAnim: 'slide' | 'fade' | 'cover' | 'none'
+  /** 字间距（em） */
+  letterSpacing: number
+  /** 段间距（em） */
+  paraSpacing: number
+  /** 两端对齐 / 左对齐 */
+  align: 'justify' | 'left'
+  /** 首行缩进 */
+  indent: boolean
+  /** 沉浸时显示书眉与页码 */
+  headerFooter: boolean
   /** 逐句聚焦：只把当前这句读黑，其余变淡 */
   focusMode: boolean
   /** 阅读页常亮 */
@@ -108,6 +118,11 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   fontFamily: 'serif',
   margin: 22,
   pageAnim: 'slide',
+  letterSpacing: 0,
+  paraSpacing: 0.9,
+  align: 'justify',
+  indent: true,
+  headerFooter: true,
   focusMode: false,
   keepAwake: true,
 }

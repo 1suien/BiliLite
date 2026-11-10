@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   db,
@@ -146,6 +146,51 @@ const chipMain = computed(() => {
   return `${Math.min(state.value.page + 1, Math.max(1, state.value.pages))} / ${Math.max(1, state.value.pages)}`
 })
 const chipSub = computed(() => (chipAlt.value ? `${pct.value}%` : clock.value))
+
+const folio = computed(
+  () => `${Math.min(state.value.page + 1, Math.max(1, state.value.pages))} / ${Math.max(1, state.value.pages)}`,
+)
+
+// ---------------- 进度拖动 ----------------
+const scrubPct = ref(0)
+const scrubbing = ref(false)
+const scrubTrack = ref<HTMLElement>()
+
+function scrubRatio(e: PointerEvent): number {
+  const el = scrubTrack.value
+  if (!el) return 0
+  const r = el.getBoundingClientRect()
+  return Math.min(1, Math.max(0, (e.clientX - r.left) / Math.max(1, r.width)))
+}
+
+function applyScrub(ratio: number) {
+  scrubPct.value = Math.round(ratio * 100)
+  const p = scrubPct.value
+  if (isReflow.value) readerRef.value?.jumpToPercent?.(p)
+  else if (state.value.pages > 0) readerRef.value?.goPage?.(Math.round((p / 100) * (state.value.pages - 1)))
+}
+
+function scrubStart(e: PointerEvent) {
+  if (state.value.loading) return
+  scrubbing.value = true
+  window.clearTimeout(hideTimer)
+  ;(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId)
+  applyScrub(scrubRatio(e))
+}
+function scrubMove(e: PointerEvent) {
+  if (!scrubbing.value) return
+  applyScrub(scrubRatio(e))
+}
+function scrubEnd(e: PointerEvent) {
+  if (!scrubbing.value) return
+  scrubbing.value = false
+  ;(e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId)
+  scrubPct.value = pct.value
+  scheduleChromeHide()
+}
+watch(pct, (v) => {
+  if (!scrubbing.value) scrubPct.value = v
+})
 
 // ---------------- chrome ----------------
 let hideTimer = 0
@@ -599,14 +644,43 @@ onBeforeUnmount(() => {
         />
       </div>
 
-      <div class="progress-line"><i :style="{ width: pct + '%' }" /></div>
-
       <!-- 常驻阅读读数：页/句 + 百分比或本次用时 -->
       <button v-if="!state.loading" class="chip" :class="{ dim: !chromeVisible }" @click="chipAlt = !chipAlt">
         <span class="num">{{ chipMain }}</span>
         <i class="hair" />
         <span class="num sub">{{ chipSub }}</span>
       </button>
+
+      <!-- 书眉 · 页码：沉浸阅读时像纸书一样安静地待在页边 -->
+      <template v-if="book && settings.headerFooter && !chromeVisible && !state.loading">
+        <div class="run-head">
+          <span class="rh-book">{{ book.title }}</span>
+          <template v-if="isReflow && state.chapterTitle">
+            <i class="rh-dot" />
+            <span class="rh-ch">{{ state.chapterTitle }}</span>
+          </template>
+        </div>
+        <div class="run-foot">
+          <span class="folio">{{ folio }}</span>
+        </div>
+      </template>
+
+      <!-- 页脚的进度线：工具条出现时可按住拖动跳页 -->
+      <div
+        v-if="!state.loading"
+        ref="scrubTrack"
+        class="scrub"
+        :class="{ live: chromeVisible }"
+        @pointerdown.prevent="scrubStart"
+        @pointermove="scrubMove"
+        @pointerup="scrubEnd"
+        @pointercancel="scrubEnd"
+      >
+        <i class="scrub-track">
+          <i class="scrub-fill" :style="{ width: (scrubbing ? scrubPct : pct) + '%' }" />
+          <i class="scrub-knob" :class="{ on: scrubbing }" :style="{ left: (scrubbing ? scrubPct : pct) + '%' }" />
+        </i>
+      </div>
 
       <!-- 顶栏 -->
       <Transition name="fade">
@@ -853,6 +927,140 @@ onBeforeUnmount(() => {
   position: absolute;
   inset: 0;
 }
+.reader::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background-image: radial-gradient(120% 85% at 50% -14%, rgba(255, 255, 255, 0.32) 0%, rgba(255, 255, 255, 0) 55%),
+    radial-gradient(100% 70% at 50% 116%, rgba(92, 74, 46, 0.04) 0%, rgba(92, 74, 46, 0) 60%);
+}
+.reader[data-rtheme='night']::after,
+.reader[data-rtheme='sepia']::after,
+.reader[data-rtheme='green']::after {
+  opacity: 0.55;
+}
+.reader[data-rtheme='night']::after {
+  background-image: radial-gradient(130% 90% at 50% -12%, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0) 60%);
+}
+
+/* 书眉（书名 · 章节）与页脚页码 */
+.run-head {
+  position: absolute;
+  z-index: 25;
+  top: calc(12px + var(--safe-top));
+  left: calc(16px + var(--safe-left, 0px));
+  right: 132px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  white-space: nowrap;
+  pointer-events: none;
+  color: var(--r-muted);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  opacity: 0;
+  animation: run-in 0.5s ease 0.12s forwards;
+}
+.rh-book {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+}
+.rh-ch {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: 0.1em;
+  opacity: 0.85;
+}
+.rh-dot {
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: 0 0 auto;
+  opacity: 0.6;
+}
+.run-foot {
+  position: absolute;
+  z-index: 25;
+  left: 0;
+  right: 0;
+  bottom: calc(16px + var(--safe-bottom));
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 0;
+  animation: run-in 0.5s ease 0.12s forwards;
+}
+.run-foot .folio {
+  font-family: var(--font-serif);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: var(--r-muted);
+}
+@keyframes run-in {
+  to {
+    opacity: 1;
+  }
+}
+
+/* 进度拖动条：贴在页脚的一条细线，工具条出现时可按住拖动 */
+.scrub {
+  position: absolute;
+  z-index: 31;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 18px;
+  display: flex;
+  align-items: flex-end;
+  pointer-events: none;
+  touch-action: none;
+}
+.scrub.live {
+  pointer-events: auto;
+  cursor: ew-resize;
+}
+.scrub-track {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 2px;
+  background: color-mix(in srgb, var(--r-ink) 9%, transparent);
+}
+.scrub-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--r-ink-2);
+  opacity: 0.28;
+  transition: opacity 0.2s ease;
+}
+.scrub.live .scrub-fill {
+  opacity: 0.5;
+}
+.scrub-knob {
+  position: absolute;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  margin-left: -4.5px;
+  border-radius: 50%;
+  background: var(--r-ink-2);
+  transform: translateY(-50%) scale(0.85);
+  opacity: 0;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.scrub-knob.on {
+  opacity: 0.9;
+  transform: translateY(-50%) scale(1.3);
+}
+
 .progress-line {
   position: absolute;
   left: 0;
