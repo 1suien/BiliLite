@@ -1,0 +1,13 @@
+{
+  "appId": "com.readawre.app",
+  "appName": "墨读",
+  "webDir": "dist",
+  "loggingBehavior": "none",
+  "android": {
+    "webContentsDebuggingEnabled": true
+  },
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {}
+}

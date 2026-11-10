@@ -1,0 +1,105 @@
+name: Create MoDu Release
+
+# 推 modu-v<版本> 标签触发：用 GITHUB_TOKEN 建 Release 并上传 APK 资产。
+on:
+  push:
+    tags:
+      - 'modu-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Pick APK and build notes
+        id: pick
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VER="${TAG#modu-v}"
+          APK="MoDu-${VER}-debug.apk"
+          if [ ! -f "$APK" ]; then
+            echo "::error::找不到 $APK"
+            ls -1 MoDu-*.apk || true
+            exit 1
+          fi
+          SHA=$(sha256sum "$APK" | awk '{print $1}')
+          SIZE=$(stat -c%s "$APK")
+          {
+            echo "tag=$TAG"
+            echo "apk=$APK"
+            echo "sha=$SHA"
+            echo "size=$SIZE"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Write release notes
+        env:
+          VER: ${{ github.ref_name }}
+          SHA: ${{ steps.pick.outputs.sha }}
+          SIZE: ${{ steps.pick.outputs.size }}
+        run: |
+          set -euo pipefail
+          VER="${VER#modu-v}"
+          {
+            echo "墨读 ${VER} —— 安卓离线电子阅读器（TXT / EPUB / PDF）。"
+            echo ""
+            echo "### 下载安装"
+            echo ""
+            echo "1. 点下面的 \`MoDu-${VER}-debug.apk\` 下载；"
+            echo "2. 点下载好的文件，首次安装时按提示允许「安装未知应用」；"
+            echo "3. 打开「墨读」，书架里已放好三本示例书（TXT / EPUB / PDF），也可以自己导入。"
+            echo ""
+            echo "### 这一版能做什么"
+            echo ""
+            echo "- 书架：导入本地 TXT / EPUB / PDF，封面、进度、上次阅读时间一目了然"
+            echo "- 排版阅读器（TXT / EPUB）：自动识别「第 N 章」分章，目录跳转、四种主题（纸白 / 米黄 / 松绿 / 夜间）、字号 / 行距 / 字体 / 页边距、滑动与淡入翻页"
+            echo "- EPUB：解析 OPF 章节与目录，内嵌图片正常显示"
+            echo "- PDF：pdf.js 连续滚动渲染、页码跳转、A−/A+ 或双指捏合缩放、按需渲染省内存"
+            echo "- 进度记忆：退出再进回到上次位置，设置同样持久化"
+            echo "- 全部离线，书和进度都存在本机（IndexedDB），不上传任何数据"
+            echo ""
+            echo "### 文件"
+            echo ""
+            echo "- 安装包：\`MoDu-${VER}-debug.apk\`（${SIZE} B，debug 签名，可直接覆盖安装）"
+            echo "- sha256：\`${SHA}\`"
+            echo "- 源码在分支 \`modu\` 的 \`modu/\` 目录（Vue 3 + Capacitor 6 + pdf.js）"
+            echo ""
+            echo "### 已知限制"
+            echo ""
+            echo "- TXT 支持 UTF-8 / UTF-16（带 BOM）与 GB18030，其他编码可能乱码"
+            echo "- EPUB 不支持 fixed-layout 与 DRM 加密书"
+            echo "- 扫描版 PDF 没有文字层，只能看图，不能选中 / 搜索文字；PDF 无大纲时目录为空"
+            echo "- 书库与进度存在 WebView 的 IndexedDB 里，卸载 App 或清数据会丢失"
+            echo ""
+            echo "_本机构建，未经应用商店签名。_"
+          } > /tmp/notes.md
+          cat /tmp/notes.md
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.pick.outputs.tag }}
+          APK: ${{ steps.pick.outputs.apk }}
+        run: |
+          set -euo pipefail
+          echo "gh version: $(gh --version | head -1)"
+          ls -l "$APK"
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo "release $TAG 已存在 -> 覆盖资产"
+            gh release upload "$TAG" "./$APK" --repo "$REPO" --clobber
+            gh release edit "$TAG" --repo "$REPO" --notes-file /tmp/notes.md
+          else
+            gh release create "$TAG" "./$APK" \
+              --repo "$REPO" \
+              --title "墨读 ${TAG#modu-v}（安卓阅读器 · 可安装 APK）" \
+              --notes-file /tmp/notes.md
+          fi
+          echo "=== done ==="
+          gh release view "$TAG" --repo "$REPO"

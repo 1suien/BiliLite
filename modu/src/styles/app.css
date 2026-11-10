@@ -1,0 +1,241 @@
+/* ============================================================
+   墨读 · 全局样式
+   设计基调：纸感暖白 + 墨色文字 + 松绿点缀（书架），
+   阅读页有 纸白 / 米黄 / 松绿 / 夜间 四套主题。
+   ============================================================ */
+
+:root {
+  --shelf-bg: #f2ebdc;
+  --shelf-bg-2: #e9e0cd;
+  --surface: #fbf8f1;
+  --surface-2: #f4eddf;
+  --ink: #221f1a;
+  --ink-2: #55503f;
+  --muted: #8d8574;
+  --line: rgba(70, 58, 38, 0.13);
+  --line-strong: rgba(70, 58, 38, 0.22);
+  --accent: #3f6b53;
+  --accent-soft: #e3ebe2;
+  --danger: #b3452f;
+  --shadow-1: 0 2px 10px rgba(60, 48, 28, 0.08);
+  --shadow-2: 0 12px 34px rgba(52, 42, 24, 0.18);
+  --shadow-cover: 0 8px 20px rgba(52, 42, 24, 0.2), 0 1px 0 rgba(255, 255, 255, 0.4) inset;
+  --radius: 16px;
+  --radius-sm: 12px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --font-ui: system-ui, -apple-system, 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
+  --font-serif: 'Noto Serif CJK SC', 'Source Han Serif SC', 'Songti SC', 'SimSun', Georgia, serif;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --shelf-bg: #171512;
+    --shelf-bg-2: #211e19;
+    --surface: #24211c;
+    --surface-2: #2c2822;
+    --ink: #ece4d4;
+    --ink-2: #c3b9a5;
+    --muted: #8d8471;
+    --line: rgba(235, 220, 190, 0.12);
+    --line-strong: rgba(235, 220, 190, 0.22);
+    --accent: #8fb69b;
+    --accent-soft: #2b3a30;
+    --shadow-1: 0 2px 12px rgba(0, 0, 0, 0.4);
+    --shadow-2: 0 14px 40px rgba(0, 0, 0, 0.55);
+    --shadow-cover: 0 10px 22px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 255, 255, 0.06) inset;
+    color-scheme: dark;
+  }
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--shelf-bg);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  overscroll-behavior: none;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+button {
+  font-family: inherit;
+  border: 0;
+  background: none;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+}
+
+input,
+textarea {
+  font-family: inherit;
+}
+
+/* ---------- 通用按钮 ---------- */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 13px;
+  color: var(--ink);
+  transition: background 0.16s ease, transform 0.12s ease;
+}
+.icon-btn:active {
+  transform: scale(0.92);
+  background: var(--line);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 46px;
+  padding: 0 20px;
+  border-radius: 14px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 6px 16px rgba(63, 107, 83, 0.28);
+  transition: transform 0.12s ease, opacity 0.16s ease;
+}
+.btn:active {
+  transform: scale(0.97);
+}
+.btn.ghost {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  box-shadow: none;
+}
+.btn.plain {
+  background: var(--surface-2);
+  color: var(--ink);
+  box-shadow: none;
+}
+
+/* ---------- 底部面板 ---------- */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(20, 16, 10, 0.4);
+  backdrop-filter: blur(2px);
+}
+.sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 70;
+  background: var(--surface);
+  border-radius: 22px 22px 0 0;
+  box-shadow: var(--shadow-2);
+  padding: 10px 20px calc(18px + var(--safe-bottom));
+  max-height: 78vh;
+  display: flex;
+  flex-direction: column;
+}
+.sheet::before {
+  content: '';
+  display: block;
+  width: 42px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line-strong);
+  margin: 0 auto 12px;
+}
+.sheet h3 {
+  margin: 0 0 14px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+/* ---------- 面板进出动画 ---------- */
+.sheet-enter-active,
+.sheet-leave-active {
+  transition: transform 0.24s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s ease;
+}
+.sheet-enter-from,
+.sheet-leave-to {
+  transform: translateY(100%);
+  opacity: 0.6;
+}
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+/* ---------- 滚动条 ---------- */
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* ---------- 阅读页主题变量 ----------
+   paper 纸白 / sepia 米黄 / green 松绿 / night 夜间 */
+.reader[data-rtheme='paper'] {
+  --r-bg: #f8f4ea;
+  --r-bg-2: #efe8d9;
+  --r-ink: #26221b;
+  --r-ink-2: #5f5849;
+  --r-muted: #9a9180;
+  --r-line: rgba(70, 58, 38, 0.14);
+  --r-panel: rgba(251, 248, 241, 0.94);
+  color-scheme: light;
+}
+.reader[data-rtheme='sepia'] {
+  --r-bg: #efe0c3;
+  --r-bg-2: #e5d3b0;
+  --r-ink: #3d3323;
+  --r-ink-2: #6b5d45;
+  --r-muted: #9b8b6e;
+  --r-line: rgba(90, 70, 40, 0.18);
+  --r-panel: rgba(246, 236, 214, 0.95);
+  color-scheme: light;
+}
+.reader[data-rtheme='green'] {
+  --r-bg: #e7efe3;
+  --r-bg-2: #dbe6d5;
+  --r-ink: #232b25;
+  --r-ink-2: #4e5b50;
+  --r-muted: #86927f;
+  --r-line: rgba(50, 80, 55, 0.16);
+  --r-panel: rgba(238, 245, 234, 0.95);
+  color-scheme: light;
+}
+.reader[data-rtheme='night'] {
+  --r-bg: #131313;
+  --r-bg-2: #1c1c1c;
+  --r-ink: #b8b2a6;
+  --r-ink-2: #8e887d;
+  --r-muted: #6b665d;
+  --r-line: rgba(220, 210, 190, 0.12);
+  --r-panel: rgba(28, 28, 28, 0.96);
+  color-scheme: dark;
+}
